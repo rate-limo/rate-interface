@@ -1,0 +1,22 @@
+{
+  "name": "@iter/abis",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@iter/typescript-config": "workspace:*",
+    "@types/node": "^22.13.0",
+    "typescript": "^5.8.0"
+  }
+}

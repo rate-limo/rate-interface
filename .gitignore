@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# Never commit these. The export script refuses to run if one appears.
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.log
+coverage/
+playwright-report/
+test-results/

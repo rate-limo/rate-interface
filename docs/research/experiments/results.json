@@ -1,0 +1,820 @@
+{
+  "slippage": [
+    {
+      "trade_frac_of_depth": 0.001,
+      "v2_slippage_pct": 0.49840617807931364,
+      "v3_slippage_pct": 0.3097258379682888,
+      "curve_slippage_pct": 0.04197858276893118,
+      "iter_slippage_pct": 0.0,
+      "iter_fill_ratio": 1.0
+    },
+    {
+      "trade_frac_of_depth": 0.01,
+      "v2_slippage_pct": 2.249151910896763,
+      "v3_slippage_pct": 0.39717306613922254,
+      "curve_slippage_pct": 0.05978997678437459,
+      "iter_slippage_pct": 0.0,
+      "iter_fill_ratio": 1.0
+    },
+    {
+      "trade_frac_of_depth": 0.05,
+      "v2_slippage_pct": 9.33891061198513,
+      "v3_slippage_pct": 0.7839784832149754,
+      "curve_slippage_pct": 0.1398084916136022,
+      "iter_slippage_pct": 0.0,
+      "iter_fill_ratio": 1.0
+    },
+    {
+      "trade_frac_of_depth": 0.1,
+      "v2_slippage_pct": 16.87510421877605,
+      "v3_slippage_pct": 1.2632808660026584,
+      "curve_slippage_pct": 0.24548589529173048,
+      "iter_slippage_pct": 0.0,
+      "iter_fill_ratio": 1.0
+    },
+    {
+      "trade_frac_of_depth": 0.25,
+      "v2_slippage_pct": 33.46680013346679,
+      "v3_slippage_pct": 2.673799423318357,
+      "curve_slippage_pct": 0.6887780672583221,
+      "iter_slippage_pct": 0.05999999999999339,
+      "iter_fill_ratio": 1.0
+    },
+    {
+      "trade_frac_of_depth": 0.5,
+      "v2_slippage_pct": 50.07511266900351,
+      "v3_slippage_pct": 4.937190029995886,
+      "curve_slippage_pct": 6.608046416354796,
+      "iter_slippage_pct": 0.23999999999999577,
+      "iter_fill_ratio": 1.0
+    },
+    {
+      "trade_frac_of_depth": 1.0,
+      "v2_slippage_pct": 66.70006680026721,
+      "v3_slippage_pct": 9.16218702761028,
+      "curve_slippage_pct": 50.16465408601398,
+      "iter_slippage_pct": 0.5700000000000038,
+      "iter_fill_ratio": 1.0
+    }
+  ],
+  "v3_concentration_factor_10pct_range": 20.437942761778384,
+  "impermanent_loss": [
+    {
+      "price_ratio": 0.5,
+      "v2_il_pct": -5.719095841793653,
+      "v3_il_pct_10pct_range": -32.54044742083379,
+      "curve_il_pct": -28.943776227924324,
+      "iter_il_pct_tightest_tier": 0.0,
+      "iter_il_pct_widest_tier": -0.0012626023497497307
+    },
+    {
+      "price_ratio": 0.8,
+      "v2_il_pct": -0.6192010000093506,
+      "v3_il_pct_10pct_range": -9.082964747148969,
+      "curve_il_pct": -8.318530786213218,
+      "iter_il_pct_tightest_tier": 0.0,
+      "iter_il_pct_widest_tier": -0.0012626023497497307
+    },
+    {
+      "price_ratio": 0.95,
+      "v2_il_pct": -0.03287851477986603,
+      "v3_il_pct_10pct_range": -0.6711499501806051,
+      "curve_il_pct": -1.3321137111504067,
+      "iter_il_pct_tightest_tier": 0.0,
+      "iter_il_pct_widest_tier": -0.0012626023497497307
+    },
+    {
+      "price_ratio": 1.05,
+      "v2_il_pct": -0.029748624784387,
+      "v3_il_pct_10pct_range": -0.6087450814986628,
+      "curve_il_pct": -1.2445707045044108,
+      "iter_il_pct_tightest_tier": 0.0,
+      "iter_il_pct_widest_tier": -0.0012376007871628403
+    },
+    {
+      "price_ratio": 1.25,
+      "v2_il_pct": -0.6192010000093395,
+      "v3_il_pct_10pct_range": -8.551508361445881,
+      "curve_il_pct": -8.318530786213241,
+      "iter_il_pct_tightest_tier": 0.0,
+      "iter_il_pct_widest_tier": -0.0012376007871628403
+    },
+    {
+      "price_ratio": 2.0,
+      "v2_il_pct": -5.719095841793653,
+      "v3_il_pct_10pct_range": -30.656905806141232,
+      "curve_il_pct": -28.943776227924324,
+      "iter_il_pct_tightest_tier": 0.0,
+      "iter_il_pct_widest_tier": -0.0012376007871628403
+    },
+    {
+      "price_ratio": 5.0,
+      "v2_il_pct": -25.46440075000701,
+      "v3_il_pct_10pct_range": -64.74499083110217,
+      "curve_il_pct": -62.229746677847274,
+      "iter_il_pct_tightest_tier": 0.0,
+      "iter_il_pct_widest_tier": -0.0012376007871628403
+    }
+  ],
+  "mev_sandwich": [
+    {
+      "victim_trade_frac_of_depth": 0.01,
+      "v2_sandwich_profit": 5289.071243016515,
+      "v3_sandwich_profit": 0.0,
+      "curve_sandwich_profit": 4379.875380280078,
+      "iter_sandwich_profit_damped": 0.0,
+      "iter_sandwich_profit_if_undamped": 0.0
+    },
+    {
+      "victim_trade_frac_of_depth": 0.05,
+      "v2_sandwich_profit": 40305.317230354296,
+      "v3_sandwich_profit": 4111.71340691112,
+      "curve_sandwich_profit": 30414.35315629415,
+      "iter_sandwich_profit_damped": 0.0,
+      "iter_sandwich_profit_if_undamped": 0.0
+    },
+    {
+      "victim_trade_frac_of_depth": 0.1,
+      "v2_sandwich_profit": 84796.77289373521,
+      "v3_sandwich_profit": 31039.126492599025,
+      "curve_sandwich_profit": 72691.97568024811,
+      "iter_sandwich_profit_damped": 0.0,
+      "iter_sandwich_profit_if_undamped": 0.0
+    },
+    {
+      "victim_trade_frac_of_depth": 0.3,
+      "v2_sandwich_profit": 264918.178989777,
+      "v3_sandwich_profit": 186923.57536324672,
+      "curve_sandwich_profit": 265601.496036049,
+      "iter_sandwich_profit_damped": 0.29999999999996696,
+      "iter_sandwich_profit_if_undamped": 199.99999999997797
+    },
+    {
+      "victim_trade_frac_of_depth": 0.6,
+      "v2_sandwich_profit": 540214.2692136104,
+      "v3_sandwich_profit": 449836.47761101276,
+      "curve_sandwich_profit": 563949.0359273397,
+      "iter_sandwich_profit_damped": 2.549999999999919,
+      "iter_sandwich_profit_if_undamped": 1699.9999999999459
+    }
+  ],
+  "curve_depeg_probe": [
+    {
+      "cum_sell_frac_of_pool": 0.05,
+      "marginal_price": 1.0009950045038618
+    },
+    {
+      "cum_sell_frac_of_pool": 0.1,
+      "marginal_price": 1.003107218617413
+    },
+    {
+      "cum_sell_frac_of_pool": 0.2,
+      "marginal_price": 1.0089556401087247
+    },
+    {
+      "cum_sell_frac_of_pool": 0.3,
+      "marginal_price": 1.036845405488546
+    },
+    {
+      "cum_sell_frac_of_pool": 0.4,
+      "marginal_price": 3.129797501216004
+    }
+  ],
+  "lp_economics": {
+    "per_matched_volume_usd": 1000000.0,
+    "amm": {
+      "uniswap_v2_gross": 3000.0,
+      "uniswap_v3_gross": 3000.0,
+      "uniswap_v3_capital_multiplier_10pct_range": 20.437942761778384,
+      "curve_gross": 400.0
+    },
+    "cex_market_maker": {
+      "rebate_range_gross": [
+        0.0,
+        100.0
+      ],
+      "half_spread_capture_range": [
+        100.0,
+        500.0
+      ],
+      "total_range_gross": [
+        100.0,
+        600.0
+      ],
+      "retail_maker_fee_cost_range": [
+        200.0,
+        1000.0
+      ]
+    },
+    "iter_tiers": [
+      {
+        "slippage_limit": 0.0,
+        "trader_taker_fee": 0.001,
+        "spread_margin_gross": 0.0,
+        "taker_fee_income": 1000.0,
+        "total_lp_take": 1000.0
+      },
+      {
+        "slippage_limit": 0.001,
+        "trader_taker_fee": 0.001,
+        "spread_margin_gross": 1000.0,
+        "taker_fee_income": 1000.0,
+        "total_lp_take": 2000.0
+      },
+      {
+        "slippage_limit": 0.005,
+        "trader_taker_fee": 0.001,
+        "spread_margin_gross": 5000.0,
+        "taker_fee_income": 1000.0,
+        "total_lp_take": 6000.0
+      },
+      {
+        "slippage_limit": 0.01,
+        "trader_taker_fee": 0.001,
+        "spread_margin_gross": 10000.0,
+        "taker_fee_income": 1000.0,
+        "total_lp_take": 11000.0
+      },
+      {
+        "slippage_limit": 0.0,
+        "trader_taker_fee": 0.00075,
+        "spread_margin_gross": 0.0,
+        "taker_fee_income": 750.0,
+        "total_lp_take": 750.0
+      },
+      {
+        "slippage_limit": 0.001,
+        "trader_taker_fee": 0.00075,
+        "spread_margin_gross": 1000.0,
+        "taker_fee_income": 750.0,
+        "total_lp_take": 1750.0
+      },
+      {
+        "slippage_limit": 0.005,
+        "trader_taker_fee": 0.00075,
+        "spread_margin_gross": 5000.0,
+        "taker_fee_income": 750.0,
+        "total_lp_take": 5750.0
+      },
+      {
+        "slippage_limit": 0.01,
+        "trader_taker_fee": 0.00075,
+        "spread_margin_gross": 10000.0,
+        "taker_fee_income": 750.0,
+        "total_lp_take": 10750.0
+      },
+      {
+        "slippage_limit": 0.0,
+        "trader_taker_fee": 0.0006,
+        "spread_margin_gross": 0.0,
+        "taker_fee_income": 600.0,
+        "total_lp_take": 600.0
+      },
+      {
+        "slippage_limit": 0.001,
+        "trader_taker_fee": 0.0006,
+        "spread_margin_gross": 1000.0,
+        "taker_fee_income": 600.0,
+        "total_lp_take": 1599.9999999999998
+      },
+      {
+        "slippage_limit": 0.005,
+        "trader_taker_fee": 0.0006,
+        "spread_margin_gross": 5000.0,
+        "taker_fee_income": 600.0,
+        "total_lp_take": 5600.0
+      },
+      {
+        "slippage_limit": 0.01,
+        "trader_taker_fee": 0.0006,
+        "spread_margin_gross": 10000.0,
+        "taker_fee_income": 600.0,
+        "total_lp_take": 10600.0
+      },
+      {
+        "slippage_limit": 0.0,
+        "trader_taker_fee": 0.00045000000000000004,
+        "spread_margin_gross": 0.0,
+        "taker_fee_income": 450.00000000000006,
+        "total_lp_take": 450.00000000000006
+      },
+      {
+        "slippage_limit": 0.001,
+        "trader_taker_fee": 0.00045000000000000004,
+        "spread_margin_gross": 1000.0,
+        "taker_fee_income": 450.00000000000006,
+        "total_lp_take": 1450.0000000000002
+      },
+      {
+        "slippage_limit": 0.005,
+        "trader_taker_fee": 0.00045000000000000004,
+        "spread_margin_gross": 5000.0,
+        "taker_fee_income": 450.00000000000006,
+        "total_lp_take": 5450.0
+      },
+      {
+        "slippage_limit": 0.01,
+        "trader_taker_fee": 0.00045000000000000004,
+        "spread_margin_gross": 10000.0,
+        "taker_fee_income": 450.00000000000006,
+        "total_lp_take": 10450.000000000002
+      },
+      {
+        "slippage_limit": 0.0,
+        "trader_taker_fee": 0.0003,
+        "spread_margin_gross": 0.0,
+        "taker_fee_income": 300.0,
+        "total_lp_take": 300.0
+      },
+      {
+        "slippage_limit": 0.001,
+        "trader_taker_fee": 0.0003,
+        "spread_margin_gross": 1000.0,
+        "taker_fee_income": 300.0,
+        "total_lp_take": 1300.0
+      },
+      {
+        "slippage_limit": 0.005,
+        "trader_taker_fee": 0.0003,
+        "spread_margin_gross": 5000.0,
+        "taker_fee_income": 300.0,
+        "total_lp_take": 5300.0
+      },
+      {
+        "slippage_limit": 0.01,
+        "trader_taker_fee": 0.0003,
+        "spread_margin_gross": 10000.0,
+        "taker_fee_income": 300.0,
+        "total_lp_take": 10300.0
+      }
+    ],
+    "cap_min_max": [
+      {
+        "scenario": "thin_book",
+        "liquidity_usd": 100000.0,
+        "max_slippage_cap": 0.01,
+        "trader_taker_fee": 0.001,
+        "min_take_s0": 1000.0,
+        "max_take_at_cap": 11000.0
+      },
+      {
+        "scenario": "thin_book",
+        "liquidity_usd": 100000.0,
+        "max_slippage_cap": 0.01,
+        "trader_taker_fee": 0.00075,
+        "min_take_s0": 750.0,
+        "max_take_at_cap": 10750.0
+      },
+      {
+        "scenario": "thin_book",
+        "liquidity_usd": 100000.0,
+        "max_slippage_cap": 0.01,
+        "trader_taker_fee": 0.0006,
+        "min_take_s0": 600.0,
+        "max_take_at_cap": 10600.0
+      },
+      {
+        "scenario": "thin_book",
+        "liquidity_usd": 100000.0,
+        "max_slippage_cap": 0.01,
+        "trader_taker_fee": 0.00045000000000000004,
+        "min_take_s0": 450.00000000000006,
+        "max_take_at_cap": 10450.000000000002
+      },
+      {
+        "scenario": "thin_book",
+        "liquidity_usd": 100000.0,
+        "max_slippage_cap": 0.01,
+        "trader_taker_fee": 0.0003,
+        "min_take_s0": 300.0,
+        "max_take_at_cap": 10300.0
+      },
+      {
+        "scenario": "reference_book",
+        "liquidity_usd": 1000000.0,
+        "max_slippage_cap": 0.00215,
+        "trader_taker_fee": 0.001,
+        "min_take_s0": 1000.0,
+        "max_take_at_cap": 3150.0
+      },
+      {
+        "scenario": "reference_book",
+        "liquidity_usd": 1000000.0,
+        "max_slippage_cap": 0.00215,
+        "trader_taker_fee": 0.00075,
+        "min_take_s0": 750.0,
+        "max_take_at_cap": 2900.0
+      },
+      {
+        "scenario": "reference_book",
+        "liquidity_usd": 1000000.0,
+        "max_slippage_cap": 0.00215,
+        "trader_taker_fee": 0.0006,
+        "min_take_s0": 600.0,
+        "max_take_at_cap": 2750.0
+      },
+      {
+        "scenario": "reference_book",
+        "liquidity_usd": 1000000.0,
+        "max_slippage_cap": 0.00215,
+        "trader_taker_fee": 0.00045000000000000004,
+        "min_take_s0": 450.00000000000006,
+        "max_take_at_cap": 2600.0
+      },
+      {
+        "scenario": "reference_book",
+        "liquidity_usd": 1000000.0,
+        "max_slippage_cap": 0.00215,
+        "trader_taker_fee": 0.0003,
+        "min_take_s0": 300.0,
+        "max_take_at_cap": 2450.0
+      },
+      {
+        "scenario": "deep_book",
+        "liquidity_usd": 100000000.0,
+        "max_slippage_cap": 0.0001,
+        "trader_taker_fee": 0.001,
+        "min_take_s0": 1000.0,
+        "max_take_at_cap": 1100.0
+      },
+      {
+        "scenario": "deep_book",
+        "liquidity_usd": 100000000.0,
+        "max_slippage_cap": 0.0001,
+        "trader_taker_fee": 0.00075,
+        "min_take_s0": 750.0,
+        "max_take_at_cap": 850.0000000000001
+      },
+      {
+        "scenario": "deep_book",
+        "liquidity_usd": 100000000.0,
+        "max_slippage_cap": 0.0001,
+        "trader_taker_fee": 0.0006,
+        "min_take_s0": 600.0,
+        "max_take_at_cap": 700.0
+      },
+      {
+        "scenario": "deep_book",
+        "liquidity_usd": 100000000.0,
+        "max_slippage_cap": 0.0001,
+        "trader_taker_fee": 0.00045000000000000004,
+        "min_take_s0": 450.00000000000006,
+        "max_take_at_cap": 550.0
+      },
+      {
+        "scenario": "deep_book",
+        "liquidity_usd": 100000000.0,
+        "max_slippage_cap": 0.0001,
+        "trader_taker_fee": 0.0003,
+        "min_take_s0": 300.0,
+        "max_take_at_cap": 399.99999999999994
+      }
+    ],
+    "uniswap_v3_by_tier": [
+      {
+        "fee_tier": 0.0001,
+        "fee_tier_label": "0.01%",
+        "range_pct": 0.005,
+        "concentration_factor": 400.4842132812087,
+        "gross_per_1m_matched": 100.0,
+        "il_pct_at_range_bound": -0.1245328059333417
+      },
+      {
+        "fee_tier": 0.0005,
+        "fee_tier_label": "0.05%",
+        "range_pct": 0.02,
+        "concentration_factor": 100.48437099820082,
+        "gross_per_1m_matched": 500.0,
+        "il_pct_at_range_bound": -0.49259833829189414
+      },
+      {
+        "fee_tier": 0.003,
+        "fee_tier_label": "0.30%",
+        "range_pct": 0.1,
+        "concentration_factor": 20.437942761778384,
+        "gross_per_1m_matched": 3000.0,
+        "il_pct_at_range_bound": -2.324020620727474
+      },
+      {
+        "fee_tier": 0.01,
+        "fee_tier_label": "1.00%",
+        "range_pct": 0.25,
+        "concentration_factor": 8.34881410068463,
+        "gross_per_1m_matched": 10000.0,
+        "il_pct_at_range_bound": -5.23877215780556
+      }
+    ],
+    "net_of_lvr": [
+      {
+        "price_ratio": 1.25,
+        "uniswap_v2": {
+          "gross": 3000.0,
+          "il_cost": -6192.010000093395,
+          "net": -3192.0100000933953
+        },
+        "uniswap_v3_030pct": {
+          "gross": 3000.0,
+          "il_cost": -85515.08361445881,
+          "net": -82515.08361445881
+        },
+        "curve": {
+          "gross": 400.0,
+          "il_cost": -83185.30786213241,
+          "net": -82785.30786213241
+        },
+        "cex_market_maker_top_tier": {
+          "gross_lo": 100.0,
+          "gross_hi": 600.0,
+          "il_cost": null,
+          "cost_unmodeled": true,
+          "net_lo": 100.0,
+          "net_hi": 600.0
+        },
+        "cex_maker_retail": {
+          "gross_lo": -1000.0,
+          "gross_hi": -200.0,
+          "il_cost": null,
+          "cost_unmodeled": true,
+          "net_lo": -1000.0,
+          "net_hi": -200.0
+        },
+        "iter_by_scenario": [
+          {
+            "scenario": "thin_book",
+            "tier": "s0",
+            "slippage_limit": 0.0,
+            "gross": 1000.0,
+            "il_cost": 0.0,
+            "net": 1000.0
+          },
+          {
+            "scenario": "thin_book",
+            "tier": "s_cap",
+            "slippage_limit": 0.01,
+            "gross": 11000.0,
+            "il_cost": -12.376007871628403,
+            "net": 10987.623992128372
+          },
+          {
+            "scenario": "reference_book",
+            "tier": "s0",
+            "slippage_limit": 0.0,
+            "gross": 1000.0,
+            "il_cost": 0.0,
+            "net": 1000.0
+          },
+          {
+            "scenario": "reference_book",
+            "tier": "s_cap",
+            "slippage_limit": 0.00215,
+            "gross": 3150.0,
+            "il_cost": -0.576572369848094,
+            "net": 3149.4234276301518
+          },
+          {
+            "scenario": "deep_book",
+            "tier": "s0",
+            "slippage_limit": 0.0,
+            "gross": 1000.0,
+            "il_cost": 0.0,
+            "net": 1000.0
+          },
+          {
+            "scenario": "deep_book",
+            "tier": "s_cap",
+            "slippage_limit": 0.0001,
+            "gross": 1100.0,
+            "il_cost": -0.0012498749812905885,
+            "net": 1099.9987501250187
+          }
+        ]
+      },
+      {
+        "price_ratio": 2.0,
+        "uniswap_v2": {
+          "gross": 3000.0,
+          "il_cost": -57190.958417936534,
+          "net": -54190.958417936534
+        },
+        "uniswap_v3_030pct": {
+          "gross": 3000.0,
+          "il_cost": -306569.0580614123,
+          "net": -303569.0580614123
+        },
+        "curve": {
+          "gross": 400.0,
+          "il_cost": -289437.7622792432,
+          "net": -289037.7622792432
+        },
+        "cex_market_maker_top_tier": {
+          "gross_lo": 100.0,
+          "gross_hi": 600.0,
+          "il_cost": null,
+          "cost_unmodeled": true,
+          "net_lo": 100.0,
+          "net_hi": 600.0
+        },
+        "cex_maker_retail": {
+          "gross_lo": -1000.0,
+          "gross_hi": -200.0,
+          "il_cost": null,
+          "cost_unmodeled": true,
+          "net_lo": -1000.0,
+          "net_hi": -200.0
+        },
+        "iter_by_scenario": [
+          {
+            "scenario": "thin_book",
+            "tier": "s0",
+            "slippage_limit": 0.0,
+            "gross": 1000.0,
+            "il_cost": 0.0,
+            "net": 1000.0
+          },
+          {
+            "scenario": "thin_book",
+            "tier": "s_cap",
+            "slippage_limit": 0.01,
+            "gross": 11000.0,
+            "il_cost": -12.376007871628403,
+            "net": 10987.623992128372
+          },
+          {
+            "scenario": "reference_book",
+            "tier": "s0",
+            "slippage_limit": 0.0,
+            "gross": 1000.0,
+            "il_cost": 0.0,
+            "net": 1000.0
+          },
+          {
+            "scenario": "reference_book",
+            "tier": "s_cap",
+            "slippage_limit": 0.00215,
+            "gross": 3150.0,
+            "il_cost": -0.576572369848094,
+            "net": 3149.4234276301518
+          },
+          {
+            "scenario": "deep_book",
+            "tier": "s0",
+            "slippage_limit": 0.0,
+            "gross": 1000.0,
+            "il_cost": 0.0,
+            "net": 1000.0
+          },
+          {
+            "scenario": "deep_book",
+            "tier": "s_cap",
+            "slippage_limit": 0.0001,
+            "gross": 1100.0,
+            "il_cost": -0.0012498749812905885,
+            "net": 1099.9987501250187
+          }
+        ]
+      }
+    ]
+  },
+  "gas_costs": {
+    "iter_measured": {
+      "pool_swap_1_position": 717574,
+      "clob_limit_crossing": 274207,
+      "clob_limit_resting": 212710,
+      "add_pair_listing": 393337,
+      "add_liquidity": 299243
+    },
+    "reference_ranges": {
+      "v2_swap": {
+        "lo": 100000,
+        "hi": 150000,
+        "typical": 120000
+      },
+      "v3_swap": {
+        "lo": 120000,
+        "hi": 160000,
+        "typical": 130000
+      },
+      "curve_swap": {
+        "lo": 200000,
+        "hi": 320000,
+        "typical": 260000
+      }
+    },
+    "regimes": [
+      {
+        "label": "mainnet_30gwei",
+        "gas_price_gwei": 30.0,
+        "eth_usd": 3000.0,
+        "swap_cost_usd": {
+          "v2": 10.8,
+          "v3": 11.700000000000001,
+          "curve": 23.400000000000002,
+          "iter_pool_swap": 64.58166,
+          "iter_clob_limit": 24.678630000000002
+        },
+        "iter_vs_v2_gas_premium_usd": 53.78166,
+        "iter_vs_v2_breakeven_trade_usd": 5000.0,
+        "attacker_gas_usd": {
+          "v2": 21.6,
+          "v3": 23.400000000000002,
+          "curve": 46.800000000000004,
+          "iter": 49.357260000000004
+        },
+        "mev_net_of_gas": [
+          {
+            "victim_trade_frac_of_depth": 0.01,
+            "v2_net": 5267.471243016515,
+            "v3_net": -23.400000000000002,
+            "curve_net": 4333.075380280078,
+            "iter_net_damped": -49.357260000000004
+          },
+          {
+            "victim_trade_frac_of_depth": 0.05,
+            "v2_net": 40283.7172303543,
+            "v3_net": 4088.3134069111197,
+            "curve_net": 30367.55315629415,
+            "iter_net_damped": -49.357260000000004
+          },
+          {
+            "victim_trade_frac_of_depth": 0.1,
+            "v2_net": 84775.1728937352,
+            "v3_net": 31015.726492599024,
+            "curve_net": 72645.17568024811,
+            "iter_net_damped": -49.357260000000004
+          },
+          {
+            "victim_trade_frac_of_depth": 0.3,
+            "v2_net": 264896.578989777,
+            "v3_net": 186900.17536324673,
+            "curve_net": 265554.696036049,
+            "iter_net_damped": -49.057260000000035
+          },
+          {
+            "victim_trade_frac_of_depth": 0.6,
+            "v2_net": 540192.6692136105,
+            "v3_net": 449813.07761101273,
+            "curve_net": 563902.2359273396,
+            "iter_net_damped": -46.807260000000085
+          }
+        ]
+      },
+      {
+        "label": "l2_0.05gwei",
+        "gas_price_gwei": 0.05,
+        "eth_usd": 3000.0,
+        "swap_cost_usd": {
+          "v2": 0.018000000000000002,
+          "v3": 0.0195,
+          "curve": 0.039,
+          "iter_pool_swap": 0.10763610000000001,
+          "iter_clob_limit": 0.04113105
+        },
+        "iter_vs_v2_gas_premium_usd": 0.08963610000000001,
+        "iter_vs_v2_breakeven_trade_usd": 500.0,
+        "attacker_gas_usd": {
+          "v2": 0.036000000000000004,
+          "v3": 0.039,
+          "curve": 0.078,
+          "iter": 0.0822621
+        },
+        "mev_net_of_gas": [
+          {
+            "victim_trade_frac_of_depth": 0.01,
+            "v2_net": 5289.035243016515,
+            "v3_net": -0.039,
+            "curve_net": 4379.797380280078,
+            "iter_net_damped": -0.0822621
+          },
+          {
+            "victim_trade_frac_of_depth": 0.05,
+            "v2_net": 40305.281230354296,
+            "v3_net": 4111.67440691112,
+            "curve_net": 30414.27515629415,
+            "iter_net_damped": -0.0822621
+          },
+          {
+            "victim_trade_frac_of_depth": 0.1,
+            "v2_net": 84796.73689373521,
+            "v3_net": 31039.087492599025,
+            "curve_net": 72691.89768024812,
+            "iter_net_damped": -0.0822621
+          },
+          {
+            "victim_trade_frac_of_depth": 0.3,
+            "v2_net": 264918.14298977697,
+            "v3_net": 186923.53636324673,
+            "curve_net": 265601.418036049,
+            "iter_net_damped": 0.21773789999996696
+          },
+          {
+            "victim_trade_frac_of_depth": 0.6,
+            "v2_net": 540214.2332136105,
+            "v3_net": 449836.43861101277,
+            "curve_net": 563948.9579273397,
+            "iter_net_damped": 2.467737899999919
+          }
+        ]
+      }
+    ]
+  }
+}

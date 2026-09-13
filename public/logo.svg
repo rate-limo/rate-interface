@@ -1,0 +1,28 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+<!-- ITER brand mark: same construction as app/icon.svg. High-noon gold (#B07A08) tile, sun &amp; stone rebrand 2026-07-28, Cloud White (#F7F9FC) mark, per explicit direction; single fixed design, not theme reactive (the gold reads on both light and dark browser chrome). -->
+<rect width="512" height="512" rx="64" fill="#B07A08"/>
+<rect x="402.83" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="375.29" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="347.78" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="320.23" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="292.72" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="265.17" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="237.66" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="210.12" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="182.6" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="155.06" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="127.55" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="100.0" y="101.29" width="9.18" height="309.42" fill="#F7F9FC"/>
+<rect x="402.83" y="101.29" width="9.18" height="148.52" opacity="0.08" fill="#B07A08"/>
+<rect x="375.29" y="110.57" width="9.18" height="146.97" opacity="0.16" fill="#B07A08"/>
+<rect x="347.78" y="119.86" width="9.18" height="148.52" opacity="0.24" fill="#B07A08"/>
+<rect x="320.23" y="135.32" width="9.18" height="148.52" opacity="0.32" fill="#B07A08"/>
+<rect x="292.72" y="158.54" width="9.18" height="145.43" opacity="0.4" fill="#B07A08"/>
+<rect x="265.17" y="186.39" width="9.18" height="145.43" opacity="0.48" fill="#B07A08"/>
+<rect x="237.66" y="211.13" width="9.18" height="145.43" opacity="0.56" fill="#B07A08"/>
+<rect x="210.25" y="231.25" width="9.18" height="146.97" opacity="0.64" fill="#B07A08"/>
+<rect x="182.6" y="243.61" width="9.18" height="145.43" opacity="0.72" fill="#B07A08"/>
+<rect x="155.06" y="259.1" width="9.18" height="140.79" opacity="0.8" fill="#B07A08"/>
+<rect x="127.55" y="265.28" width="9.18" height="145.43" opacity="0.88" fill="#B07A08"/>
+<rect x="100.0" y="279.22" width="9.18" height="131.5" fill="#B07A08"/>
+</svg>

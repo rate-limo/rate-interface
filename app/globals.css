@@ -1,0 +1,1612 @@
+@import 'tailwindcss';
+
+@plugin 'tailwindcss-animate';
+
+@custom-variant dark (&:is(.dark *));
+
+/* pump notification banner */
+@layer utilities {
+  @keyframes shake-transform {
+    0% {
+      transform: translateX(0);
+    }
+    10% {
+      transform: translateX(-20px);
+    }
+    20% {
+      transform: translateX(10px);
+    }
+    30% {
+      transform: translateX(-10px);
+    }
+    40% {
+      transform: translateX(10px);
+    }
+    50% {
+      transform: translateX(-8px);
+    }
+    60% {
+      transform: translateX(8px);
+    }
+    70% {
+      transform: translateX(-6px);
+    }
+    80% {
+      transform: translateX(6px);
+    }
+    90% {
+      transform: translateX(-1px);
+    }
+    100% {
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes shake-color {
+    0% {
+      background-color: transparent;
+    }
+    50% {
+      background-color: yellow;
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  .animate-shake {
+    animation: shake-transform .7s ease-in-out, shake-color .7s ease-in-out;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Slow "Ken Burns" drift for the hero painting backdrop -- a gentle
+   zoom + pan that keeps the canvas alive without pulling focus. Defined
+   as plain top-level CSS (not a Tailwind utility): the `animate-*` prefix
+   is a reserved v4 namespace, so a custom `.animate-hero-drift` in
+   @layer utilities gets claimed and dropped. The parent clips
+   (overflow-hidden) and the scale stays >1 the whole time so the frame
+   is always fully covered. */
+@keyframes hero-drift {
+  0% {
+    transform: scale(1.04) translate3d(0, 0, 0);
+  }
+  100% {
+    transform: scale(1.10) translate3d(-2.6%, -1.7%, 0);
+  }
+}
+
+.hero-drift {
+  animation: hero-drift 28s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-drift {
+    animation: none;
+  }
+}
+
+/* Drifting still behind a page's content (components/Shell/BackdropImage).
+   Replaced a looping backdrop VIDEO whose last frame did not match its first,
+   so the whole background jump-cut every pass; a still has no seam to get wrong
+   and costs 355KB against that file's 44MB.
+
+   Plain top-level CSS for the same reason as .hero-drift above -- `animate-*` is
+   a reserved Tailwind v4 namespace, so `.animate-backdrop-drift` in
+   @layer utilities is claimed and dropped. That failure mode has already bitten
+   this exact component once (the scrim; see --m-scrim), and both times the class
+   appears in the HTML with no rule behind it and nothing warns.
+
+   SLOWER AND SMALLER than .hero-drift on purpose. The hero is a poster and can
+   perform; this sits behind an order form, where motion competing with the
+   numbers is a defect. `transform` only, so it stays on the compositor and
+   triggers no layout. The element is scaled >1 throughout, so the pan never
+   walks an edge into frame. */
+@keyframes backdrop-drift {
+  0% {
+    transform: scale(1.10) translate3d(-1.2%, -0.8%, 0);
+  }
+  100% {
+    transform: scale(1.16) translate3d(1.2%, 0.9%, 0);
+  }
+}
+
+.backdrop-drift {
+  animation: backdrop-drift 52s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop-drift {
+    animation: none;
+  }
+}
+
+/* Running market tape (components/Landing/MarketTape). The track renders the
+   pair list twice; translating -50% loops it seamlessly. Pauses on hover, and
+   degrades to a plain horizontal scroll when reduced motion is requested. */
+/*
+ * An order-book row that just moved.
+ *
+ * Adapted from Spectrum UI's `spectrum-mc-flash` (`from { opacity: 0.2 } to
+ * { opacity: 0 }`), which is a better technique than the background-colour
+ * transition it replaces: the fade is a compositor-only opacity animation on an
+ * overlay, so a book repainting several rows a second costs no layout, no paint
+ * of the row itself, and no JavaScript per frame.
+ *
+ * The COLOUR is ours, not Spectrum's. Its palette ships `--spectrum-chart-up`
+ * and `--spectrum-chart-down` redefined under `dark:`; this app themes through
+ * Monet's `--m-*` tokens, which already resolve per mode, so the side colours
+ * come from `--m-success` / `--m-error` and need no dark variant at all.
+ *
+ * The element is REMOVED when the flash ends rather than left at opacity 0 —
+ * a CSS animation does not replay on re-render, so a level that moves twice in
+ * a row needs a fresh node to flash again.
+ */
+@keyframes orderbook-flash {
+  from {
+    opacity: 0.22;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Reduced motion is handled in `useFlashingLevels`, which withholds the flash
+   entirely rather than shortening it — a book repainting constantly is exactly
+   what that preference exists to suppress. This is the belt to that braces:
+   a flash that somehow reaches the DOM still does not animate. */
+@media (prefers-reduced-motion: reduce) {
+  .orderbook-flash {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+@keyframes market-tape-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.market-tape-track {
+  animation: market-tape-scroll 46s linear infinite;
+}
+
+.market-tape:hover .market-tape-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market-tape-track {
+    animation: none;
+  }
+  .market-tape {
+    overflow-x: auto;
+  }
+}
+
+/* Protocol Flywheel (components/Iter/ProtocolFlywheel). The hub and the two
+   outflow nodes breathe with two offset rings so the diagram reads as a live
+   loop rather than a static schematic. Declared as plain top-level CSS for the
+   same reason as .hero-drift above: `animate-*` is a reserved Tailwind v4
+   namespace, so a custom `.animate-pulse-ring` utility gets claimed and dropped.
+   The SMIL particles riding the flow ribbons are <animateMotion>, which CSS
+   cannot pause -- reduced motion hides them outright instead. */
+@keyframes iter-pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  70% {
+    transform: scale(3.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(3.4);
+    opacity: 0;
+  }
+}
+
+.iter-pulse-ring {
+  animation: iter-pulse-ring 2.6s ease-out infinite;
+}
+
+.iter-pulse-ring-delayed {
+  animation: iter-pulse-ring 2.6s ease-out 1.3s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iter-pulse-ring,
+  .iter-pulse-ring-delayed {
+    animation: none;
+  }
+  .iter-flow-particle {
+    display: none;
+  }
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+/* 🎨 Monet theme — light values live in :root, dark overrides in .dark
+   (see below). Every color below is a var() pointing at the mode-aware
+   custom properties so the existing bg-purple-400 / bg-black-300 /
+   text-dark-grey-1 / bg-green-400 / bg-red-400 utility classes used
+   throughout the app automatically become theme-reactive without editing
+   every call site. Role mapping (see :root/.dark for exact hex):
+     purple-*      -> primary (Sky Blue / Moonlit Blue) ramp
+     green-*       -> success / buy (Parasol Green / Sea Green) ramp
+     red-*         -> error / sell (Muted Rose / Coral Red) ramp
+     orange-*      -> warning (Golden Grass / Warm Amber) ramp
+     blue-*        -> secondary (kept distinct from primary for charts)
+     black-*       -> surface ramp (border down to app background)
+     dark-grey-*   -> muted/secondary text + border
+     white-*, light-grey-* -> app background / elevated surface / borders */
+@theme {
+  --color-purple-100: var(--m-primary-100);
+  --color-purple-200: var(--m-primary-200);
+  --color-purple-300: var(--m-primary-300);
+  --color-purple-400: var(--m-primary);
+  --color-purple-500: var(--m-primary-hover);
+  /* Ink for text sitting ON a primary fill. Theme-aware by design: light mode's
+     primary is mid-blue (#2E6DA4) and takes near-white ink, dark mode's is light
+     blue (#7B9CBB) and takes dark ink. Exposed to Tailwind so a button can say
+     `text-on-primary` instead of hardcoding `text-black`, which was 3.84:1 on
+     the light-mode fill -- below WCAG AA's 4.5:1 for normal text. */
+  --color-on-primary: var(--m-on-primary);
+  --color-purple-600: var(--m-primary-600);
+  --color-purple-700: var(--m-primary-700);
+  --color-purple-800: var(--m-primary-800);
+  --color-red-100: var(--m-error-100);
+  --color-red-200: var(--m-error-200);
+  --color-red-300: var(--m-error-300);
+  --color-red-400: var(--m-error);
+  --color-red-500: var(--m-error-500);
+  --color-red-600: var(--m-error-600);
+  --color-red-700: var(--m-error-700);
+  --color-red-800: var(--m-error-800);
+  --color-green-100: var(--m-success-100);
+  --color-green-200: var(--m-success-200);
+  --color-green-300: var(--m-success-300);
+  --color-green-400: var(--m-success);
+  --color-green-500: var(--m-success-500);
+  --color-green-600: var(--m-success-600);
+  --color-green-700: var(--m-success-700);
+  --color-green-800: var(--m-success-800);
+  --color-orange-100: var(--m-warning-100);
+  --color-orange-200: var(--m-warning-200);
+  --color-orange-300: var(--m-warning-300);
+  --color-orange-400: var(--m-warning);
+  --color-orange-500: var(--m-warning-500);
+  --color-orange-600: var(--m-warning-600);
+  --color-orange-700: var(--m-warning-700);
+  --color-orange-800: var(--m-warning-800);
+  --color-blue-100: var(--m-secondary-100);
+  --color-blue-200: var(--m-secondary-200);
+  --color-blue-300: var(--m-secondary-300);
+  --color-blue-400: var(--m-secondary);
+  --color-blue-500: var(--m-secondary-500);
+  --color-blue-600: var(--m-secondary-600);
+  --color-blue-700: var(--m-secondary-700);
+  --color-blue-800: var(--m-secondary-800);
+  --color-dark-grey-1: var(--m-text-secondary);
+  --color-dark-grey-2: var(--m-text-secondary-2);
+  --color-dark-grey-3: var(--m-border);
+  --color-black-100: var(--m-border);
+  --color-black-200: var(--m-surface-2);
+  --color-black-300: var(--m-surface);
+  --color-black-400: var(--m-background);
+  /* bare black/white stay fixed literals (not theme-reactive): the app
+     pairs them with colored chips/buttons/badges (text-black on
+     bg-primary-default, bg-white text-black, etc) for guaranteed contrast
+     regardless of mode -- these are anchor colors, not a text-primary role. */
+  --color-black: rgba(5, 5, 5, 1);
+  --color-black12: rgba(19, 19, 24, 0.12);
+  --color-light-grey-1: var(--m-text-secondary);
+  --color-light-grey-2: var(--m-text-secondary-2);
+  --color-light-grey-3: var(--m-border);
+  --color-white-100: var(--m-border);
+  --color-white-200: var(--m-surface-2);
+  --color-white-300: var(--m-surface);
+  --color-white-400: var(--m-surface);
+  /* unlike bare black (a fixed anchor for text-on-colored-chip), bare white
+     is used ~170x across the app as the general "readable text on the app
+     background" color -- it must flip with the mode or light mode ships
+     with invisible white-on-white text. */
+  --color-white: var(--m-text-primary);
+  --color-white-12: var(--m-text-primary-12);
+  --typography-font-family-satoshi: var(--font-satoshi), sans-serif;
+  --typography-font-family-dm-mono: var(--font-dm-mono), monospace;
+  --scale-0: 0px;
+  --scale-25: 1px;
+  --scale-50: 2px;
+  --scale-75: 4px;
+  --scale-100: 8px;
+  --scale-200: 12px;
+  --scale-300: 16px;
+  --scale-400: 20px;
+  --scale-500: 24px;
+  --scale-600: 28px;
+  --scale-700: 32px;
+  --scale-800: 36px;
+  --scale-900: 40px;
+  --scale-1000: 44px;
+  --scale-1100: 48px;
+  --scale-1200: 64px;
+  --scale-1600: 72px;
+  --scale-2000: 80px;
+  --scale-2400: 104px;
+  --scale-2800: 144px;
+
+  /* 🔧Alias - Mode 1 */
+  --color-primary-100: var(--color-purple-100);
+  --color-error-100: var(--color-red-100);
+  --color-success-100: var(--color-green-100);
+  --color-warning-100: var(--color-orange-100);
+  /* neutral-dark-100 is the muted-secondary-text slot (Figma "Text muted" #7D809A) */
+  --color-neutral-dark-100: var(--color-dark-grey-1);
+  --color-neutral-light-100: var(--color-light-grey-1);
+  --color-neutral-light-200: var(--color-light-grey-2);
+  --color-neutral-light-300: var(--color-light-grey-3);
+  --color-neutral-light-400: var(--color-white-100);
+  --color-neutral-light-500: var(--color-white-200);
+  --color-neutral-light-600: var(--color-white-300);
+  --color-neutral-light-700: var(--color-white-400);
+  --color-neutral-light-default: var(--color-white);
+  --color-neutral-light-white-12: var(--color-white-12);
+  --color-neutral-dark-200: var(--color-dark-grey-2);
+  --color-neutral-dark-300: var(--color-dark-grey-3);
+  --color-neutral-dark-400: var(--color-black-100);
+  --color-neutral-dark-500: var(--color-black-200);
+  --color-neutral-dark-600: var(--color-black-300);
+  --color-neutral-dark-700: var(--color-black-400);
+  /* deepest surface (modals/overlays), deliberately darker than the -700 app bg;
+     kept independent of --color-black so unrelated bg-black/text-black usages
+     elsewhere in the app are untouched */
+  --color-neutral-dark-default: var(--m-surface-deep);
+  --color-neutral-dark-black-12: var(--color-black12);
+  --color-warning-200: var(--color-orange-200);
+  --color-warning-300: var(--color-orange-300);
+  --color-warning-default: var(--color-orange-400);
+  --color-warning-500: var(--color-orange-500);
+  --color-warning-600: var(--color-orange-600);
+  --color-warning-700: var(--color-orange-700);
+  --color-warning-800: var(--color-orange-800);
+  --color-success-200: var(--color-green-200);
+  --color-success-300: var(--color-green-300);
+  --color-success-default: var(--color-green-400);
+  --color-success-500: var(--color-green-500);
+  --color-success-600: var(--color-green-600);
+  --color-success-700: var(--color-green-700);
+  --color-success-800: var(--color-green-800);
+  --color-error-200: var(--color-red-200);
+  --color-error-300: var(--color-red-300);
+  --color-error-default: var(--color-red-400);
+  --color-error-500: var(--color-red-500);
+  --color-error-600: var(--color-red-600);
+  --color-error-700: var(--color-red-700);
+  --color-error-800: var(--color-red-800);
+  --color-primary-200: var(--color-purple-200);
+  --color-primary-300: var(--color-purple-300);
+  --color-primary-default: var(--color-purple-400);
+  --color-primary-500: var(--color-purple-500);
+  --color-primary-600: var(--color-purple-600);
+  --color-primary-700: var(--color-purple-700);
+  --color-primary-800: var(--color-purple-800);
+  --lg: var(--scale-100);
+  --sm: var(--scale-25);
+  --md: var(--scale-50);
+  --none: var(--scale-0);
+  --xl: var(--scale-400);
+  --round: var(--scale-2800);
+  --scale-border-radius-none: var(--scale-0);
+  --scale-border-radius-sm: var(--scale-50);
+  --scale-border-radius-md: var(--scale-100);
+  --scale-border-radius-lg: var(--scale-300);
+  --no-gap: var(--scale-0);
+  --scale-gap-sm: var(--scale-100);
+  --scale-gap-md: var(--scale-300);
+  --scale-gap-lg: var(--scale-500);
+  --scale-gap-xl: var(--scale-1100);
+
+  /* 🌐Responsive - Desktop */
+
+  --font-size-display-d1: 72px;
+  --font-size-display-d2: 60px;
+  --font-size-display-d3: 48px;
+  --font-size-display-d4: 40px;
+  --font-size-heading-h6: 20px;
+  --font-size-heading-h3: 40px;
+  --font-size-heading-h5: 24px;
+  --font-size-heading-h4: 32px;
+  --font-size-heading-h2: 48px;
+  --font-size-heading-h1: 60px;
+  --font-size-body-xs: 12px;
+  --font-size-body-sm: 14px;
+  --font-size-body-md: 16px;
+  --font-size-body-lg: 20px;
+  --font-size-body-xl: 24px;
+  --spacing-spacer-xs: 4px;
+  --spacing-spacer-sm: 8px;
+  --spacing-spacer-md: 16px;
+  --spacing-spacer-lg: 24px;
+  --spacing-spacer-xl: 48px;
+  --spacing-lr-padding-sm: 16px;
+  --spacing-lr-padding-lg: 24px;
+  --spacing-tb-padding-sm: 16px;
+  --spacing-tb-padding-md: 24px;
+  --spacing-tb-padding-lg: 48px;
+  --spacing-tb-padding-xl: 64px;
+
+  /* 🌐Responsive - Tablet */
+  --font-size-display-d1: 60px;
+  --font-size-display-d2: 48px;
+  --font-size-display-d3: 40px;
+  --font-size-display-d4: 32px;
+  --font-size-heading-h6: 20px;
+  --font-size-heading-h3: 32px;
+  --font-size-heading-h5: 24px;
+  --font-size-heading-h4: 28px;
+  --font-size-heading-h2: 40px;
+  --font-size-heading-h1: 48px;
+  --font-size-body-xs: 12px;
+  --font-size-body-sm: 12px;
+  --font-size-body-md: 16px;
+  --font-size-body-lg: 20px;
+  --font-size-body-xl: 24px;
+  --spacing-spacer-xs: 4px;
+  --spacing-spacer-sm: 8px;
+  --spacing-spacer-md: 16px;
+  --spacing-spacer-lg: 24px;
+  --spacing-spacer-xl: 40px;
+  --spacing-lr-padding-sm: 16px;
+  --spacing-lr-padding-lg: 20px;
+  --spacing-tb-padding-sm: 16px;
+  --spacing-tb-padding-md: 20px;
+  --spacing-tb-padding-lg: 40px;
+  --spacing-tb-padding-xl: 56px;
+
+  /* 🌐Responsive - Mobile */
+  --font-size-display-d1: 48px;
+  --font-size-display-d2: 40px;
+  --font-size-display-d3: 32px;
+  --font-size-display-d4: 28px;
+  --font-size-heading-h6: 20px;
+  --font-size-heading-h3: 28px;
+  --font-size-heading-h5: 20px;
+  --font-size-heading-h4: 24px;
+  --font-size-heading-h2: 32px;
+  --font-size-heading-h1: 40px;
+  --font-size-body-xs: 12px;
+  --font-size-body-sm: 12px;
+  --font-size-body-md: 16px;
+  --font-size-body-lg: 20px;
+  --font-size-body-xl: 24px;
+  --spacing-spacer-xs: 4px;
+  --spacing-spacer-sm: 8px;
+  --spacing-spacer-md: 16px;
+  --spacing-spacer-lg: 20px;
+  --spacing-spacer-xl: 40px;
+  --spacing-lr-padding-sm: 12px;
+  --spacing-lr-padding-lg: 16px;
+  --spacing-tb-padding-sm: 12px;
+  --spacing-tb-padding-md: 16px;
+  --spacing-tb-padding-lg: 32px;
+  --spacing-tb-padding-xl: 48px;
+
+  
+}
+
+/* Monet light palette (default). Role names match the design brief:
+   primary/secondary/accent/background/surface/border/text/success/warning/error. */
+:root {
+  --m-primary-100: #E8F0F7;
+  --m-primary-200: #C7DCEC;
+  --m-primary-300: #9BBFDB;
+  --m-primary: #2E6DA4;
+  --m-primary-hover: #255885;
+  --m-primary-600: #1E4A70;
+  --m-primary-700: #163757;
+  --m-primary-800: #0F2438;
+
+  /* The surface of a chosen row/card.
+     SEMANTIC, because the numbered ramps above are directional in BOTH themes
+     (100 = lightest tint -> 800 = darkest) -- deliberately, see the .dark note.
+     That makes them wrong to reach for here: the step that is a pale wash on a
+     white page is still a pale wash on a black one, so --m-primary-100 as a
+     selected fill puts a near-white slab on the dark theme. This flips with the
+     theme instead, sitting one step off --m-surface-2 in the same direction as
+     the page, so a selected item reads as the same card lit up rather than an
+     inverted slab -- and --m-text-primary / --m-text-secondary stay legible on
+     it without the component overriding them (light 12.75:1 / 5.29:1,
+     dark 11.18:1 / 5.35:1). */
+  --m-surface-selected: #E8F0F7;
+  --m-on-surface-selected: #163757;
+
+  /* A completed/success surface, and the ink that reads on it. Same reason
+     --m-surface-selected exists: --m-success-800 is the DARKEST step in both
+     themes, so using it as a fill puts a near-black slab on a white page, and
+     the label inheriting --m-text-primary lands at 1.07:1. These flip.
+     --m-on-surface-success is the success hue pulled dark enough to sit on the
+     pale fill (light 5.30:1); in dark it is --m-success unchanged, so that
+     theme renders exactly as before. */
+  --m-surface-success: #E6F2E8;
+  --m-on-surface-success: #456B45;
+  /* Logo mark colour -- deliberately decoupled from the primary/UI accent
+     above. The brand mark stays emerald in both themes while the UI accent is
+     Sky Blue: logo is logo, UI is UI. Deep emerald in light (reads on the
+     near-white nav); mint in dark (see .dark override). */
+  --m-logo: #B07A08; /* high noon */
+
+  --m-secondary-100: #E7EFE7;
+  --m-secondary-200: #CBDCCC;
+  --m-secondary-300: #A0BFA3;
+  --m-secondary: #5E8764;
+  --m-secondary-500: #4B7153;
+  --m-secondary-600: #3A5941;
+  --m-secondary-700: #2A4230;
+  --m-secondary-800: #1A2A1E;
+
+  --m-accent: #DCC85A;
+
+  --m-success-100: #E5F0E5;
+  --m-success-200: #C3DFC3;
+  --m-success-300: #98C798;
+  --m-success: #2F7D4F;
+  --m-success-500: #5A8A5A;
+  --m-success-600: #456B45;
+  --m-success-700: #324F32;
+  --m-success-800: #1F331F;
+
+  --m-warning-100: #FBF3DE;
+  --m-warning-200: #F3E3AF;
+  --m-warning-300: #E9CE7E;
+  --m-warning: #D9B957;
+  --m-warning-500: #B99A42;
+  --m-warning-600: #8F7730;
+  --m-warning-700: #665521;
+  --m-warning-800: #3D3313;
+
+  --m-error-100: #F7E4E4;
+  --m-error-200: #EDC0C0;
+  --m-error-300: #DE9797;
+  --m-error: #C0392B;
+  --m-error-500: #AD5555;
+  --m-error-600: #874141;
+  --m-error-700: #612E2E;
+  --m-error-800: #3B1C1C;
+
+  /* Soft neutral application canvas. Its faint warm-gray tone matches the
+     product reference while remaining quiet enough for the gold brand accent.
+     Everything else in the light theme that is a NEUTRAL tracks these four --
+     the -12 ink alphas, the shadcn HSL layer, the TradingView panes and the chart
+     grid/axis/wick. Semantic hues (buy/sell/candles, the brand ramps) do not, and
+     dark mode is deliberately unchanged. */
+  --m-background: #F2F0F0;
+  /* Scrim over a page's backdrop video (components/Shell/BackdropVideo.tsx).
+     Tokens rather than arbitrary Tailwind classes because
+     `bg-[rgba(242,240,240,0.82)]` COMPILED TO NOTHING here -- the class landed
+     in the HTML and no rule was ever generated, so the video played with no
+     overlay at all and dark mode came out unreadable. Other arbitrary values on
+     the same page (rounded-[20px]) do work, so the failure is specific to the
+     rgba() form under this Tailwind v4 setup. A token cannot fail that way, and
+     the two themes stay legible side by side here rather than in a component.
+
+     -scrim is the flat contrast FLOOR wherever content lands; -scrim-edge is
+     the vertical gradient that deepens where the video meets the shell's
+     chrome. Light is a BRIGHT wash, not an inverted dark one: a dark scrim
+     under a light card reads as a lighting error. */
+  --m-scrim: rgba(242, 240, 240, 0.82);
+  --m-scrim-edge: linear-gradient(
+    180deg,
+    rgba(242, 240, 240, 0.55) 0%,
+    rgba(242, 240, 240, 0) 38%,
+    rgba(242, 240, 240, 0) 62%,
+    rgba(242, 240, 240, 0.65) 100%
+  );
+  /* Deepest surface -- the Pro terminal's panel ground, modals, overlays.
+     Was hardcoded rgba(14,14,18,1) on --color-neutral-dark-default, which is
+     why /trade/pro rendered dark under a light shell: 10 usages that never
+     participated in the theme at all. */
+  --m-surface-deep: #ECF0F4;
+  --m-surface: #ECF0F4;
+  --m-surface-2: #E1E7ED;
+  --m-border: #C8D1DA;
+  --m-text-primary: #1B2027;
+  /* Cool ink to match the ground. Contrast checked against all three surfaces
+     (WCAG relative-luminance formula): 5.43:1 on --m-background, ~5.1:1 on
+     --m-surface, 4.73:1 on --m-surface-2 -- the tightest of the three, same as
+     it was under the old warm palette, and still clears the 4.5:1 AA floor for
+     body text with room to spare. */
+  --m-text-secondary: #5A646F;
+  --m-text-secondary-2: #454C57;
+  /* Semantic FOREGROUND colours, separate from the -600 ramp step on purpose.
+     The ramp runs lightest->darkest in BOTH themes (see the .dark note below),
+     so a value dark enough to sit at -600 cannot also clear 4.5:1 as text on a
+     dark surface -- dark -600 measured 2.50:1 for error, 3.00:1 for success.
+     Text reads these; backgrounds and gradients keep using the ramp. */
+  --m-primary-fg: #1E4A70;
+  --m-success-fg: #456B45;
+  --m-error-fg: #874141;
+  --m-text-primary-inverse: #F3F4F6;
+  /* Both -12 variants are --m-text-primary at 12%. They back
+     `border-neutral-light-white-12`, used on inputs, checkboxes and table rows
+     throughout, so they have to track the ink or those borders stay warm
+     against cool surfaces. (Note the inverse-12 naming is off: in .dark it is the
+     inverse COLOUR at 12%, here it mirrors the ink. Left as-is -- nothing
+     consumes it directly and correcting it is a separate change.) */
+  --m-text-primary-inverse-12: rgba(38, 42, 48, 0.12);
+  --m-text-primary-12: rgba(38, 42, 48, 0.12);
+  --m-on-primary: #F7F9FC;
+  /* Text sitting on a permanently-dark surface (photograph, hardcoded dark
+     gradient). Deliberately does NOT flip with the mode -- those surfaces are
+     dark in light mode too, so mode-flipping text inverts into invisibility.
+     `text-white` cannot serve this: --color-white is remapped to the flipping
+     --m-text-primary (see the note above it). Same value in :root and .dark. */
+  --m-text-on-media: #F7F9FC;
+  --m-text-on-media-60: rgba(247, 249, 252, 0.6);
+
+  /* Chart / order-book roles. The three NEUTRALS here track the ground; the
+     semantic buy/sell/candle hues are unchanged.
+     chart-grid keeps its RELATIVE depth rather than its absolute lightness: it sat
+     between --m-surface and --m-surface-2 under the warm palette, and matching the
+     old absolute value instead would have landed it outside that band. */
+  --m-chart-grid: #E7E9EC;
+  --m-chart-axis: #5C6470;
+  --m-chart-buy: #5E8764;
+  --m-chart-sell: #7FAFD8;
+  --m-chart-current: #7FAFD8;
+  --m-chart-highlight: #DCC85A;
+  /* Candles are GREEN and RED, and deliberately not the graphics' two hues.
+     
+     They were briefly dollar green and cobalt — the colours the colonnade
+     backdrop uses — on the argument that one venue should speak with one
+     palette, and that green/blue survives red-green colour blindness where
+     green/red does not. Reviewed against the chart itself, that was the wrong
+     trade: a price chart is the one surface in this app a trader reads
+     preattentively, without looking, and rise/fall is the convention they bring
+     with them from every other venue. Recolouring it spends their fluency to
+     buy the app's consistency, which is the wrong way round.
+     
+     So the graphics keep dollar green and cobalt (see the block below, and
+     DepthColonnade), and the chart keeps the convention. Two vocabularies,
+     because they answer to different readers: one is a picture, the other is an
+     instrument.
+     
+     These are the exact values `ThesisChart` and `TradingViewChart` hardcoded
+     before the tokens were wired, so this restores what shipped rather than
+     approximating it — and they still match `candleColors`' FALLBACK, which is
+     what a stale CSS build or a server render falls back to. Borders are a step
+     darker than the body on the light ground and a step lighter on the dark
+     one; nothing reads them today, since a candle draws body, border and wick
+     in one colour, but they describe the intent. */
+  --m-candle-bull-fill: #178A5B;
+  --m-candle-bull-border: #12704A;
+  --m-candle-bear-fill: #C84452;
+  --m-candle-bear-border: #A83A46;
+  --m-candle-wick: #6E7887;
+
+  /* Generated-graphic mass colours (components/Graphics/DepthColonnade).
+     A deliberate step OUTSIDE the Monet ramps: dollar green and cobalt blue,
+     chosen for chroma rather than for fitting the palette. The muted ramp steps
+     that do fit -- --m-success-700 at chroma .114, --m-primary-fg at .322 --
+     render as olive and navy once an ordered dither paints them at partial
+     coverage, which reads as dim rather than as restrained.
+
+     These are VIVID rather than dark, and that is the point. The deep pair this
+     replaced (#006B3C / #0047AB) measured 5.84:1 and 7.43:1 and still read as
+     muted, because a large dithered mass is judged on chroma, not on contrast
+     -- exactly the opposite of a glyph. This pair trades contrast down to
+     2.95:1 and 3.57:1 and comes out looking bolder, which is only sane because
+     the light ground also carries a high coverage floor (see LIGHT_COVERAGE):
+     a vivid colour at low coverage washes out; at high coverage it reads as
+     solid paint.
+
+     Still balanced: a 1.21x spread. The pair that started this was 5.37:1
+     against 8.15:1, a 1.52x spread, and the weaker half of the colonnade
+     looked like a rendering fault next to the stronger one.
+     depthColonnade.test.ts pins the ratio.
+
+     Graphics only -- never text, never a UI surface, never a small mark. */
+  --m-graphic-bid: #29A05C; /* dollar green */
+  --m-graphic-ask: #2D7DE6; /* cobalt blue */
+
+  /* shadcn/ui layer — the same cool neutrals in HSL. These are not decorative:
+     `bg-background` backs SheetContent (the mobile search drawer) and `--card` /
+     `--popover` back dialogs and popovers, so leaving them warm would put
+     tan/brown panels on a cool app. Semantic entries below (primary, accent,
+     destructive, ring, chart-*) are unchanged. */
+  --background: 0 7.1% 94.5%;
+  --foreground: 216 11.6% 16.9%;
+  --muted: 216 14.3% 93.1%;
+  --muted-foreground: 216 9.8% 40%;
+  --popover: 216 14.3% 93.1%;
+  --popover-foreground: 216 11.6% 16.9%;
+  --card: 216 14.3% 93.1%;
+  --card-foreground: 216 11.6% 16.9%;
+  --border: 213 13.1% 86.5%;
+  --input: 213 13.1% 86.5%;
+  --primary: 208 53% 67%;
+  --primary-foreground: 210 45% 16%;
+  --secondary: 129 18% 45%;
+  --secondary-foreground: 0 0% 100%;
+  --accent: 51 65% 61%;
+  --accent-foreground: 216 11.6% 16.9%;
+  --destructive: 0 47% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --ring: 208 53% 67%;
+  --chart-1: 208 53% 67%;
+  --chart-2: 129 18% 45%;
+  --chart-3: 51 65% 61%;
+  --chart-4: 120 23% 54%;
+  --chart-5: 0 47% 60%;
+  --radius: 0.5rem;
+
+  /* Trading View — Monet light on the Cloud ground. Neutrals track
+     --m-background / --m-surface / --m-surface-2 / --m-border / --m-text-*; the
+     sky-blue and green accents are left alone. The chart is the whole point of
+     Trade · Pro, so a mismatched pane here would be the most visible one of all. */
+  --tv-color-platform-background: #F3F4F6;
+  --tv-color-pane-background: #EBEDF0;
+  --tv-color-toolbar-button-background-hover: #E3E5E8;
+  --tv-color-toolbar-button-background-expanded: #D3E5F3;
+  --tv-color-toolbar-button-background-active: #D3E5F3;
+  --tv-color-toolbar-button-background-active-hover: #ACC9E3;
+  --tv-color-toolbar-button-text: #262A30;
+  --tv-color-toolbar-button-text-hover: #16283A;
+  --tv-color-toolbar-button-text-active: #5E91C2;
+  --tv-color-toolbar-button-text-active-hover: #5E91C2;
+  --tv-color-item-active-text: #5E8764;
+  --tv-color-toolbar-toggle-button-background-active: #7FAFD8;
+  --tv-color-toolbar-toggle-button-background-active-hover: #5E91C2;
+  --tv-color-toolbar-divider-background: #D8DCE1;
+  --tv-color-toolbar-save-layout-loader: #6E7887;
+
+  --tv-color-popup-background: #EBEDF0;
+  --tv-color-popup-element-text: #262A30;
+  --tv-color-popup-element-text-hover: #16283A;
+  --tv-color-popup-element-background-hover: #E3E5E8;
+  --tv-color-popup-element-divider-background: #D8DCE1;
+  --tv-color-popup-element-secondary-text: #5C6470;
+  --tv-color-popup-element-hint-text: #5C6470;
+  --tv-color-popup-element-text-active: #5E91C2;
+  --tv-color-popup-element-background-active: #D3E5F3;
+  --tv-color-popup-element-toolbox-text: #262A30;
+  --tv-color-popup-element-toolbox-text-hover: #16283A;
+  --tv-color-popup-element-toolbox-text-active-hover: #16283A;
+  --tv-color-popup-element-toolbox-background-hover: #E3E5E8;
+  --tv-color-popup-element-toolbox-background-active-hover: #D3E5F3;
+}
+
+.dark {
+  /* Direction matches :root now (100=lightest tint -> 800=darkest tint) --
+     an earlier version of this file reversed it per-mode "for visual role
+     consistency," which quietly broke every background/gradient accent
+     that used a high step (e.g. from-purple-800): the reversed dark ramp
+     made 800 the *lightest* value, colliding light corners with light
+     text. Text-role call sites that need a light value in dark mode use
+     an explicit dark: variant at the call site instead (see Nav.tsx-style
+     eyebrow labels) rather than baking the reversal into the ramp. */
+  /* Night is NEAR-NEUTRAL, not navy (2026-08-05, user direction: "more
+     elegant"). The previous dark mode grounded on a saturated navy (#09111D,
+     216° at 53% saturation) and then carried six mid-saturation hues on top of
+     it — sky blue, ember, gold, mint, salmon, amber — all at roughly the same
+     chroma. Six accents competing at one volume is what read as loud.
+
+     The rule now: separation comes from LIGHTNESS, colour comes from one place
+     at a time. Surfaces are graphite with a faint cool cast (~215° at 13-16%,
+     enough that it is not dead flat), and every semantic hue is pulled toward
+     that ground — sage rather than mint, terracotta rather than salmon, brass
+     rather than amber. The one thing deliberately left loud is --m-logo: on a
+     neutral ground a single warm mark is the accent, which is the whole point
+     of "logo is logo, UI is UI". */
+  --m-primary-100: #D4DFE9;
+  --m-primary-200: #B2C4D4;
+  --m-primary-300: #93A9BD;
+  --m-primary: #7B9CBB;
+  --m-primary-hover: #92AECB;
+  --m-primary-600: #56728C;
+  --m-primary-700: #3A4E60;
+  --m-primary-800: #232E39;
+
+  /* Semantic accents -- see the :root definitions for what these are for.
+     NOTE: this file carries TWO identical `.dark` blocks (the later one wins),
+     so these are defined in both to stay correct whichever is edited.
+
+     Selected surface goes DOWN into the blue rather than up into a wash: on a
+     #14171B page the pale end of the ramp is a near-white slab, which is both
+     loud and unreadable under --m-text-primary (1.09:1).
+     On-primary ink inverts because --m-primary is a LIGHT fill in this theme --
+     white on it is 2.87:1, the dark ink is 6.69:1. */
+  --m-surface-selected: #232E39;
+  --m-on-surface-selected: #E9E7E3;
+  /* Both identical to what these call sites already rendered in dark
+     (--m-success-800 fill, --m-success ink), so this theme is unchanged. */
+  --m-surface-success: #1E2A22;
+  --m-on-surface-success: #6E9E7C;
+  /* Logo mark stays emerald in dark (mint), decoupled from the Sky Blue UI
+     accent above. */
+  --m-logo: #E85D2A; /* last light */
+
+  --m-secondary-100: #CBD5DD;
+  --m-secondary-200: #A8B7C3;
+  --m-secondary-300: #7E909F;
+  --m-secondary: #566B7D;
+  --m-secondary-500: #45586A;
+  --m-secondary-600: #394A59;
+  --m-secondary-700: #2A3742;
+  --m-secondary-800: #1B242C;
+
+  --m-accent: #C4A96A;
+
+  /* Sage, not mint. Still unmistakably "up" against terracotta "down", which is
+     the only job these two have to do on a price. */
+  --m-success-100: #D5E3D8;
+  --m-success-200: #B4CCBA;
+  --m-success-300: #8FB198;
+  --m-success: #6E9E7C;
+  --m-success-500: #5A8467;
+  --m-success-600: #486B53;
+  --m-success-700: #334A3B;
+  --m-success-800: #1E2A22;
+
+  /* Brass, not amber — warning must stay distinguishable from --m-accent gold,
+     so it sits a step deeper and less yellow. */
+  --m-warning-100: #EFE2CC;
+  --m-warning-200: #E0CBA8;
+  --m-warning-300: #CDB182;
+  --m-warning: #B8934F;
+  --m-warning-500: #997A42;
+  --m-warning-600: #7A6236;
+  --m-warning-700: #52432A;
+  --m-warning-800: #2C261C;
+
+  --m-error-100: #EBD6D2;
+  --m-error-200: #D9B6AF;
+  --m-error-300: #C9948A;
+  --m-error: #BE7168;
+  --m-error-500: #9C5C55;
+  --m-error-600: #7C4A45;
+  --m-error-700: #533331;
+  --m-error-800: #2C201F;
+
+  /* Four steps of graphite, separated by lightness rather than by hue. The old
+     ramp moved 7% -> 10% -> 14% -> 21% lightness while ALSO getting bluer at
+     every step, which is what made a card read as a different colour from the
+     page rather than as a raised surface. */
+  --m-background: #0D0F12;
+  /* Backdrop scrim, dark. See the light-theme block for why these are tokens.
+     These alphas are the ORIGINAL ones and are not to be "corrected" again:
+     the unreadable dark backdrop was never a colour problem, it was that the
+     arbitrary-class form generated no CSS, so no scrim was painted at all. I
+     mistook the missing layer for a too-weak one and deepened 0.78 -> 0.88;
+     with the layer actually painting, 0.78 is right (user, 2026-08-14: "dark
+     mode color on backdrop was not fucked"). */
+  --m-scrim: rgba(13, 15, 18, 0.78);
+  --m-scrim-edge: linear-gradient(
+    180deg,
+    rgba(13, 15, 18, 0.65) 0%,
+    rgba(13, 15, 18, 0) 38%,
+    rgba(13, 15, 18, 0) 62%,
+    rgba(13, 15, 18, 0.75) 100%
+  );
+  /* Exactly the old hardcoded value, so dark mode is byte-identical. */
+  --m-surface-deep: #0E0E12;
+  --m-surface: #14171B;
+  --m-surface-2: #1B1F24;
+  --m-border: #272C33;
+  /* Warm off-white, not blue-white. Against a cool ground a faintly warm text
+     colour is what stops the whole screen reading as one blue wash. */
+  --m-text-primary: #E9E7E3;
+  --m-text-secondary: #9BA2AA;
+  --m-text-secondary-2: #6D747C;
+  --m-primary-fg: #93A9BD;
+  --m-success-fg: #8FB198;
+  --m-error-fg: #C9948A;
+  --m-text-primary-inverse: #0D0F12;
+  --m-text-primary-inverse-12: rgba(13, 15, 18, 0.12);
+  --m-text-primary-12: rgba(233, 231, 227, 0.12);
+  /* Dark ink, NOT the near-white this used to be. --m-primary is a LIGHT fill in
+     this theme too (#7B9CBB), so an off-white ink on it measured 2.60:1 -- below
+     even the 3:1 large-text floor, which is what made every primary button read
+     as washed out. The role is "ink that stays readable on a filled control", and
+     the fills this is used on are all light-to-mid: primary 6.69:1, --m-logo
+     5.51:1, --m-success 6.26:1. Light mode already had a dark ink (#16283A) and
+     is unchanged. */
+  --m-on-primary: #0D0F12;
+  /* intentionally identical to the :root value -- see the note there */
+  --m-text-on-media: #F7F9FC;
+  --m-text-on-media-60: rgba(247, 249, 252, 0.6);
+
+  --m-chart-grid: #272C33;
+  --m-chart-axis: #6D747C;
+  --m-chart-buy: #6E9E7C;
+  --m-chart-sell: #7B9CBB;
+  --m-chart-current: #7B9CBB;
+  --m-chart-highlight: #C4A96A;
+  --m-candle-bull-fill: #52C48A;
+  --m-candle-bull-border: #74D3A3;
+  --m-candle-bear-fill: #E36A75;
+  --m-candle-bear-border: #EE8F98;
+  --m-candle-wick: #9BA2AA;
+
+  /* The same two hues, lifted for a dark ground: 6.35:1 and 6.00:1, which
+     holds the contrast the muted tokens gave (6.26 / 6.69) while carrying
+     roughly twice their chroma. */
+  --m-graphic-bid: #3FA76A; /* dollar green, lifted */
+  --m-graphic-ask: #4C8DFF; /* cobalt, lifted */
+
+  /* The HSL mirror of the --m-* hexes above, for the shadcn primitives. These
+     two lists describe the SAME colours in two notations, so edit them
+     together — a drift here shows up only on the handful of shadcn components
+     and reads as one stray navy card nobody can find. */
+  --background: 216 16% 6%;        /* #0D0F12 */
+  --foreground: 40 12% 90%;        /* #E9E7E3 */
+  --muted: 214 15% 9%;             /* #14171B */
+  --muted-foreground: 212 8% 64%;  /* #9BA2AA */
+  --popover: 214 15% 9%;
+  --popover-foreground: 40 12% 90%;
+  --card: 214 15% 9%;
+  --card-foreground: 40 12% 90%;
+  --border: 215 13% 18%;           /* #272C33 */
+  --input: 215 13% 18%;
+  --primary: 209 32% 61%;          /* #7B9CBB */
+  --primary-foreground: 216 16% 6%;
+  --secondary: 208 19% 41%;        /* #566B7D */
+  --secondary-foreground: 40 12% 90%;
+  --accent: 42 43% 59%;            /* #C4A96A */
+  --accent-foreground: 216 16% 6%;
+  --destructive: 6 40% 58%;        /* #BE7168 */
+  --destructive-foreground: 40 12% 90%;
+  --ring: 209 32% 61%;
+  --chart-1: 209 32% 61%;
+  --chart-2: 208 19% 41%;
+  --chart-3: 42 43% 59%;
+  --chart-4: 138 20% 53%;          /* #6E9E7C */
+  --chart-5: 6 40% 58%;
+
+  }
+
+.dark {
+  /* Direction matches :root now (100=lightest tint -> 800=darkest tint) --
+     an earlier version of this file reversed it per-mode "for visual role
+     consistency," which quietly broke every background/gradient accent
+     that used a high step (e.g. from-purple-800): the reversed dark ramp
+     made 800 the *lightest* value, colliding light corners with light
+     text. Text-role call sites that need a light value in dark mode use
+     an explicit dark: variant at the call site instead (see Nav.tsx-style
+     eyebrow labels) rather than baking the reversal into the ramp. */
+  /* Night is NEAR-NEUTRAL, not navy (2026-08-05, user direction: "more
+     elegant"). The previous dark mode grounded on a saturated navy (#09111D,
+     216° at 53% saturation) and then carried six mid-saturation hues on top of
+     it — sky blue, ember, gold, mint, salmon, amber — all at roughly the same
+     chroma. Six accents competing at one volume is what read as loud.
+
+     The rule now: separation comes from LIGHTNESS, colour comes from one place
+     at a time. Surfaces are graphite with a faint cool cast (~215° at 13-16%,
+     enough that it is not dead flat), and every semantic hue is pulled toward
+     that ground — sage rather than mint, terracotta rather than salmon, brass
+     rather than amber. The one thing deliberately left loud is --m-logo: on a
+     neutral ground a single warm mark is the accent, which is the whole point
+     of "logo is logo, UI is UI". */
+  --m-primary-100: #D4DFE9;
+  --m-primary-200: #B2C4D4;
+  --m-primary-300: #93A9BD;
+  --m-primary: #7B9CBB;
+  --m-primary-hover: #92AECB;
+  --m-primary-600: #56728C;
+  --m-primary-700: #3A4E60;
+  --m-primary-800: #232E39;
+
+  /* Semantic accents -- see the :root definitions for what these are for.
+     NOTE: this file carries TWO identical `.dark` blocks (the later one wins),
+     so these are defined in both to stay correct whichever is edited.
+
+     Selected surface goes DOWN into the blue rather than up into a wash: on a
+     #14171B page the pale end of the ramp is a near-white slab, which is both
+     loud and unreadable under --m-text-primary (1.09:1).
+     On-primary ink inverts because --m-primary is a LIGHT fill in this theme --
+     white on it is 2.87:1, the dark ink is 6.69:1. */
+  --m-surface-selected: #232E39;
+  --m-on-surface-selected: #E9E7E3;
+  /* Both identical to what these call sites already rendered in dark
+     (--m-success-800 fill, --m-success ink), so this theme is unchanged. */
+  --m-surface-success: #1E2A22;
+  --m-on-surface-success: #6E9E7C;
+  /* Logo mark stays emerald in dark (mint), decoupled from the Sky Blue UI
+     accent above. */
+  --m-logo: #E85D2A; /* last light */
+
+  --m-secondary-100: #CBD5DD;
+  --m-secondary-200: #A8B7C3;
+  --m-secondary-300: #7E909F;
+  --m-secondary: #566B7D;
+  --m-secondary-500: #45586A;
+  --m-secondary-600: #394A59;
+  --m-secondary-700: #2A3742;
+  --m-secondary-800: #1B242C;
+
+  --m-accent: #C4A96A;
+
+  /* Sage, not mint. Still unmistakably "up" against terracotta "down", which is
+     the only job these two have to do on a price. */
+  --m-success-100: #D5E3D8;
+  --m-success-200: #B4CCBA;
+  --m-success-300: #8FB198;
+  --m-success: #6E9E7C;
+  --m-success-500: #5A8467;
+  --m-success-600: #486B53;
+  --m-success-700: #334A3B;
+  --m-success-800: #1E2A22;
+
+  /* Brass, not amber — warning must stay distinguishable from --m-accent gold,
+     so it sits a step deeper and less yellow. */
+  --m-warning-100: #EFE2CC;
+  --m-warning-200: #E0CBA8;
+  --m-warning-300: #CDB182;
+  --m-warning: #B8934F;
+  --m-warning-500: #997A42;
+  --m-warning-600: #7A6236;
+  --m-warning-700: #52432A;
+  --m-warning-800: #2C261C;
+
+  --m-error-100: #EBD6D2;
+  --m-error-200: #D9B6AF;
+  --m-error-300: #C9948A;
+  --m-error: #BE7168;
+  --m-error-500: #9C5C55;
+  --m-error-600: #7C4A45;
+  --m-error-700: #533331;
+  --m-error-800: #2C201F;
+
+  /* Four steps of graphite, separated by lightness rather than by hue. The old
+     ramp moved 7% -> 10% -> 14% -> 21% lightness while ALSO getting bluer at
+     every step, which is what made a card read as a different colour from the
+     page rather than as a raised surface. */
+  --m-background: #0D0F12;
+  --m-surface: #14171B;
+  --m-surface-2: #1B1F24;
+  --m-border: #272C33;
+  /* Warm off-white, not blue-white. Against a cool ground a faintly warm text
+     colour is what stops the whole screen reading as one blue wash. */
+  --m-text-primary: #E9E7E3;
+  --m-text-secondary: #9BA2AA;
+  --m-text-secondary-2: #6D747C;
+  --m-primary-fg: #93A9BD;
+  --m-success-fg: #8FB198;
+  --m-error-fg: #C9948A;
+  --m-text-primary-inverse: #0D0F12;
+  --m-text-primary-inverse-12: rgba(13, 15, 18, 0.12);
+  --m-text-primary-12: rgba(233, 231, 227, 0.12);
+  /* Dark ink, NOT the near-white this used to be. --m-primary is a LIGHT fill in
+     this theme too (#7B9CBB), so an off-white ink on it measured 2.60:1 -- below
+     even the 3:1 large-text floor, which is what made every primary button read
+     as washed out. The role is "ink that stays readable on a filled control", and
+     the fills this is used on are all light-to-mid: primary 6.69:1, --m-logo
+     5.51:1, --m-success 6.26:1. Light mode already had a dark ink (#16283A) and
+     is unchanged. */
+  --m-on-primary: #0D0F12;
+  /* intentionally identical to the :root value -- see the note there */
+  --m-text-on-media: #F7F9FC;
+  --m-text-on-media-60: rgba(247, 249, 252, 0.6);
+
+  --m-chart-grid: #272C33;
+  --m-chart-axis: #6D747C;
+  --m-chart-buy: #6E9E7C;
+  --m-chart-sell: #7B9CBB;
+  --m-chart-current: #7B9CBB;
+  --m-chart-highlight: #C4A96A;
+  /* NOTE: this is the SECOND `.dark` block in this file, and it re-declares
+     chart and candle tokens that the first one at ~740 already sets. Later
+     wins, so this copy is the one that actually reaches the page -- editing
+     only the first leaves dark mode unchanged and nothing warns. That is
+     exactly how the dark candles shipped green/red for one deploy after the
+     light ones had already gone dollar green / cobalt. Change both, or merge
+     the blocks. */
+  --m-candle-bull-fill: #52C48A;
+  --m-candle-bull-border: #74D3A3;
+  --m-candle-bear-fill: #E36A75;
+  --m-candle-bear-border: #EE8F98;
+  --m-candle-wick: #9BA2AA;
+
+  /* The HSL mirror of the --m-* hexes above, for the shadcn primitives. These
+     two lists describe the SAME colours in two notations, so edit them
+     together — a drift here shows up only on the handful of shadcn components
+     and reads as one stray navy card nobody can find. */
+  --background: 216 16% 6%;        /* #0D0F12 */
+  --foreground: 40 12% 90%;        /* #E9E7E3 */
+  --muted: 214 15% 9%;             /* #14171B */
+  --muted-foreground: 212 8% 64%;  /* #9BA2AA */
+  --popover: 214 15% 9%;
+  --popover-foreground: 40 12% 90%;
+  --card: 214 15% 9%;
+  --card-foreground: 40 12% 90%;
+  --border: 215 13% 18%;           /* #272C33 */
+  --input: 215 13% 18%;
+  --primary: 209 32% 61%;          /* #7B9CBB */
+  --primary-foreground: 216 16% 6%;
+  --secondary: 208 19% 41%;        /* #566B7D */
+  --secondary-foreground: 40 12% 90%;
+  --accent: 42 43% 59%;            /* #C4A96A */
+  --accent-foreground: 216 16% 6%;
+  --destructive: 6 40% 58%;        /* #BE7168 */
+  --destructive-foreground: 40 12% 90%;
+  --ring: 209 32% 61%;
+  --chart-1: 209 32% 61%;
+  --chart-2: 208 19% 41%;
+  --chart-3: 42 43% 59%;
+  --chart-4: 138 20% 53%;          /* #6E9E7C */
+  --chart-5: 6 40% 58%;
+
+  /* Trading View — Monet night: graphite platform, muted steel active accents.
+     The terminal is the one surface a trader stares at for hours, so it tracks
+     the neutral ramp exactly rather than keeping its own navy. */
+  --tv-color-platform-background: #0D0F12;
+  --tv-color-pane-background: #14171B;
+  --tv-color-toolbar-button-background-hover: #1B1F24;
+  --tv-color-toolbar-button-background-expanded: #242A31;
+  --tv-color-toolbar-button-background-active: #242A31;
+  --tv-color-toolbar-button-background-active-hover: #2E353D;
+  --tv-color-toolbar-button-text: #E9E7E3;
+  --tv-color-toolbar-button-text-hover: #F0F4F8;
+  --tv-color-toolbar-button-text-active: #92AECB;
+  --tv-color-toolbar-button-text-active-hover: #92AECB;
+  --tv-color-item-active-text: #6E9E7C;
+  --tv-color-toolbar-toggle-button-background-active: #7B9CBB;
+  --tv-color-toolbar-toggle-button-background-active-hover: #92AECB;
+  --tv-color-toolbar-divider-background: #272C33;
+  --tv-color-toolbar-save-layout-loader: #9BA2AA;
+
+  --tv-color-popup-background: #14171B;
+  --tv-color-popup-element-text: #E9E7E3;
+  --tv-color-popup-element-text-hover: #F0F4F8;
+  --tv-color-popup-element-background-hover: #1B1F24;
+  --tv-color-popup-element-divider-background: #272C33;
+  --tv-color-popup-element-secondary-text: #9BA2AA;
+  --tv-color-popup-element-hint-text: #9BA2AA;
+  --tv-color-popup-element-text-active: #92AECB;
+  --tv-color-popup-element-background-active: #242A31;
+  --tv-color-popup-element-toolbox-text: #E9E7E3;
+  --tv-color-popup-element-toolbox-text-hover: #F0F4F8;
+  --tv-color-popup-element-toolbox-text-active-hover: #F0F4F8;
+  --tv-color-popup-element-toolbox-background-hover: #1B1F24;
+  --tv-color-popup-element-toolbox-background-active-hover: #242A31;
+}
+
+@theme inline {
+  /* WRAPPED IN hsl(), and that is not cosmetic: these source vars hold BARE HSL
+     CHANNELS ("208 53% 67%"), not colours. Mapped raw, `bg-primary` compiled to
+     `background-color: var(--primary)` -> `background-color: 208 53% 67%`, which
+     is invalid CSS, so the browser DROPPED the declaration and the element
+     rendered with no fill at all. Verified in the compiled stylesheet, not
+     inferred: `.hover\:bg-primary\/90:hover { background-color: var(--primary) }`.
+     The `/90` opacity was lost with it, since Tailwind's color-mix needs a colour
+     to mix.
+     Every shadcn utility built on these was therefore silently inert app-wide --
+     `bg-primary` in 14 files, `text-muted-foreground` in 14, `ring-ring` in 10 --
+     which is what made the transfer modal's buttons go transparent on hover
+     (7e9cdee9). The values themselves already mirror the Monet palette (dark
+     mode's `--primary: 209 32% 61%` is #7B9CBB, Monet's own primary), so this
+     restores the intended colour rather than introducing a second one.
+     The `--color-sidebar-*` entries below are deliberately NOT wrapped: their
+     source vars are not defined anywhere in this file, so they are invalid either
+     way. Nothing uses them (`bg-sidebar`: 0 files); wrapping would only disguise
+     that. */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+.font-satoshi {
+  font-family: var(--font-satoshi), sans-serif;
+}
+
+.font-dm-mono {
+  font-family: var(--font-dm-mono), monospace;
+}
+
+.hide-scrollbar {
+  overflow: -moz-scrollbars-none; /* For Firefox */
+  overflow: scroll; /* Still allows scrolling */
+  scrollbar-width: none; /* For Firefox */
+  -ms-overflow-style: none;  /* For Internet Explorer and Edge */
+}
+
+.money input[type=number]::-webkit-inner-spin-button, 
+.money input[type=number]::-webkit-outer-spin-button { 
+  -webkit-appearance: none; 
+  margin: 0; 
+}
+
+/* Font Weights */
+.font-thin {
+  font-weight: 100;
+}
+
+.font-extralight {
+  font-weight: 200;
+}
+
+.font-light {
+  font-weight: 300;
+}
+
+.font-normal {
+  font-weight: 400;
+}
+
+.font-medium {
+  font-weight: 500;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.font-extrabold {
+  font-weight: 800;
+}
+
+.font-black {
+  font-weight: 900;
+}
+/* Landing page brand utilities (apps/landing merge) */
+::selection {
+  background: var(--color-purple-400);
+  color: var(--color-black-400);
+}
+
+.font-mono-brand {
+  font-family: var(--font-dm-mono), monospace;
+}
+
+.font-display {
+  font-family: var(--font-satoshi), sans-serif;
+}
+
+:root {
+  --digit-dur: 500ms;
+  --digit-distance: 8px;
+  --digit-stagger: 70ms;
+  --digit-blur: 2px;
+  --digit-ease: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --digit-dir-x: 0;
+  --digit-dir-y: 1;
+}
+
+@keyframes t-digit-pop-in {
+  0%   {
+    transform: translate(
+      calc(var(--digit-distance) * var(--digit-dir-x)),
+      calc(var(--digit-distance) * var(--digit-dir-y))
+    );
+    opacity: 0;
+    filter: blur(var(--digit-blur));
+  }
+  100% { transform: translate(0, 0); opacity: 1; filter: blur(0); }
+}
+
+.t-digit-group {
+  display: inline-flex;
+  align-items: baseline;
+}
+.t-digit {
+  display: inline-block;
+  will-change: transform, opacity, filter;
+}
+.t-digit-group.is-animating .t-digit {
+  animation: t-digit-pop-in var(--digit-dur) var(--digit-ease) both;
+}
+.t-digit-group.is-animating .t-digit[data-stagger="1"] {
+  animation-delay: var(--digit-stagger);
+}
+.t-digit-group.is-animating .t-digit[data-stagger="2"] {
+  animation-delay: calc(var(--digit-stagger) * 2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-digit-group .t-digit { animation: none !important; }
+}
+
+@keyframes liquidity-bar-draw {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.liquidity-bar-draw {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: liquidity-bar-draw 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquidity-bar-draw { animation: none !important; }
+}
+/* Swap quote: keep the form compact until results exist, then resize the card. */
+:root {
+  --resize-dur: 420ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --pulse-dur: 1000ms;
+  --pulse-count: infinite;
+  --pulse-min: 0.5;
+}
+
+.t-resize {
+  transition:
+    width  var(--resize-dur) var(--resize-ease),
+    height var(--resize-dur) var(--resize-ease);
+  will-change: width, height;
+}
+
+/* Swap chart dock: the chart exit and card recenter are one gesture. */
+.swap-chart-dock {
+  transition:
+    width     var(--resize-dur) var(--resize-ease),
+    height    var(--resize-dur) var(--resize-ease),
+    transform var(--resize-dur) var(--resize-ease);
+  will-change: width, height, transform;
+}
+
+@keyframes swap-results-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+.swap-results-reveal {
+  animation: swap-results-reveal 420ms var(--resize-ease) both;
+  animation-delay: 220ms;
+}
+
+.t-skel-skeleton.is-pulsing > * {
+  animation: t-skel-pulse var(--pulse-dur) ease-in-out var(--pulse-count);
+}
+
+@keyframes t-skel-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: var(--pulse-min); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-resize { transition: none !important; }
+  .swap-chart-dock { transition: none !important; }
+  .swap-results-reveal { animation: none !important; }
+  .t-skel-skeleton.is-pulsing > * { animation: none !important; }
+}
+/* Swap-card order controls: transitions.dev dropdown, panel and sliding tabs. */
+:root {
+  --dropdown-open-dur: 250ms;
+  --dropdown-close-dur: 150ms;
+  --dropdown-pre-scale: 0.97;
+  --dropdown-closing-scale: 0.99;
+  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --panel-open-dur: 400ms;
+  --panel-close-dur: 350ms;
+  --panel-translate-y: 100px;
+  --panel-blur: 2px;
+  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tabs-dur: 250ms;
+  --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-dropdown {
+  transform-origin: top left;
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-dropdown[data-origin="top-right"]     { transform-origin: top right; }
+.t-dropdown[data-origin="top-center"]    { transform-origin: top center; }
+.t-dropdown[data-origin="bottom-left"]   { transform-origin: bottom left; }
+.t-dropdown[data-origin="bottom-center"] { transform-origin: bottom center; }
+.t-dropdown[data-origin="bottom-right"]  { transform-origin: bottom right; }
+.t-dropdown.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-close-dur) var(--dropdown-ease);
+}
+
+.t-panel-slide {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  transition:
+    transform var(--panel-close-dur) var(--panel-ease),
+    opacity   var(--panel-close-dur) var(--panel-ease),
+    filter    var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.t-panel-slide[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition:
+    transform var(--panel-open-dur) var(--panel-ease),
+    opacity   var(--panel-open-dur) var(--panel-ease),
+    filter    var(--panel-open-dur) var(--panel-ease);
+}
+
+.t-tabs {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 48px;
+  background: var(--tabs-bar-bg);
+}
+.t-tab {
+  position: relative;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  height: 30px;
+  padding: 4px 12px;
+  color: var(--tabs-text-muted);
+  cursor: pointer;
+  border-radius: 48px;
+  z-index: 1;
+  transition: color var(--tabs-dur) var(--tabs-ease);
+}
+.t-tab:not([aria-selected="true"]):hover,
+.t-tab[aria-selected="true"] {
+  color: var(--tabs-text-active);
+}
+.t-tabs-pill {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  height: 30px;
+  width: 0;
+  border-radius: 48px;
+  transform: translateX(0);
+  transition:
+    transform var(--tabs-dur) var(--tabs-ease),
+    width     var(--tabs-dur) var(--tabs-ease);
+  will-change: transform, width;
+  z-index: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-dropdown { transition: none !important; }
+  .t-panel-slide { transition: none !important; }
+  .t-tabs-pill, .t-tab { transition: none !important; }
+}
+
+/* A stat that just changed. Two things happen at once and they carry different
+   information: the FILL says a value moved, the DIGITS say which way. Separating
+   them is what lets a market-cap tile flash without claiming a direction that
+   only makes sense for a price.
+
+   Plain top-level CSS for the same reason as .market-tape-track above --
+   `animate-*` is a reserved Tailwind v4 namespace, so a utility-named class
+   would be swallowed by it. */
+@keyframes stat-tick-up {
+  0% { background-color: var(--m-success); }
+  100% { background-color: transparent; }
+}
+
+@keyframes stat-tick-down {
+  0% { background-color: var(--m-error); }
+  100% { background-color: transparent; }
+}
+
+@keyframes stat-tick-digits {
+  0% { transform: translateY(-0.22em); opacity: 0.35; }
+  100% { transform: none; opacity: 1; }
+}
+
+.stat-tick-up { animation: stat-tick-up 900ms ease-out; }
+.stat-tick-down { animation: stat-tick-down 900ms ease-out; }
+.stat-tick-digits { animation: stat-tick-digits 320ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The flash is the whole signal for a reader who cannot see motion, so the
+     fill stays and only the movement goes. A shorter, non-moving fade still
+     answers "did this just change" without anything sliding. */
+  .stat-tick-up,
+  .stat-tick-down { animation-duration: 500ms; }
+  .stat-tick-digits { animation: none; }
+}
+
+/* The conversion line under the dock's amount, arriving.
+
+   It exists only once a number has been typed, so it enters rather than
+   updating in place — the movement is what says "this is the answer to what you
+   just entered" instead of a static caption that was always there. Keyed on the
+   estimate's own text in React, so re-typing replays it and a route resolving
+   from "Finding a route…" to a figure animates too.
+
+   Plain top-level CSS for the same reason as .stat-tick-up above -- `animate-*`
+   is a reserved Tailwind v4 namespace, so a utility-named class would be
+   swallowed by it. */
+@keyframes dock-estimate-in {
+  0% { transform: translateY(-0.35em); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.dock-estimate-in { animation: dock-estimate-in 260ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The figure is the signal; the movement is decoration. A reader who cannot
+     see motion still gets the value, with no slide. */
+  .dock-estimate-in { animation: none; }
+}

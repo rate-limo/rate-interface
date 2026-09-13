@@ -1,0 +1,31 @@
+{
+  "shell": {
+    "nav": {
+      "primaryLabel": "Primary",
+      "mobilePrimaryLabel": "Mobile primary",
+      "home": "Home",
+      "explore": "Explore",
+      "trade": "Trade",
+      "pool": "Pool",
+      "launch": "Launch",
+      "create": "Create",
+      "portfolio": "Portfolio",
+      "iter": "Iter"
+    },
+    "status": {
+      "gas": "Gas",
+      "nextBeat": "Next Beat",
+      "github": "GitHub",
+      "whitepaper": "Whitepaper",
+      "cookies": "Cookies"
+    }
+  },
+  "landing": {
+    "footer": {
+      "copyright": "© Iter {year}",
+      "terms": "Terms",
+      "privacy": "Privacy",
+      "cookies": "Cookies"
+    }
+  }
+}

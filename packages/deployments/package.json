@@ -1,0 +1,30 @@
+{
+  "name": "@iter/deployments",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./deployments.json": "./deployments.json"
+  },
+  "files": [
+    "dist",
+    "deployments.json",
+    "scripts"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "verify": "node scripts/verify.mjs",
+    "sync": "node scripts/sync-deployment.mjs"
+  },
+  "devDependencies": {
+    "@iter/typescript-config": "workspace:*",
+    "@types/node": "^22.13.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.0"
+  }
+}

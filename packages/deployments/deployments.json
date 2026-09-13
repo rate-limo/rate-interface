@@ -1,0 +1,917 @@
+{
+  "$comment": "Deployed contract registry \u2014 the single source of truth for addresses and start blocks. Every address here was verified to have code on its own chain before being recorded (see README.md). startBlock is per-contract on purpose: the swap system can be deployed long after the exchange on the same chain, and an indexer that starts every contract from the earliest block wastes hours re-scanning history the later contracts did not exist for.",
+  "chains": {
+    "50312": {
+      "name": "Somnia Testnet",
+      "chainId": 50312,
+      "testnet": true,
+      "rpcUrls": [
+        "https://api.infra.testnet.somnia.network",
+        "https://dream-rpc.somnia.network"
+      ],
+      "blockExplorerUrl": "https://shannon-explorer.somnia.network",
+      "nativeCurrency": {
+        "name": "STT",
+        "symbol": "STT",
+        "decimals": 18
+      },
+      "contracts": {
+        "matchingEngine": {
+          "address": "0x44E7525Cf9d56733D08fc98BcD750d504fCE91eC",
+          "startBlock": 90885033,
+          "comment": "Pre-swap-support generation: swapRouter() and poolFactory() revert. Exchange only."
+        }
+      },
+      "config": {
+        "$comment": "Not read back from chain \u2014 this engine predates the getters. Values are the contract defaults MatchingEngine.initialize writes.",
+        "marketSpread": 100000,
+        "limitSpread": 3000000,
+        "matchedPriceReporting": false,
+        "matchedPriceReportingNote": "No swap system deployed, so pool price reporting does not apply at all."
+      },
+      "deployment": {
+        "script": "contracts/script/exchange/SomniaTestnet.s.sol",
+        "deployedAtBlock": 90885033,
+        "verifiedOnChain": true,
+        "verificationNote": "23,247 bytes of code confirmed at this address on chainId 50312."
+      }
+    },
+    "763373": {
+      "name": "Ink Sepolia",
+      "chainId": 763373,
+      "testnet": true,
+      "rpcUrls": [
+        "https://rpc-gel-sepolia.inkonchain.com"
+      ],
+      "blockExplorerUrl": "https://explorer-sepolia.inkonchain.com",
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "contracts": {
+        "matchingEngine": {
+          "address": "0x8Fe1B1c07dE0B584611ef8AA1529D4c5E125eD48",
+          "startBlock": 20290230,
+          "comment": "Pre-swap-support generation: swapRouter() and poolFactory() revert. Exchange only."
+        }
+      },
+      "config": {
+        "marketSpread": 100000,
+        "limitSpread": 3000000,
+        "matchedPriceReporting": false,
+        "matchedPriceReportingNote": "No swap system deployed, so pool price reporting does not apply at all."
+      },
+      "deployment": {
+        "script": "contracts/script/exchange/InkSepolia.s.sol",
+        "deployedAtBlock": 20290230,
+        "verifiedOnChain": true,
+        "verificationNote": "23,261 bytes of code confirmed at this address on chainId 763373."
+      }
+    },
+    "5042002": {
+      "name": "Arc Testnet",
+      "chainId": 5042002,
+      "testnet": true,
+      "rpcUrls": [
+        "https://rpc.testnet.arc.network",
+        "https://arc-testnet.drpc.org"
+      ],
+      "blockExplorerUrl": "https://testnet.arcscan.app",
+      "nativeCurrency": {
+        "$comment": "The GAS view, which on Arc is USDC at 18 decimals. The ERC-20 at 0x3600000000000000000000000000000000000000 is 6 decimals and is the SAME pool of funds through a different interface, not a second asset -- read back on chain: decimals() = 6, symbol() = USDC. Neither number is a typo for the other, and summing the two views double-counts one balance.",
+        "name": "USD Coin",
+        "symbol": "USDC",
+        "decimals": 18
+      },
+      "contracts": {
+        "matchingEngine": {
+          "address": "0xd0b90dD0BE5bb1758E2c548cbB2B92A38E619229",
+          "startBlock": 60916318
+        },
+        "orderbookFactory": {
+          "address": "0x9Efaf0187C81D80d49C8A94d21AE95F32aDD1a45",
+          "startBlock": 60916313
+        },
+        "stopOrderEngine": {
+          "address": "0x97E14B008C50630194Fe0ef30ac85C7A55C7b460",
+          "startBlock": 60916340
+        },
+        "poolFactory": {
+          "address": "0x1765679E77D357A764B5F5Ed5E06f6D98721F7C5",
+          "startBlock": 60916359
+        },
+        "bandPoolFactory": {
+          "address": "0x1765679E77D357A764B5F5Ed5E06f6D98721F7C5",
+          "startBlock": 60916359
+        },
+        "positionManager": {
+          "address": "0xa36e5eae4Dfa7886CD61C0118Ec842fBF56Fe655",
+          "startBlock": 60916348
+        },
+        "swapRouter": {
+          "address": "0x106139294c3D729929a0465F79a7BF7De383174E",
+          "startBlock": 60916355
+        },
+        "poolImplementation": {
+          "address": "0x9dd9e3c9D79768353Bd595Bf26923cFCbdf4D53D",
+          "startBlock": 60916359
+        },
+        "weth": {
+          "address": "0x3600000000000000000000000000000000000000",
+          "startBlock": 0,
+          "comment": "Arc's NATIVE gas coin, which is already an ERC-20 -- not a wrapper. engine.WETH() points here and engine.nativeScale() is 1e12, which is what tells the engine this token needs no deposit()/withdraw() (it has neither) and how its 6-decimal ERC-20 view relates to the 18-decimal native view. The first generation deployed a WrappedNative (WUSDC) into this slot; that wrapper is retired and must not be reintroduced -- it put a phantom second USDC in every token list and, because addPair skips Pool creation for any pair touching WETH, made the chain's primary quote asset the one asset that could never have pool liquidity. startBlock 0: it is a genesis predeploy and nothing indexes it."
+        },
+        "assetGenerator": {
+          "address": "0xeECAa993a4Ae56F2595c2994460248134C5024F1",
+          "startBlock": 60916453
+        },
+        "presaleLaunch": {
+          "address": "0x9e70Dd05ba749393DC6be326712606d396c4e9dF",
+          "startBlock": 60916495
+        }
+      },
+      "config": {
+        "$comment": "Read back on chain after deployment, DENOM-scaled at 1e8. The fee triple comes from the DefaultFeePolicySet event (defaultMakerFee/defaultTakerFee are private and have no getters); the spreads are what MatchingEngine.initialize writes.",
+        "marketSpread": 100000,
+        "limitSpread": 3000000,
+        "makerFee": 0,
+        "takerFee": 100000,
+        "poolFeeShare": 50000000,
+        "matchedPriceReporting": false,
+        "matchedPriceReportingNote": "marketSpread (0.1%) is narrower than a typical LP slippage tier (5%), so the rail clamps every pool fill and lmp records the rail rather than the price the swap traded at. Same configuration as RISE and therefore the same consequence -- see contracts/test/swap/DeploymentWiring.t.sol. Note 5% is a representative LP choice, not a protocol constant: slippageLimit is set per position and hoisted to a bucket in PoolBands.sol, so a pool whose LPs pick a tighter tier is clamped correspondingly less often.",
+        "blockTimeSeconds": 0.515,
+        "blockTimeNote": "Measured over 2000 blocks (59147238..59149238, span 1031s) on 2026-08-27. MatchingEngine.initialize writes the same dfltMktBuy/dfltMktSell = 100000 here as everywhere else, so the rail saturates a 5% LP tier in the same ~49 blocks as RISE -- but the rail is anchored per BLOCK, so on a ~0.5s chain that is ~25 seconds of protection against RISE's ~49s, and against the ~586s the identical setting would buy on a 12s chain. The shared marketSpread value is therefore NOT a shared guarantee: Arc has the least protection of any chain in this registry precisely because it is the fastest, and nothing in the configuration says so.",
+        "quoteWrapsNative": false,
+        "quoteWrapsNativeNote": "Arc's quote is the chain's own native USDC at 0x3600\u20260000 \u2014 the engine wraps nothing and settlement never unwraps, so gas and quote are one asset."
+      },
+      "previous": [
+        {
+          "$comment": "Retired 2026-08-30, a day after it shipped, and replaced by a byte-identical build -- the metadata hash of the engine deployed here matched a fresh local compile, so this generation and the one that replaced it are the same source at the same settings. It is recorded because its events are in rawEvents and nothing else maps them to an engine: it carried the activated-stop-limit rail fix and listed EURC/USDC at 0x9D8f340B19d3806C68ED7A7B915342851D599Cec.",
+          "reason": "generation refresh; no code change",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0x958BDf2eE32ccC5bD660C0842864BB9898F77B36",
+              "startBlock": 59300677
+            },
+            "orderbookFactory": {
+              "address": "0xd19671C6B075E32C0d024d02ac3b680A605780eB",
+              "startBlock": 59300674
+            },
+            "stopOrderEngine": {
+              "address": "0x76Cd0D79ab8131A09f139684182cCC9c77AAd025",
+              "startBlock": 59300703
+            },
+            "poolFactory": {
+              "address": "0x9B317722F796e407C7924E209fF6CEBDFe86283b",
+              "startBlock": 59300721
+            },
+            "bandPoolFactory": {
+              "address": "0x9B317722F796e407C7924E209fF6CEBDFe86283b",
+              "startBlock": 59300721
+            },
+            "positionManager": {
+              "address": "0x83618855e0f80679Ca40df51B8e37916e0Dab55A",
+              "startBlock": 59300710
+            },
+            "swapRouter": {
+              "address": "0x6dC431B44110fA8a206271A898A90FcB4c4ac723",
+              "startBlock": 59300718
+            },
+            "poolImplementation": {
+              "address": "0xB82CA13E3F3BB3E977Bc11a637CDB0E22Ba41A92",
+              "startBlock": 59300721
+            },
+            "assetGenerator": {
+              "address": "0x9140Ea931a0A33c2804540122EC632d0a08e9D2e",
+              "startBlock": 59300946
+            },
+            "presaleLaunch": {
+              "address": "0x41f21E381a70E404854D1f95788208BBc6A8Cd72",
+              "startBlock": 59301010
+            }
+          }
+        },
+        {
+          "$comment": "The nativeScale generation, retired 2026-08-29. It carried the Arc native-USDC handling correctly -- engine.nativeScale() read 1e12 and WETH() the 0x3600.. precompile -- and one market was listed on it (EURC/USDC at 0x8E1e53Fd8d7d3597a1Ebaf593896AEF0A4199dfE, orderbook factory 0x593e72dB). It is superseded only to carry the activated-stop-limit rail fix. Its events are still in rawEvents, so this entry is what keeps a replay able to attribute them.",
+          "reason": "superseded to pick up the activated-stop-limit make-price rail",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0xC216cB525B8552DB57D9a71AC7215690Ee221A58",
+              "startBlock": 59268873
+            },
+            "orderbookFactory": {
+              "address": "0x593e72dB1f482D235b276D498625B436CD12d8b2",
+              "startBlock": 59268868
+            },
+            "stopOrderEngine": {
+              "address": "0xEf53e5A0cd6be3BEc47270dB5F65c1c507e8512e",
+              "startBlock": 59268900
+            },
+            "poolFactory": {
+              "address": "0x29fc470E482B503F311e5b90200D0B0f00331465",
+              "startBlock": 59268919
+            },
+            "bandPoolFactory": {
+              "address": "0x29fc470E482B503F311e5b90200D0B0f00331465",
+              "startBlock": 59268919
+            },
+            "positionManager": {
+              "address": "0xcdFA2f7fe85A19f5673342c216628A7C7225936d",
+              "startBlock": 59268908
+            },
+            "swapRouter": {
+              "address": "0x3CCd951423b5D41Af9D6400a3a99B5eAbC52002e",
+              "startBlock": 59268916
+            },
+            "poolImplementation": {
+              "address": "0x3Cb17a36C200B148b6c117b2258A081b3fD0563f",
+              "startBlock": 59268922
+            },
+            "assetGenerator": {
+              "address": "0x9e3c152248b1ed419C62Cf93144D2b13AdadcD11",
+              "startBlock": 59275087
+            },
+            "presaleLaunch": {
+              "address": "0x6dCDFAED70e55E350d5Bbe8C9F7b98d97B392bfD",
+              "startBlock": 59275163
+            }
+          }
+        },
+        {
+          "$comment": "The first Arc bring-up, retired 2026-08-28 the same day it shipped. Its engine held a purpose-deployed WrappedNative (WUSDC, 0x959245EA66ac26caF38B8Eb9d48418c6B7Aa621D) in the WETH slot, because MatchingEngine assumed that slot was a WETH9-shaped wrapper it could deposit()/withdraw() into. On Arc that is wrong twice over: the native coin is USDC and USDC is ALREADY an ERC-20, so the wrapper was a phantom second USDC in every token list -- and addPair skips Pool creation for any pair touching WETH, which would have made USDC the one asset on the chain that could never have pool liquidity. Superseded by the nativeScale generation below. No markets were ever listed on it.",
+          "reason": "WETH slot held a wrapper on a chain whose native coin is already an ERC-20",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0x7Eff1500024D9393BE3Ad2B5e643C540018365D8",
+              "startBlock": 59150697,
+              "endBlock": 59268872
+            },
+            "orderbookFactory": {
+              "address": "0x8E9e786f757B881C7B456682Ae7D2a06820220b1",
+              "startBlock": 59150694,
+              "endBlock": 59268872
+            },
+            "stopOrderEngine": {
+              "address": "0xb35a7935F8fbc52fB525F16Af09329b3794E8C42",
+              "startBlock": 59150719,
+              "endBlock": 59268872
+            },
+            "poolFactory": {
+              "address": "0xdf781116C1C8649C55940bB7921C565813f4D642",
+              "startBlock": 59150737,
+              "endBlock": 59268872
+            },
+            "positionManager": {
+              "address": "0xdb8d2DeeC9c0C11DAc7711d262e7a19abAb8b5Ce",
+              "startBlock": 59150727,
+              "endBlock": 59268872
+            },
+            "swapRouter": {
+              "address": "0x0AdBf7ec00A03BE9d5556Adb2600e2552029C63c",
+              "startBlock": 59150734,
+              "endBlock": 59268872
+            },
+            "weth": {
+              "address": "0x959245EA66ac26caF38B8Eb9d48418c6B7Aa621D",
+              "startBlock": 59150689,
+              "endBlock": 59268872,
+              "comment": "WrappedNative (WUSDC). Retired -- do NOT reintroduce it; engine.WETH() is now Arc's own USDC."
+            }
+          }
+        }
+      ],
+      "deployment": {
+        "script": "contracts/script/ArcTestnetFull.s.sol:DeployArcTestnet",
+        "deployedAtBlock": 59268873,
+        "deployedAt": "2026-08-28T11:34:46Z",
+        "feeTo": "0xF8FB4672170607C95663f4Cc674dDb1386b7CfE0",
+        "verifiedOnChain": true,
+        "$comment": "Second Arc generation, and the first that uses the chain properly: engine.WETH() is Arc's native USDC (0x3600...0000) and engine.nativeScale() is 1e12, so the engine wraps nothing and settlement never unwraps. NOT DEPLOYED on this chain: assetGenerator and presaleLaunch, which RISE has -- so coin launches have no contracts here yet."
+      }
+    },
+    "11155931": {
+      "name": "RISE Testnet",
+      "chainId": 11155931,
+      "testnet": true,
+      "rpcUrls": [
+        "https://testnet.riselabs.xyz/"
+      ],
+      "blockExplorerUrl": "https://testnet-explorer.riselabs.xyz",
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "contracts": {
+        "matchingEngine": {
+          "address": "0x631eb12F60698C869a192217C0055CCb660ff9c1",
+          "startBlock": 53699750
+        },
+        "orderbookFactory": {
+          "address": "0x3aA85CAAD9b4B130Af541673f7a33B3aCED17397",
+          "startBlock": 53699750
+        },
+        "poolFactory": {
+          "address": "0xA3b41c0F07533B3807E07A688556A6DD68799c8c",
+          "startBlock": 53699752
+        },
+        "positionManager": {
+          "address": "0x962B459A0BF6023E790D07c8e711D8C6e594486f",
+          "startBlock": 53699751
+        },
+        "swapRouter": {
+          "address": "0xb7C0dEFbB427Be3155120EEdCAc25F8df5B4329d",
+          "startBlock": 53699752
+        },
+        "poolImplementation": {
+          "address": "0xA6002DB91b36603D11fEE3FC1938Ed386f298c30",
+          "startBlock": 53699752
+        },
+        "weth": {
+          "address": "0x008fCD6315c68EbAa31244aea174993f63Ef14D5",
+          "startBlock": 51264530,
+          "comment": "READ BACK FROM matchingEngine.WETH(), which is the only definition that matters: the engine wraps msg.value into THIS contract, so a market listed against any other WETH9 quotes on chain and can never be routed to. RISE carries several, all answering symbol() = \"WETH\". The field was 0x63443A61... until 2026-08-15 \u2014 the previous generation's, carried forward by a redeploy that changed the engine and not this line, which sent a native-market seed to the retired engine. `pnpm sync` cannot supply this: WETH is not created by the deploy script, so it appears in no broadcast record. startBlock is the exchange's own, not this token's creation block; nothing indexes it."
+        },
+        "stopOrderEngine": {
+          "address": "0xBCBFD284c037bdCf87c494b6Cd92029527b60e65",
+          "startBlock": 53699751
+        },
+        "assetGenerator": {
+          "address": "0x07B43f1e64fE740c2f38e23Ee2cb88c1539Cf4b7",
+          "startBlock": 53699926
+        },
+        "presaleLaunch": {
+          "address": "0xB337Cd9dA656d21364db0ee28529a24aFF2B5F74",
+          "startBlock": 53699938
+        },
+        "bandPoolFactory": {
+          "address": "0xA3b41c0F07533B3807E07A688556A6DD68799c8c",
+          "startBlock": 53699752
+        },
+        "batchExecutor": {
+          "address": "0xdd54EE27892C0c58E93617f1dDCb2E99b8524C3d",
+          "startBlock": 53818097,
+          "comment": "EIP-7702 delegate. Not indexed and not called by any other contract - an account delegates to it to batch its own transfers."
+        }
+      },
+      "previous": [
+        {
+          "$comment": "The generation retired on 2026-08-24 by the BandPool.collect access-control fix. Its BandPool implementation (0x3B6230F748F8714Af1401e35F884F3704B5E5936) shipped `collect` as a plain `public` function with no `onlyPositionManager` gate and a caller-supplied `recipient`, so any address could claim any LP position's vested fees to itself -- confirmed with a passing PoC against the real stack before the fix (contracts/test/swap/BandCollectAuth.t.sol). Nothing was actually taken: the generation held exactly one pool (TBASE/TUSD) and one position, and `owed()` was 0 on it because no swap had ever crossed the band. `BandPoolFactory._createImpl` runs only inside `initialize` and `version` is never written, so the implementation cannot be replaced on a live factory -- fixing it required a new factory, which is why the whole stack moved rather than just the pool. The exchange half (matchingEngine 0xA721.., orderbookFactory 0x1BaB.., stopOrderEngine 0x5836.., assetGenerator 0x0174.., presaleLaunch 0xc787..) dates from 2026-08-15 and was healthy; it was replaced in the same pass because `createPool` is `onlyEngine` and reachable only from `addPair`, so a new factory leaves every EXISTING pair with no band pool and the pairs have to be listed again anyway. Every address below still has code on chain and its events remain the only record of activity in its range.",
+          "reason": "superseded by the 2026-08-24 redeploy at block 52471309 (BandPool.collect access control)",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0xA72197c421830A6A70cF1128f80E1becB6f1705d",
+              "startBlock": 51686340,
+              "endBlock": 52471308
+            },
+            "orderbookFactory": {
+              "address": "0x1BaBfD6Bc3C9F95391B33D8685d09428D23C0261",
+              "startBlock": 51686340,
+              "endBlock": 52471308
+            },
+            "stopOrderEngine": {
+              "address": "0x5836F8Eb1c28A308FefF523fA977d7ED5C40bd28",
+              "startBlock": 51686889,
+              "endBlock": 52471308
+            },
+            "assetGenerator": {
+              "address": "0x0174838a12263F2ee81E4Bbc79556731FA2AfEAD",
+              "startBlock": 51686526,
+              "endBlock": 52471308
+            },
+            "presaleLaunch": {
+              "address": "0xc787534390E45720DAfAa46E6664041A761D3FEe",
+              "startBlock": 51686555,
+              "endBlock": 52471308
+            },
+            "poolFactory": {
+              "address": "0x0619f3e579De17695A08984a21a09852F1EF4e6f",
+              "startBlock": 52459715,
+              "endBlock": 52471308
+            },
+            "bandPoolFactory": {
+              "address": "0x0619f3e579De17695A08984a21a09852F1EF4e6f",
+              "startBlock": 52459715,
+              "endBlock": 52471308
+            },
+            "positionManager": {
+              "address": "0xAF89D2Bb068ba1734e241143da753Cd869fd08A2",
+              "startBlock": 52459715,
+              "endBlock": 52471308
+            },
+            "swapRouter": {
+              "address": "0xD1AD9A437Dc4C163297CEA39Fde2bB0F19DEcD03",
+              "startBlock": 52459715,
+              "endBlock": 52471308
+            },
+            "poolImplementation": {
+              "address": "0x3B6230F748F8714Af1401e35F884F3704B5E5936",
+              "startBlock": 52459715,
+              "endBlock": 52471308,
+              "comment": "The VULNERABLE BandPool implementation. Created inside BandPoolFactory.initialize, so it never appears as a CREATE in the broadcast record; read back from poolFactory.impl(). Not an event source."
+            }
+          }
+        },
+        {
+          "$comment": "The startBlock-51694025 swap generation: PoolFactory / PositionManager / SwapRouter, the per-position (v3-style) system. Deployed 2026-08-15 alongside the main engine redeploy above, then never redeployed when this session replaced the whole design with aggregated band liquidity \u2014 the Pool/PoolFactory/PositionManager/SwapRouter Solidity sources were deleted from the repo (commit e81f8dd, \"Pool is gone for good\") while this generation kept running on chain with no matching source anywhere in the codebase. `engine.poolFactory()`/`engine.swapRouter()` stayed pointed at it for over a week \u2014 confirmed live by selector diff against the deleted source before this entry was written, not assumed. `apps/web/components/Swap/execution.ts` threw rather than call it (\"the router this card called no longer exists\"), which is what stopped anyone acting on the stale wiring. Retired for real on 2026-08-24 by BandPoolFactory / BandPositionManager / BandSwapRouter at startBlock 52459715, the first real band deployment on this chain.",
+          "reason": "superseded by the 2026-08-24 BandPool deployment at block 52459715 \u2014 source for this generation no longer exists in the repo",
+          "contracts": {
+            "poolFactory": {
+              "address": "0x83dA748845cE5398726Eb5aC184e2F60a142E314",
+              "startBlock": 51694025,
+              "endBlock": 52459714
+            },
+            "positionManager": {
+              "address": "0x3e161C9B9D5A86c8deFC6a83e5e44B7e78D8ee27",
+              "startBlock": 51694025,
+              "endBlock": 52459714
+            },
+            "swapRouter": {
+              "address": "0x4475Ffb4D4F0aFDAf7D66B6f6d44C667Bb8baF4b",
+              "startBlock": 51694025,
+              "endBlock": 52459714
+            },
+            "poolImplementation": {
+              "address": "0x1f3BDC21f2B8E3Dc8617c1D4b6cCC226EB2834d5",
+              "startBlock": 51694025,
+              "endBlock": 52459714,
+              "comment": "Created inside PoolFactory.initialize; not an event source, and its own Solidity source (Pool.sol) is deleted from the repo."
+            }
+          }
+        },
+        {
+          "$comment": "The block-51676832 generation, retired by the 2026-08-15 full redeploy at 51686340. Its engine was wired to a DIFFERENT WETH (0x63443A61...) than the current one, which is the trap that caught a seed script: the addresses here are not interchangeable with the current set even where the ABI is identical. Recorded because the redeploy commit replaced `contracts` outright and dropped this generation from the file entirely.",
+          "reason": "superseded by the 2026-08-15 full redeploy at block 51686340",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0xc81D0eD61C58a5C298fa7b49AD93f0f2D0fa53A2",
+              "startBlock": 51676832,
+              "endBlock": 51686339
+            },
+            "orderbookFactory": {
+              "address": "0xD544dFEe2e252736515f8B713774F043703DE53F",
+              "startBlock": 51676832,
+              "endBlock": 51686339
+            },
+            "poolFactory": {
+              "address": "0x782110e36a88CD4f525f57cD9ba359ca0b6B6dbc",
+              "startBlock": 51676832,
+              "endBlock": 51686339
+            },
+            "positionManager": {
+              "address": "0x8122A97d72E421e5EAc82Ca03694A0974fcfc16D",
+              "startBlock": 51676832,
+              "endBlock": 51686339
+            },
+            "swapRouter": {
+              "address": "0x7C9684162a5403136E7E206586d4FB0E19eD4358",
+              "startBlock": 51676832,
+              "endBlock": 51686339
+            },
+            "poolImplementation": {
+              "address": "0xD6707DE5C0113eA2d849fDE4A50692f5F93Cb1A3",
+              "startBlock": 51676832,
+              "endBlock": 51686339
+            },
+            "weth": {
+              "address": "0x63443A611De9216b0C7a910AFe97987034bee54F",
+              "startBlock": 51264530,
+              "endBlock": 51686339,
+              "comment": "This generation's engine reported this address from WETH(). The current generation reports a different one \u2014 see contracts.weth."
+            },
+            "stopOrderEngine": {
+              "address": "0x5967097FBA5b56CD95E8eCb4C85506fa006B3fDf",
+              "startBlock": 51676832,
+              "endBlock": 51686339
+            },
+            "assetGenerator": {
+              "address": "0xCbA4709841115cdfDb2Ba09b235C1002C5a99363",
+              "startBlock": 51676935,
+              "endBlock": 51686339
+            },
+            "presaleLaunch": {
+              "address": "0x23aeE88A5996F35D09D8FB1092FEEfe646FA7370",
+              "startBlock": 51676962,
+              "endBlock": 51686339
+            }
+          }
+        },
+        {
+          "$comment": "The block-51592997 generation, retired by the calldata-struct redeploy at 51676832. Its order-entry and swap entrypoints took POSITIONAL arguments; the current generation takes one calldata struct per call, so every selector on those paths differs. Events are unchanged across the boundary \u2014 same topic0 \u2014 so the indexer needs no special handling beyond the startBlock split. weth is absent here because it was not redeployed: it is a standalone ERC-20 with no coupling to the engine, and minting a second one would strand every balance already wrapped.",
+          "reason": "superseded by the calldata-struct redeploy at block 51676832",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0x8c40189dCa9d0dDd9C7391e3Ef3ec07ac50c7E78",
+              "startBlock": 51592997,
+              "endBlock": 51676831
+            },
+            "orderbookFactory": {
+              "address": "0xD6ecC2aD8cCf031bc6284585a65e0e7AB12A6720",
+              "startBlock": 51592997,
+              "endBlock": 51676831
+            },
+            "poolFactory": {
+              "address": "0x00Ed6B61490f32aA0248248Ea1329cE04711eC9c",
+              "startBlock": 51592997,
+              "endBlock": 51676831
+            },
+            "positionManager": {
+              "address": "0x78C7f17C79C816187425CEC582F0B9CC668080ea",
+              "startBlock": 51592997,
+              "endBlock": 51676831
+            },
+            "swapRouter": {
+              "address": "0xEE8bBb97b2654932fC525B77f946208542221F43",
+              "startBlock": 51592997,
+              "endBlock": 51676831
+            },
+            "poolImplementation": {
+              "address": "0x1f4d8F37D6Bc17822322343af7e19A5AFC303a9c",
+              "startBlock": 51264532,
+              "comment": "Created inside PoolFactory.initialize, so it never appears as a CREATE in the broadcast record. Every pair's pool is a clone of this; not an event source. Read back from poolFactory.impl() on chain \u2014 `pnpm sync` cannot supply it for exactly the reason above.",
+              "endBlock": 51676831
+            },
+            "stopOrderEngine": {
+              "address": "0x7c7b5B234dD4AC51C239170e2f95069B7eE4fD40",
+              "startBlock": 51592997,
+              "endBlock": 51676831
+            },
+            "assetGenerator": {
+              "address": "0x71fD64F6B51233d1808F64Abd3C597056f6fF4Aa",
+              "startBlock": 51620100,
+              "endBlock": 51676934
+            },
+            "presaleLaunch": {
+              "address": "0x9F5774F0d5E9f6aC1Aa426f96A4A9120f8856B9f",
+              "startBlock": 51539054,
+              "endBlock": 51676961
+            }
+          }
+        },
+        {
+          "$comment": "The 2026-08-14 calldata-struct generation, retired by the redeploy at block 51592997 that this file now points at. It was `contracts` on main while a second redeploy was happening on a branch, so it never appeared in anyone's `previous[]` until the two were merged. Every address below still has code on chain and its events are the only record of trading between its startBlock and endBlock.",
+          "reason": "superseded by the block-51592997 redeploy",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0x00AB85DC965f790532A8AcB5c63C172F87e03e61",
+              "startBlock": 51585421,
+              "abiVersion": "deadline-v1",
+              "endBlock": 51592996
+            },
+            "orderbookFactory": {
+              "address": "0x82114a048D2d4D8bCb08d5d021c0ec635B5d10Be",
+              "startBlock": 51585421,
+              "endBlock": 51592996
+            },
+            "poolFactory": {
+              "address": "0x146b6C433664DE61467482482a25339cd194da93",
+              "startBlock": 51585421,
+              "endBlock": 51592996
+            },
+            "positionManager": {
+              "address": "0x9D8fe0EB751A1F0cd7E3B8aed00810a961dC1430",
+              "startBlock": 51585421,
+              "endBlock": 51592996
+            },
+            "swapRouter": {
+              "address": "0xfB2edfDC9C7252B523c71Aba534CaB2Bcf2B4f4b",
+              "startBlock": 51585421,
+              "endBlock": 51592996
+            },
+            "poolImplementation": {
+              "address": "0x2D55dbbA6D776903c42c75D2d312b94104AdF63a",
+              "startBlock": 51585421,
+              "comment": "Created inside PoolFactory.initialize, so it never appears as a CREATE in the broadcast record. Every pair's pool is a clone of this; not an event source. Read back from poolFactory.impl() on chain \u2014 `pnpm sync` cannot supply it for exactly the reason above.",
+              "endBlock": 51264531
+            },
+            "weth": {
+              "address": "0x4903c391575096F65E3266314AD6d12d714A34A8",
+              "startBlock": 51585421,
+              "comment": "Freshly deployed WETH9, not a canonical bridged WETH. Testnet only.",
+              "endBlock": 51264529
+            },
+            "stopOrderEngine": {
+              "address": "0x93cAb57087B6D56263c9c35C79ADE9BA259F7dd2",
+              "startBlock": 51585421,
+              "comment": "Redeployed as part of the 2026-08-14 calldata-struct full-stack redeploy (MatchingEngine's address changed, and StopOrderEngine's `matchingEngine` is immutable, so a fresh deploy + rewire was required regardless of whether StopOrderEngine's own source changed). Supersedes 0xF418E8D1a6309641256a17b3224B1a49A43D9FE2, which itself only existed for a few minutes earlier the same day (see the `previous[]` entry below) and never received a placeStopLimit call.",
+              "endBlock": 51592996
+            },
+            "assetGenerator": {
+              "address": "0x99943B3E53BA7e0aE0831402E2638eaDE5A73a51",
+              "startBlock": 51585472,
+              "endBlock": 51620099
+            },
+            "presaleLaunch": {
+              "address": "0x7FAa2d9b15f56f39Fa8604A8a32E06d467eE5277",
+              "startBlock": 51585484,
+              "endBlock": 51539053
+            }
+          }
+        },
+        {
+          "$comment": "The first 2026-08-14 generation (deadline-merge + EIP-170 size fix), retired the same day by a second redeploy that folded MatchingEngine's 8 order-entry functions and SwapRouter's swap/removeLiquidity into calldata structs (one typed object argument per call instead of a positional arg list) for cleaner wagmi/viem call sites. Function names are unchanged but every one of those selectors changed (tuple-encoded struct vs loose args), and MatchingEngine's EIP-170 headroom dropped from 951 to 532 bytes as a side effect -- struct-taking dispatch code did not shrink here the way it did for StopOrderEngine.placeStopLimit. Pool's bytecode also changed (its two internal limitBuy/limitSell calls now build the struct), which is why poolImplementation/poolFactory/positionManager/swapRouter needed fresh addresses too, not just matchingEngine -- Pool's implementation is created inside PoolFactory.initialize (a one-time initializer), so there was no way to update it without a fresh PoolFactory. assetGenerator/presaleLaunch were redeployed only because they're constructed against a matchingEngine address, not because their own source changed. Every address below still has code on chain; its events remain the only record of trading between blocks 51577672 and 51585420.",
+          "reason": "superseded by the 2026-08-14 calldata-struct redeploy (order entry + swap)",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0x85D01aC826212708EA017aEEae1Cc1a89bF1D836",
+              "startBlock": 51577672,
+              "endBlock": 51585420,
+              "abiVersion": "deadline-v1"
+            },
+            "orderbookFactory": {
+              "address": "0x014A21F324D4600dE7A9716d140a08A9767fE6EB",
+              "startBlock": 51577672,
+              "endBlock": 51585420
+            },
+            "poolFactory": {
+              "address": "0x9330A8A50f31A61c378D9b3Bb2ECc7a3a47b1866",
+              "startBlock": 51577672,
+              "endBlock": 51585420
+            },
+            "positionManager": {
+              "address": "0x6080A2aB5A3B5952a33a1CEadc28D0A852a17709",
+              "startBlock": 51577672,
+              "endBlock": 51585420
+            },
+            "swapRouter": {
+              "address": "0x31cc6e982e4b8056560E1084758F4944166EA266",
+              "startBlock": 51577672,
+              "endBlock": 51585420
+            },
+            "poolImplementation": {
+              "address": "0xc5F454217834ea8e8149B58d31fbde1ebd25a3C9",
+              "startBlock": 51577672,
+              "endBlock": 51585420
+            },
+            "weth": {
+              "address": "0x5293eF190Dc6509d33883d36897fAAc9B89a52cB",
+              "startBlock": 51577672,
+              "endBlock": 51585420
+            },
+            "stopOrderEngine": {
+              "address": "0xF418E8D1a6309641256a17b3224B1a49A43D9FE2",
+              "startBlock": 51581923,
+              "endBlock": 51585420
+            },
+            "assetGenerator": {
+              "address": "0x271297FC8394916B38A1Bae5366F223a50Ce26f6",
+              "startBlock": 51578672,
+              "endBlock": 51585420
+            },
+            "presaleLaunch": {
+              "address": "0xd001042F1f988243A0AADE8Eff89ff644a3A4FF0",
+              "startBlock": 51578699,
+              "endBlock": 51585420
+            }
+          }
+        },
+        {
+          "$comment": "The first launch/auction test generation. Retained because it emitted the full UI fixture lifecycle before the zero-maker-fee policy fix and remains the source of those indexed examples.",
+          "reason": "superseded by the zero-maker-fee-compatible AssetGenerator and its paired PresaleLaunch deployment",
+          "contracts": {
+            "assetGenerator": {
+              "address": "0x74F5Fb1B0404802e9aF3f12Df785a3Dac10F52f7",
+              "startBlock": 51537012,
+              "endBlock": 51539028
+            },
+            "presaleLaunch": {
+              "address": "0x184fCAD16534aCA0D7d7C11341766ca7F7BE45Fe",
+              "startBlock": 51537081,
+              "endBlock": 51539053
+            }
+          }
+        },
+        {
+          "$comment": "The 2026-08-10 deadline-v1 + StopOrderEngine generation, retired by the 2026-08-14 redeploy. That redeploy merged each of the 8 duplicate *WithDeadline entrypoints (marketBuy/marketBuyWithDeadline, etc.) into its base function with a trailing `deadline` param (0 = none) to bring MatchingEngine back under the EIP-170 24,576-byte limit \u2014 it had drifted to 27,926 bytes. Selectors for all 8 order-entry functions changed as a result (arg count went from 7/6 to 8/6-with-deadline-added, and the 4 separate *WithDeadline functions no longer exist at all), but the abiVersion tag stays `deadline-v1` since the semantic (this engine accepts a deadline) is unchanged \u2014 only the call shape moved. AssetGenerator's own separate EIP-170 overflow (had embedded the full `Coin` ERC20 creation-code blob) was fixed the same day by relocating `Coin` into a new externally-linked `AssetGeneratorLib`; deployed AssetGenerator addresses are unaffected by that fix (still first-deployed this generation, see contracts.assetGenerator above). Every address below still has code on chain; its events remain the only record of trading between blocks 50984720 and 51577671.",
+          "reason": "superseded by the 2026-08-14 deadline-merge + EIP-170 size-fix redeploy",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0x4FE545A95104C9D27A1751dA1112dd66B3e1fb8f",
+              "startBlock": 51264531,
+              "endBlock": 51577671,
+              "abiVersion": "deadline-v1"
+            },
+            "orderbookFactory": {
+              "address": "0x5deC44fdfDa1B7766bD1E46Eb1c17155f137F3Be",
+              "startBlock": 51264530,
+              "endBlock": 51577671
+            },
+            "poolFactory": {
+              "address": "0x19449fEBdA0696d8220D7CB7c233D5f0D8c087Fa",
+              "startBlock": 51264532,
+              "endBlock": 51577671
+            },
+            "positionManager": {
+              "address": "0xEDE9D35ff0206bA319A19f767F2C7019f5468DB2",
+              "startBlock": 51264533,
+              "endBlock": 51577671
+            },
+            "swapRouter": {
+              "address": "0x452f8A832cCce16aa3bB905e2F3b13c774E5635D",
+              "startBlock": 51264533,
+              "endBlock": 51577671
+            },
+            "poolImplementation": {
+              "address": "0x1f4d8F37D6Bc17822322343af7e19A5AFC303a9c",
+              "startBlock": 51264532,
+              "endBlock": 51577671
+            },
+            "weth": {
+              "address": "0x63443A611De9216b0C7a910AFe97987034bee54F",
+              "startBlock": 51264530,
+              "endBlock": 51577671
+            },
+            "stopOrderEngine": {
+              "address": "0xDcc4d1AaFf2879ca1472f99a1cadCc1834145b9D",
+              "startBlock": 51264532,
+              "endBlock": 51577671
+            }
+          }
+        },
+        {
+          "$comment": "The 2026-08-07 generation retired by the deadline and stop-order deployment. It uses the legacy order-entry ABI and remains indexed through its final active block.",
+          "reason": "superseded by the 2026-08-10 deadline-v1 and StopOrderEngine deployment",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0xF88D4dc19DaE922cFfF5883980Fd57E858Beb3Dc",
+              "startBlock": 50984720,
+              "endBlock": 51264530,
+              "abiVersion": "legacy"
+            },
+            "orderbookFactory": {
+              "address": "0xce3aeF7AF72c3e6c43f3C947cE2DC145B64D8b26",
+              "startBlock": 50984720,
+              "endBlock": 51264529
+            },
+            "poolFactory": {
+              "address": "0x7d034d07256f31D8A91d4c2078205501b0274A30",
+              "startBlock": 50984720,
+              "endBlock": 51264531
+            },
+            "positionManager": {
+              "address": "0xe00B9A9a095266df969C93d96ba0F01B6f8aFaa5",
+              "startBlock": 50984720,
+              "endBlock": 51264532
+            },
+            "swapRouter": {
+              "address": "0xce201f93786FD2b71126Cf45C8736c6F65E418e6",
+              "startBlock": 50984720,
+              "endBlock": 51264532
+            },
+            "poolImplementation": {
+              "address": "0xcCF42554Ef2BA8cB5DE15849d4087e55aFf199CB",
+              "startBlock": 50984720,
+              "endBlock": 51264531
+            },
+            "weth": {
+              "address": "0x27C9c487E6141BC75C32aAab378dbfd490dD6CA8",
+              "startBlock": 50984720,
+              "endBlock": 51264529
+            }
+          }
+        },
+        {
+          "$comment": "The first 2026-08-06 generation, superseded the same day by the SizePriority removal. Its events are the only record of trading between blocks 50908086 and 50984720, which includes the load-test ladder and sweeps. Its MatchingEngine has NO maxMatches() getter, and its pair 0x19eB4a46\u2026 was created in the removed SizePriority mode \u2014 matchingMode is set in Orderbook.initialize with no setter, so that pair keeps the unbounded insert cost permanently. That is the reason this generation was replaced rather than kept.",
+          "reason": "superseded by the 2026-08-07 redeploy removing SizePriority",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0xdcc240f57B6A4c5cB2F09dCD62f0492159C41dE2",
+              "startBlock": 50908086,
+              "endBlock": 50984720
+            },
+            "orderbookFactory": {
+              "address": "0x32486b73Fc972480B6EF2F35eD87e9a63c256DDe",
+              "startBlock": 50908086,
+              "endBlock": 50984720
+            },
+            "poolFactory": {
+              "address": "0x8FFB089A6E8859ffbcF8846dBAA52E40256cFC95",
+              "startBlock": 50908086,
+              "endBlock": 50984720
+            },
+            "positionManager": {
+              "address": "0xFcE90A4DE92b57ae11c50C4E27EF834BB4535B31",
+              "startBlock": 50908086,
+              "endBlock": 50984720
+            },
+            "swapRouter": {
+              "address": "0xb928cfe91863125Db13812dDBF2bAA38ea98E20F",
+              "startBlock": 50908086,
+              "endBlock": 50984720
+            },
+            "poolImplementation": {
+              "address": "0xF981bA0Bde31468f4f5aC853C265e1645D81326a",
+              "startBlock": 50908086,
+              "endBlock": 50984720
+            },
+            "weth": {
+              "address": "0x0Bd33ee938Fd46EcDb1bea4Afd21538dC8D6BCe1",
+              "startBlock": 50908086,
+              "endBlock": 50984720
+            }
+          }
+        },
+        {
+          "$comment": "The 2026-07-30 full-stack generation, superseded by the 2026-08-06 redeploy. Every address below was re-checked and still has code on chain, so its events remain the only record of trading and liquidity between blocks 50267559 and 50908086. Unlike the generation above this one DID have swap support, so a replay across this range must watch the swap contracts too, not just the engine.",
+          "reason": "superseded by the 2026-08-06 full-stack redeploy",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0xF78d4FC0999A627c47cD783159f810B0B9c11401",
+              "startBlock": 50267559,
+              "endBlock": 50908086
+            },
+            "orderbookFactory": {
+              "address": "0xEeeC4D566FF219665948BDceba9cCac874981E07",
+              "startBlock": 50267559,
+              "endBlock": 50908086
+            },
+            "poolFactory": {
+              "address": "0xb2Fb18D36F02C9044b3EeE93A248B64e6f68c662",
+              "startBlock": 50267559,
+              "endBlock": 50908086
+            },
+            "positionManager": {
+              "address": "0xaaC7Cb17b1c93788eB8F5279AEF25A34A89335Bc",
+              "startBlock": 50267559,
+              "endBlock": 50908086
+            },
+            "swapRouter": {
+              "address": "0x8778F5718fed80E3bB9e357C9c390A7A47EC8fad",
+              "startBlock": 50267559,
+              "endBlock": 50908086
+            },
+            "poolImplementation": {
+              "address": "0x6A406d63e75DbFe3118e164876bD45EEAAD1139d",
+              "startBlock": 50267559,
+              "endBlock": 50908086
+            },
+            "weth": {
+              "address": "0xa9D16D38B46E138B6E573C4B51882A5853829dF7",
+              "startBlock": 50267559,
+              "endBlock": 50908086
+            }
+          }
+        },
+        {
+          "$comment": "Superseded generation, still live on chain. Retained because historical indexing needs it: its events are the only record of trading before block 50267559. Predates swap support entirely \u2014 swapRouter() and poolFactory() revert on it.",
+          "reason": "superseded by the 2026-07-30 full-stack deploy",
+          "contracts": {
+            "matchingEngine": {
+              "address": "0x1D66DF6CB430806402cd561da04CEd724B630219",
+              "startBlock": 14041677,
+              "endBlock": 50267559
+            }
+          }
+        }
+      ],
+      "config": {
+        "$comment": "On-chain values read back after deployment, DENOM-scaled at 1e8.",
+        "marketSpread": 100000,
+        "limitSpread": 3000000,
+        "makerFee": 0,
+        "takerFee": 100000,
+        "poolFeeShare": 50000000,
+        "matchedPriceReporting": false,
+        "matchedPriceReportingNote": "marketSpread (0.1%) is narrower than a typical LP slippage tier (5%), so the rail clamps every pool fill and lmp records the rail rather than the price the swap traded at. Deliberate \u2014 see contracts/test/swap/DeploymentWiring.t.sol.",
+        "blockTimeSeconds": 1,
+        "blockTimeNote": "Measured over 1000 blocks. The per-block spread rail saturates the 5% tier bound in ~49 blocks, which on a 1s chain is ~49 seconds rather than the ~586s it would take on a 12s chain \u2014 the rail provides materially less protection here than its configuration implies.",
+        "quoteWrapsNative": true,
+        "quoteWrapsNativeNote": "RISE quotes in WETH while gas is ETH, so funding needs a wrap \u2014 and `addPair` creates no Pool when a leg is a wrapped native, which is why this chain has no band pools at all."
+      },
+      "deployment": {
+        "script": "contracts/script/exchange/RiseTestnet.s.sol:DeployExchangeMainnetContracts",
+        "deployedAtBlock": 52471309,
+        "deployedAt": "2026-08-24T00:00:00Z",
+        "feeTo": "0xF8FB4672170607C95663f4Cc674dDb1386b7CfE0",
+        "verifiedOnChain": true,
+        "$comment": "Deployed from a clean worktree at commit ce87d65 -- the main checkout carried another session's uncommitted PositionDescriptor work and forge compiles the working tree."
+      }
+    }
+  },
+  "missing": {
+    "6343": {
+      "name": "MegaETH Testnet",
+      "chainId": 6343,
+      "tokenListClaims": {
+        "matchingEngine": "0x8E9e786f757B881C7B456682Ae7D2a06820220b1",
+        "startBlock": 8105541
+      },
+      "finding": "eth_getCode returns 0x; nonce 0; balance 0 \u2014 the address has never been used. Verified against https://carrot.megaeth.com/rpc at head block 25648258.",
+      "severity": "low",
+      "severityReason": "Not in `supportedChains`, so nothing routes to it today."
+    },
+    "10143": {
+      "name": "Monad Testnet",
+      "chainId": 10143,
+      "tokenListClaims": {
+        "matchingEngine": "0x6A79A3176e61f43ef84baB46209Cc97803c4a143",
+        "startBlock": 20186566
+      },
+      "finding": "eth_getCode returns 0x; nonce 0; balance 0 \u2014 the address has never been used. Verified against https://testnet-rpc.monad.xyz at head block 49203512.",
+      "severity": "high",
+      "severityReason": "Monad Testnet is in apps/web `supportedChains`, the live rollout allowlist, so the app offers trading on a chain whose matching engine does not exist."
+    },
+    "$comment": "Chains that @iter/token-list claims a matching engine for, where the address has NO CODE on the live chain. Recorded rather than deleted so the discrepancy stays visible instead of being rediscovered. These are deliberately absent from `chains` \u2014 resolving them would hand callers an address that has never existed, which is what the token list currently does."
+  }
+}

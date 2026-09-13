@@ -1,0 +1,101 @@
+# Welcome to Iter Orderbook Kit
+
+This is a UI library for Iter Exchange. Our library provides a set of reusable components designed to help you build consistent and high-quality user interfaces for your applications when you want to integrate orderbook exchange.
+
+## Features
+
+- **Reusable Components**: A collection of components that can be used across different projects.
+- **Customizable**: Easily customize the components to fit your design needs.
+- **Responsive Design**: Components are designed to be responsive and work on various screen sizes.
+- **Accessibility**: Built with accessibility in mind to ensure a great experience for all users.
+
+## Design System Architecture
+
+Our UI components follow Atomic Design principles, organizing elements from smallest to largest:
+
+### Atoms
+
+The smallest building blocks of our interface:
+
+- Buttons
+- Input fields
+- Labels
+- Icons
+- Typography elements
+
+### Molecules
+
+Groups of atoms working together, This could be a static component to show list of multiple atoms:
+
+- Search bars (input + button)
+- Form fields (label + input)
+- Menu items (icon + text)
+- Price displays (label + value)
+- Order Lists (order item + order item)
+
+### Organisms
+
+Complex UI components combining molecules, this is the level where state logics from React hooks are included. Tests for hook state managements are done with:
+
+- Order entry forms
+- Price charts
+- Order books
+- Trading pairs selector
+- Navigation bars
+- Modals
+
+### Templates(Features)
+
+Page-level layouts that arrange organisms, each template takes part of a page and has a UX to test with:
+
+- Tradingview Chart Feature
+- User Balance Graph Feature
+- Pair Search Feature
+- Limit/Market Order Feature
+
+### Pages
+
+Specific instances of templates with real content, one page which is shown on browser once deployed:
+
+- Spot trading page
+- User portfolio page
+- Market overview page
+- Order history page
+
+## Getting Started
+
+To get started with the Iter Orderbook Kit, follow the instructions below:
+
+1. **Installation**: Install the library using pnpm or yarn.
+
+   ```sh
+   pnpm install @iter/orderbook-kit
+   # or
+   yarn add @iter/orderbook-kit
+
+   ```
+
+2. **Usage**: Import the components you need into your project.
+
+   ```javascript
+   import { Button, Card } from '@iter/orderbook-kit';
+
+   const App = () => (
+     <div>
+       <Button>Click Me</Button>
+       <Card title="Card Title">Card Content</Card>
+     </div>
+   );
+
+   export default App;
+   ```
+
+## Documentation
+
+For detailed documentation and examples, please visit our [repository](https://github.com/iter-cx/iter-monorepo).
+
+## Contributing
+
+We welcome contributions from the community. If you would like to contribute, please read our [contributing guidelines](https://github.com/iter-cx/iter-monorepo/blob/main/CONTRIBUTING.md).
+
+Thank you for using Iter Orderbook Kit!
