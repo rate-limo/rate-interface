@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
 import { useEffect, useState } from "react";
 import type { SwapQuote, SwapToken } from "./types";
@@ -123,7 +124,7 @@ export function useRouteQuote(args: {
           tokenOut: args.get.address,
           amountIn: String(args.amountIn),
         });
-        const response = await fetch(`/api/gateway/swap/route?${query}`, { signal: controller.signal });
+        const response = await gatewayFetch(`/api/gateway/swap/route?${query}`, { signal: controller.signal });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error ?? "Could not quote swap");
         // The gateway answers "these two tokens have no market" as a 200 carrying

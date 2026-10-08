@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -16,7 +17,7 @@ interface PairToken {
 }
 
 async function fetchTokens(url: string): Promise<PairToken[]> {
-  const response = await fetch(url);
+  const response = await gatewayFetch(url);
   if (!response.ok) throw new Error(`Could not load swap markets (${response.status})`);
   const body = await response.json();
   return Array.isArray(body.tokens) ? body.tokens : [];

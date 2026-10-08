@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { parseUnits } from "viem";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { formatUnits, parseUnits } from "viem";
 import { useAccount } from "wagmi";
 import { toast } from "sonner";
 import { Check, Copy, ExternalLink } from "lucide-react";
@@ -18,6 +18,7 @@ import { useDepositAssets, type DepositCandidate } from "@/hooks/useDepositAsset
 import { CrossChainSources } from "./CrossChainSources";
 import {
   defaultDepositAssets,
+  settlementAddresses,
   needsAddress,
   searchDepositAssets,
   type AssetTrust,
@@ -34,9 +35,15 @@ import {
   FUNDING_STEP_LABEL,
   type DiscoveredWallet,
 } from "@/lib/wallet/externalFunding";
+import {
+  maxDepositable,
+  paysItsOwnGas,
+  transferGasLimit,
+} from "@/lib/wallet/depositMax";
 import { requestWalletConnect } from "@/lib/wallet/connectGate";
 import { useWalletPrompt } from "@/hooks/useWalletPrompt";
 import { useTransferConfirmation } from "@/hooks/useTransferConfirmation";
+import { gasSymbol } from "@/lib/chains/gasToken";
 
 /**
  * Where to send gas, as a QR code and as text.
@@ -116,6 +123,8 @@ export function DepositPanel({
   open,
   onDone,
   onChainChange,
+  onAssetChange,
+  initialAsset,
 }: {
   /** What to deposit. `null` renders nothing — the dialog uses that to stay closed. */
   open: boolean;
@@ -130,6 +139,17 @@ export function DepositPanel({
    * Lifting the answer is cheaper than lifting the whole selection.
    */
   onChainChange?: (chainId: number | null) => void;
+  /** The asset now on screen, so the transfer list below can narrow to it. */
+  onAssetChange?: (symbol: string | undefined) => void;
+  /**
+   * Preselect this symbol, from `/deposit?asset=`.
+   *
+   * What the portfolio's per-asset Deposit button carries. It PRESELECTS and
+   * nothing more: the asset list stays rendered and stays changeable, which is
+   * the difference from the `?chainId=` this page removed — that one made the
+   * screen consider itself settled and hid the list entirely.
+   */
+  initialAsset?: string;
 }) {
   const { address } = useAccount();
   // The operator's uploaded chain mark. Rendering the chain AS a token is the
@@ -187,8 +207,43 @@ export function DepositPanel({
    * person who wants to move money in and has not yet decided what.
    */
   const { assets, isLoading: assetsLoading } = useDepositAssets();
+
+  /**
+   * The addresses the DEPLOYMENT itself vouches for, lowercased.
+   *
+   * Every served chain's settlement asset — `weth` in the registry, which on
+   * Arc is USDC at 0x3600…0000 and is the same funds as the gas token. These
+   * are offered without waiting for `verified`, which means "graduated" and is
+   * false for everything on a chain that has just been deployed.
+   *
+   * From `@iter/deployments`, never from the indexer or a symbol match: the
+   * point is an identity nobody can mint into.
+   */
+  const settlement = useMemo(() => settlementAddresses(), []);
   const [assetSearch, setAssetSearch] = useState("");
   const [chosenAsset, setChosenAsset] = useState<DepositCandidate | null>(null);
+
+  /*
+   * Honour `?asset=` once, and only while nothing is chosen.
+   *
+   * Guarded on `chosenAsset === null` so it cannot fight the user: picking a
+   * different asset must stick, and re-running this on every render of a page
+   * whose URL still says USDC would drag them back. A symbol the venue does not
+   * serve matches nothing and leaves the list open, so a stale link degrades to
+   * the normal screen rather than to an error.
+   *
+   * Case-insensitive because the symbol arrives from a URL somebody may have
+   * typed or lowercased on the way.
+   */
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (preselected.current || chosenAsset || !initialAsset || assets.length === 0) return;
+    const wanted = initialAsset.trim().toLowerCase();
+    const match = assets.find((a) => a.token.symbol?.toLowerCase() === wanted);
+    if (!match) return;
+    preselected.current = true;
+    setChosenAsset(match);
+  }, [assets, chosenAsset, initialAsset]);
 
 
   const offered = wagmiChains.filter((c) => visibleChains.includes(c.name));
@@ -248,6 +303,16 @@ export function DepositPanel({
   useEffect(() => {
     onChainChange?.(settled ? (activeChainId ?? null) : null);
   }, [settled, activeChainId, onChainChange]);
+
+  // Same gate as the chain: reported only once an asset is actually SETTLED,
+  // so the list is not narrowed by an inference the user never made.
+  useEffect(() => {
+    // NOT `symbol`: that falls back to the sentence "the network's gas asset"
+    // for display, and passing a sentence as a filter matches no row and
+    // empties the list. Only a real ticker narrows it; anything else widens.
+    const ticker = chosenAsset?.token.symbol ?? chain?.nativeCurrency.symbol;
+    onAssetChange?.(settled ? ticker : undefined);
+  }, [settled, chosenAsset, chain, onAssetChange]);
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   /**
@@ -391,6 +456,42 @@ export function DepositPanel({
     }
   }, [preflight, chain, amount, chosenAsset]);
 
+  /**
+   * What the connected wallet holds, and the most of it that can actually be
+   * sent.
+   *
+   * The panel already read the balance for `short` above and showed the user
+   * none of it — so the amount field was a blank box with no indication of what
+   * was available, and the only way to discover a shortfall was to type past it.
+   *
+   * Max is not simply the balance. On Arc the gas asset IS USDC, so depositing
+   * USDC pays for itself: a Max of the whole balance produces an amount the
+   * wallet then refuses. `maxDepositable` holds back a deliberately generous
+   * gas reserve, scaling between the 18-decimal gas view and the 6-decimal
+   * ERC-20 one — see that module for why the scaling is written out rather than
+   * assumed.
+   */
+  const spendable = useMemo(() => {
+    if (!preflight || !chain) return null;
+    const decimals = chosenAsset ? chosenAsset.token.decimals : chain.nativeCurrency.decimals;
+    const max = maxDepositable({
+      held: preflight.held,
+      // Symbol against the REGISTRY, never a hardcoded list: Arc's gas asset is
+      // USDC and no such list contains it.
+      paysGas: paysItsOwnGas(symbol, chain.nativeCurrency.symbol),
+      gasPrice: preflight.gasPrice,
+      gasLimit: transferGasLimit(Boolean(chosenAsset && !chosenAsset.native)),
+      nativeDecimals: chain.nativeCurrency.decimals,
+      assetDecimals: decimals,
+    });
+    return {
+      held: formatUnits(preflight.held, decimals),
+      max: formatUnits(max, decimals),
+      /** True when gas was held back, so the UI can say why Max < balance. */
+      reserved: max < preflight.held,
+    };
+  }, [preflight, chain, chosenAsset, symbol]);
+
   const fundingToken = useMemo(
     () =>
       chosenAsset && !chosenAsset.native
@@ -526,13 +627,22 @@ export function DepositPanel({
                 const searching = assetSearch.trim().length > 0;
                 const rows = searching
                   ? searchDepositAssets(assets.map((a) => a.token), assetSearch)
-                  : defaultDepositAssets(assets.map((a) => a.token));
+                  : defaultDepositAssets(assets.map((a) => a.token), settlement);
                 // Back to the candidate, which is what carries the chain.
                 const byId = new Map(assets.map((a) => [a.token.id, a]));
                 if (rows.length === 0 && !assetsLoading) {
                   return (
                     <p className="py-4 text-center text-[12px] text-[color:var(--m-text-secondary)]">
-                      {searching ? "No token matches that." : "No assets available yet."}
+                      {searching
+                        ? "No token matches that."
+                        : assets.length > 0
+                          ? // Curated is empty but the venue is not. On a chain
+                            // where nothing has graduated yet this was the whole
+                            // screen, and "No assets available yet" is false —
+                            // every one of them is a search away, which is what
+                            // the curation intends and what this now says.
+                            "Nothing is listed yet. Search by name, or paste an address."
+                          : "No assets available yet."}
                     </p>
                   );
                 }
@@ -624,7 +734,7 @@ export function DepositPanel({
                       {option.name}
                     </span>
                     <span className="font-dm-mono text-[10.5px] text-[color:var(--m-text-secondary)]">
-                      Fees in {option.nativeCurrency.symbol}
+                      Fees in {gasSymbol(option.id, option.nativeCurrency.symbol)}
                     </span>
                   </div>
                 </button>
@@ -691,8 +801,8 @@ export function DepositPanel({
             connected — the order this section needs, and the reverse of the
             list above it.
 
-            The asset list is what THIS wallet could receive on Iter's chains.
-            This is where that same asset already sits, on chains Iter does not
+            The asset list is what THIS wallet could receive on Rate's chains.
+            This is where that same asset already sits, on chains Rate does not
             serve and should not start serving. It renders nothing until an
             operator has proved a route, so on a fresh deployment the panel is
             exactly what it was. */}
@@ -783,7 +893,31 @@ export function DepositPanel({
               <span className="shrink-0 font-dm-mono text-[12px] text-[color:var(--m-text-secondary)]">
                 {symbol}
               </span>
+              {/* Only once a wallet is connected: before that there is no
+                  balance to name, and a Max button with nothing behind it is a
+                  control that does nothing. */}
+              {externalAccount && spendable && (
+                <button
+                  type="button"
+                  onClick={() => setAmount(spendable.max)}
+                  className="shrink-0 rounded-lg border border-[color:var(--m-border)] px-2 py-1 font-dm-mono text-[11px] text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]"
+                >
+                  Max
+                </button>
+              )}
             </label>
+            {externalAccount && spendable && (
+              <p className="px-1 font-dm-mono text-[11px] text-[color:var(--m-text-secondary-2)]">
+                Balance{" "}
+                <span className="tabular-nums text-[color:var(--m-text-secondary)]">
+                  {spendable.held} {symbol}
+                </span>
+                {/* Say WHY Max is short of the balance, rather than leaving a
+                    discrepancy the user has to work out. On Arc this is the
+                    normal case, not an edge one. */}
+                {spendable.reserved && <> · Max leaves a little {symbol} for gas</>}
+              </p>
+            )}
             {prompt.stage === "idle" && !externalAccount ? (
               /* STEP ONE — connect, by picking the wallet to connect WITH.
                  
@@ -1133,7 +1267,7 @@ export function DepositPanel({
         {/* TWO different things are called a wallet on this screen, and this
             block is about the one people were not reading it as.
 
-            Funds arrive in the Iter ACCOUNT — a passkey wallet, the destination,
+            Funds arrive in the Rate ACCOUNT — a passkey wallet, the destination,
             and the thing whose address the QR encodes. They are sent FROM a
             browser extension, chosen a few lines above. "No wallet is connected"
             named neither, so someone who had just connected MetaMask to deposit
@@ -1149,7 +1283,7 @@ export function DepositPanel({
               Sign in to see your deposit address
             </p>
             <p className="text-[11.5px] leading-relaxed text-[color:var(--m-text-secondary)]">
-              Deposits land in your Iter account, so its address is what this page shows —
+              Deposits land in your Rate account, so its address is what this page shows —
               and a passkey unlocks it. The outside wallet you send from is a separate
               choice, made after that.
             </p>

@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { findChain } from "@iter/deployments";
+import { applyChainOverrides, parseChainOverrides, type ChainDisplayOverrides } from "./overrides";
 import { AggregatorLink, supportedChains } from "@/consts";
 
 /**
@@ -34,12 +35,9 @@ import { AggregatorLink, supportedChains } from "@/consts";
  * A chain with no override, or a `null` one, is simply absent from the response
  * — silence and "use the default" are the same instruction.
  */
-export interface ChainDisplayOverrides {
-  /** chainId (as a string key) -> shown. Only explicit decisions appear. */
-  overrides: Record<string, boolean>;
-}
-
-const NONE: ChainDisplayOverrides = { overrides: {} };
+// The rule itself lives in ./overrides, with no "use client", so the server can
+// apply the same one — see that module.
+export { applyChainOverrides, type ChainDisplayOverrides };
 
 export function useChainDisplayOverrides() {
   return useQuery({
@@ -49,41 +47,12 @@ export function useChainDisplayOverrides() {
     staleTime: 15_000,
     queryFn: async (): Promise<ChainDisplayOverrides> => {
       const response = await fetch("/chains/display");
-      if (!response.ok) return NONE;
-      const body: unknown = await response.json().catch(() => null);
-      if (!body || typeof body !== "object") return NONE;
-      const raw = (body as Partial<ChainDisplayOverrides>).overrides;
-      if (!raw || typeof raw !== "object") return NONE;
-
-      const overrides: Record<string, boolean> = {};
-      for (const [key, value] of Object.entries(raw)) {
-        if (typeof value === "boolean") overrides[key] = value;
-      }
-      return { overrides };
+      if (!response.ok) return parseChainOverrides(null);
+      return parseChainOverrides(await response.json().catch(() => null));
     },
   });
 }
 
-/**
- * Apply the overrides to a list of network NAMES.
- *
- * Pure and exported so it can be tested without a query client — the filtering
- * rule is the part worth pinning, not the fetch.
- */
-export function applyChainOverrides(
-  names: readonly string[],
-  overrides: Record<string, boolean>,
-): string[] {
-  return names.filter((name) => {
-    const chain = findChain(name);
-    // A name the registry cannot resolve is left alone rather than dropped: it
-    // shipped in `supportedChains`, and silently removing it here would hide a
-    // chain for a reason no operator chose.
-    if (!chain) return true;
-    const override = overrides[String(chain.chainId)];
-    return override === undefined ? true : override;
-  });
-}
 
 /**
  * Which chains the AGGREGATOR is actually fanning out to.

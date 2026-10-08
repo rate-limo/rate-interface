@@ -126,7 +126,7 @@ export function chainIconFrom(
  *
  * `chainIconFrom` resolves a name through `findChain`, which reads
  * `@iter/deployments` — so it answers only for chains this venue trades on. The
- * cross-chain deposit list names two dozen chains Circle bridges and Iter does
+ * cross-chain deposit list names two dozen chains Circle bridges and Rate does
  * not serve (Arbitrum Sepolia, Polygon Amoy, …), and `findChain` returns
  * undefined for every one of them.
  *

@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { BookMarked, Star, Trash2, Users } from "lucide-react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { BookMarked, History as HistoryIcon, Star, Trash2, Users } from "lucide-react";
 import { useAccount } from "wagmi";
 import { cn } from "@/lib/utils";
 import { useFollowing } from "@/hooks/useFollowing";
+import {
+  MAX_RECENT_RECIPIENTS,
+  recentRecipients,
+  subscribeTransfers,
+  transfersServerSnapshot,
+  transfersSnapshot,
+} from "@/lib/transfer/history";
 import {
   labelFor,
   readBook,
@@ -15,7 +22,7 @@ import {
   type SavedAddress,
 } from "@/lib/transfer/addressBook";
 
-type Tab = "saved" | "following";
+type Tab = "saved" | "recent" | "following";
 
 /**
  * Where to send, chosen instead of typed.
@@ -36,6 +43,12 @@ type Tab = "saved" | "following";
  * merge, so a name you wrote can never be confused with a name someone else
  * did.
  */
+const SEARCH_LABEL: Record<Tab, string> = {
+  saved: "Search saved addresses",
+  recent: "Search recent addresses",
+  following: "Search people you follow",
+};
+
 export function RecipientPicker({
   networkName,
   onPick,
@@ -65,6 +78,26 @@ export function RecipientPicker({
   };
 
   const needle = query.trim().toLowerCase();
+
+  /*
+   * Recently withdrawn-to addresses, read off the transfer log.
+   *
+   * Subscribed rather than read once: `reportTransfer` notifies this store when
+   * a withdrawal confirms, so an address the user just sent to is in the list
+   * the next time they open the picker — without a reload, and without this
+   * component knowing anything about the withdrawal that produced it.
+   */
+  const log = useSyncExternalStore(subscribeTransfers, transfersSnapshot, transfersServerSnapshot);
+  const recentRows = useMemo(() => {
+    const rows = recentRecipients(log).filter(
+      // Never offer to send to yourself; the panel refuses it a screen later.
+      (a) => !self || a.toLowerCase() !== self.toLowerCase(),
+    );
+    if (!needle) return rows;
+    return rows.filter(
+      (a) => a.toLowerCase().includes(needle) || (labelFor(book, a) ?? "").toLowerCase().includes(needle),
+    );
+  }, [log, self, needle, book]);
   const savedRows = useMemo(
     () =>
       book.filter(
@@ -101,6 +134,10 @@ export function RecipientPicker({
         {(
           [
             ["saved", "Saved", BookMarked],
+            // Between the two on purpose: SAVED is what you named, RECENT is
+            // what you did, FOLLOWING is who you chose. The middle one needs no
+            // upkeep, so it is the tab most people will actually use.
+            ["recent", "Recent", HistoryIcon],
             ["following", "Following", Users],
           ] as const
         ).map(([key, text, Icon]) => (
@@ -125,8 +162,8 @@ export function RecipientPicker({
       <input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder={tab === "saved" ? "Search saved addresses" : "Search people you follow"}
-        aria-label={tab === "saved" ? "Search saved addresses" : "Search people you follow"}
+        placeholder={SEARCH_LABEL[tab]}
+        aria-label={SEARCH_LABEL[tab]}
         className="rounded-lg border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-2.5 py-1.5 text-[12.5px] text-[color:var(--m-text-primary)] outline-none placeholder:text-[color:var(--m-text-secondary-2)] focus:border-[color:var(--m-primary)]"
       />
 
@@ -161,6 +198,49 @@ export function RecipientPicker({
             {book.length === 0
               ? "Nothing saved yet. Send once, then name the address below."
               : "No saved address matches that."}
+          </p>
+        )}
+
+        {tab === "recent" &&
+          recentRows.map((address) => {
+            // A saved NAME is shown when there is one, so the same address does
+            // not read as two different destinations across two tabs.
+            const named = labelFor(book, address);
+            return (
+              <button
+                key={address}
+                type="button"
+                onClick={() => onPick(address)}
+                className="flex min-w-0 flex-col rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--m-surface)]"
+              >
+                {named && (
+                  <span className="truncate text-[12.5px] font-medium text-[color:var(--m-text-primary)]">
+                    {named}
+                  </span>
+                )}
+                {/* The ADDRESS is always shown, named or not. This is where the
+                    money goes, and a label is something an attacker can also
+                    arrange — the same rule the Following tab states. */}
+                <span
+                  className={cn(
+                    "truncate font-dm-mono",
+                    named
+                      ? "text-[10px] text-[color:var(--m-text-secondary)]"
+                      : "text-[12.5px] text-[color:var(--m-text-primary)]",
+                  )}
+                >
+                  {shortenAddress(address)}
+                </span>
+              </button>
+            );
+          })}
+        {tab === "recent" && recentRows.length === 0 && (
+          <p className="py-3 text-center text-[11.5px] text-[color:var(--m-text-secondary)]">
+            {needle
+              ? "No recent address matches that."
+              : "No withdrawals from this browser yet. The last " +
+                MAX_RECENT_RECIPIENTS +
+                " addresses you send to appear here."}
           </p>
         )}
 

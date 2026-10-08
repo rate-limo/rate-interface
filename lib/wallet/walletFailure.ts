@@ -150,7 +150,7 @@ export function describeWalletFailure(
   // meraConnector's own words when the session has ended. The key lives only in
   // memory for the life of a session, so a reload closes it BY DESIGN — this is
   // the most likely failure here and the least self-explanatory.
-  if (/passkey wallet is locked/i.test(message)) {
+  if (/passkey wallet is locked|passkey session has expired/i.test(message) || (error as { code?: unknown })?.code === 4100) {
     // Location-neutral on purpose. This sentence reaches two surfaces: the
     // withdraw panel, which renders a Sign in button beside it, and the swap
     // flow, which shows it in a toast with no control at all. Naming a place
@@ -218,5 +218,8 @@ export function readableLine(text: string, limit = 180): string | null {
  * recoverable state reads as a broken screen.
  */
 export function walletFailureNeedsSignIn(error: unknown): boolean {
-  return /passkey wallet is locked/i.test(messageOf(error));
+  // 4100 is EIP-1193's "unauthorized", and the code the wallet frame answers
+  // with when its stored session has expired — see lib/wallet/frame/protocol.
+  if ((error as { code?: unknown })?.code === 4100) return true;
+  return /passkey wallet is locked|passkey session has expired/i.test(messageOf(error));
 }

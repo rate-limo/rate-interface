@@ -74,6 +74,139 @@ export const BRIDGE_STEP_LABEL: Record<BridgeStep, string> = {
 };
 
 /**
+ * The SDK's OWN step names, in human words.
+ *
+ * `BRIDGE_STEP_LABEL` above is this module's vocabulary, reported upward to
+ * drive the button. This map is different: it translates what the SDK calls the
+ * step that FAILED, which is not the same set. `batch` is the one that made this
+ * necessary — bridge-kit bundles approve+burn into a single EIP-5792
+ * `wallet_sendCalls` when the wallet supports it, and calls that step `batch`.
+ * So a real failure reached the screen as "(stopped at batch)", a word that
+ * appears nowhere in this app's UI and means nothing to the person reading it.
+ *
+ * Unknown names fall through to themselves rather than being swallowed: a step
+ * we have not seen is still better named than hidden.
+ */
+const SDK_STEP_PHRASE: Record<string, string> = {
+  batch: "approving and sending",
+  approve: "the approval",
+  burn: "the send",
+  fetchAttestation: "confirmation",
+  mint: "delivery",
+  switchChain: "the network switch",
+};
+
+export function bridgeStepPhrase(name: string): string {
+  return SDK_STEP_PHRASE[name] ?? name;
+}
+
+/**
+ * Is it safe to retry this batch failure on the SEQUENTIAL path?
+ *
+ * Only when the evidence says NOTHING was submitted. A burn that never reached
+ * the chain cannot have moved money, so re-sending it is free; a burn whose fate
+ * is unknown is not, and re-sending that risks bridging twice.
+ *
+ * `errorCategory` is the SDK's own machine-readable classification, which exists
+ * precisely so consumers do not string-match on the message. The categories
+ * below are the ones that state, in the SDK's own documentation, that the batch
+ * did not land:
+ *
+ *   atomic_unsupported  - the wallet cannot batch on this chain at all
+ *   batch_too_large     - the wallet refused the bundle outright
+ *   duplicate_batch_id  - refused before execution
+ *   failed_offchain     - "batch not included onchain, wallet will not retry"
+ *   reverted_onchain    - "batch reverted COMPLETELY onchain" - nothing applied
+ *
+ * Deliberately NOT retried: `partial_reverted` (some calls applied),
+ * `unknown_bundle` and `polling_timeout` (the outcome is genuinely unknown), and
+ * `user_rejected` (a decision, not a failure).
+ *
+ * The `unknown` category is admitted only for messages the NODE rejects before
+ * inclusion — a fee cap under the base fee, intrinsic gas too low, a stale
+ * nonce. Those are refusals to accept a transaction, not outcomes of one. That
+ * is the exact failure this was written for: a fee-cap rejection on Arbitrum
+ * Sepolia's batch step, reported to the user as "Network fees moved while this
+ * was submitting. Try again. (stopped at batch)".
+ */
+const SAFE_TO_RESEND: ReadonlySet<string> = new Set([
+  "atomic_unsupported",
+  "batch_too_large",
+  "duplicate_batch_id",
+  "failed_offchain",
+  "reverted_onchain",
+]);
+
+const NEVER_SUBMITTED = /max fee per gas less than block base fee|fee cap .* lower than|intrinsic gas too low|nonce too low/i;
+
+/** What the SDK reported about the step that failed. */
+export interface FailedStep {
+  name?: string;
+  /** `BridgeStepErrorCategory` — machine-readable, so we need not guess. */
+  category?: string;
+  detail?: string;
+}
+
+/**
+ * Read the failed step off a bridge result.
+ *
+ * Defensive about the shape because it is the SDK's, not ours: a result with no
+ * `steps`, a step with no name, and an `error` that is a string rather than an
+ * Error all have to read as "nothing more to say" instead of throwing inside an
+ * error path, where a second failure would replace a real message with a stack.
+ */
+export function readFailedStep(result: unknown): FailedStep {
+  const steps = (result as {
+    steps?: { name?: string; state?: string; error?: unknown; errorCategory?: string; errorMessage?: string }[];
+  })?.steps;
+  const failed = steps?.find((step) => step.state === "error");
+  if (!failed) return {};
+  const detail =
+    failed.error instanceof Error
+      ? failed.error.message
+      : typeof failed.error === "string"
+        ? failed.error
+        : typeof failed.errorMessage === "string"
+          ? failed.errorMessage
+          : undefined;
+  return { name: failed.name, category: failed.errorCategory, detail };
+}
+
+/**
+ * A sentence for the SDK's error category, where it says more than the message.
+ *
+ * Only the categories a user can act on differently. Everything else returns
+ * null and falls through to `humaniseChainError`, which reads the message —
+ * a category of `unknown` is not a description, and printing it would be worse
+ * than the underlying text.
+ */
+export function categoryPhrase(category: string | undefined): string | null {
+  switch (category) {
+    case "user_rejected":
+      return "You declined the request in your wallet.";
+    case "atomic_unsupported":
+      return "Your wallet cannot sign both steps at once on this network, so they were sent one at a time.";
+    case "polling_timeout":
+      return "Your wallet did not report the result in time. Check it before sending again — the transfer may still be in flight.";
+    case "partial_reverted":
+      return "Part of the transfer went through and part did not. Check your wallet before trying again.";
+    case "unknown_bundle":
+      return "Your wallet lost track of the request. Check it before sending again.";
+    default:
+      return null;
+  }
+}
+
+export function shouldRetrySequentially(
+  category: string | undefined,
+  detail: string | undefined,
+): boolean {
+  if (category && SAFE_TO_RESEND.has(category)) return true;
+  if (category && category !== "unknown") return false;
+  return detail !== undefined && NEVER_SUBMITTED.test(detail);
+}
+
+/**
  * Turn a failure into a sentence.
  *
  * A rejection is reported as a DECISION, not a failure — the same rule
@@ -196,9 +329,9 @@ const SDK_CHAINS: Record<number, SdkChainMeta> = Object.fromEntries(
  * generic "did not complete".
  *
  * `externalFunding.ensureChain` does this already and cannot be reused: its
- * add-chain path reads `wagmiChains`, so it throws "Iter does not serve chain
- * 421614" for every bridge source. Iter does not serve them, and that is the
- * whole point — the money is somewhere Iter does not trade. The metadata comes
+ * add-chain path reads `wagmiChains`, so it throws "Rate does not serve chain
+ * 421614" for every bridge source. Rate does not serve them, and that is the
+ * whole point — the money is somewhere Rate does not trade. The metadata comes
  * from the SDK instead, which carries it for all 25.
  *
  * `eth_chainId` first, because `wallet_switchEthereumChain` is a PROMPT and
@@ -300,14 +433,50 @@ export async function bridgeIn(
       onStep?.("mint");
     });
 
-    const result = await kit.bridge({
-      from: { adapter, chain: from.chain },
-      // `useForwarder: true` as a literal, which is what selects the
-      // adapter-less ForwarderDestination branch. Passing the boolean widens it
-      // and TypeScript then demands a destination adapter.
-      to: { recipientAddress: params.recipient, chain: to.chain, useForwarder: true },
-      amount: params.amount,
-    });
+    const send = (batchTransactions?: boolean) =>
+      kit.bridge({
+        from: { adapter, chain: from.chain },
+        // `useForwarder: true` as a literal, which is what selects the
+        // adapter-less ForwarderDestination branch. Passing the boolean widens
+        // it and TypeScript then demands a destination adapter.
+        to: { recipientAddress: params.recipient, chain: to.chain, useForwarder: true },
+        amount: params.amount,
+        // Omitted on the first attempt, which lets the SDK batch approve+burn
+        // into one wallet prompt where the wallet supports it. `false` forces
+        // the sequential approve -> burn flow.
+        ...(batchTransactions === undefined ? {} : { config: { batchTransactions } }),
+      } as never);
+
+    let result = await send();
+
+    /*
+     * FALL BACK TO THE SEQUENTIAL PATH when the batch failed without landing.
+     *
+     * bridge-kit bundles approve+burn into one EIP-5792 `wallet_sendCalls` when
+     * the wallet advertises support. That path has its own failure surface the
+     * sequential one does not — wallets that claim atomic support and refuse it,
+     * bundles rejected for size, and fee-cap rejections that take the whole
+     * bundle down rather than one call. Measured in the wild: a USDC deposit
+     * from Arbitrum Sepolia died at `batch` on a fee cap under the base fee, and
+     * "try again" retried the same batched path into the same wall.
+     *
+     * Retrying sequentially costs the user a second wallet prompt and is the
+     * SDK's own documented alternative. It runs ONLY when the failure proves
+     * nothing was submitted — see `shouldRetrySequentially`, which refuses on a
+     * partial revert or an unknown outcome, where a second burn would bridge the
+     * money twice.
+     */
+    const firstFailure = readFailedStep(result);
+    if (
+      result.state !== "success" &&
+      firstFailure.name === "batch" &&
+      shouldRetrySequentially(firstFailure.category, firstFailure.detail)
+    ) {
+      if (typeof console !== "undefined") {
+        console.warn("[bridge] batched path failed, retrying sequentially", firstFailure.detail);
+      }
+      result = await send(false);
+    }
 
     if (result.state !== "success") {
       /*
@@ -319,30 +488,26 @@ export async function bridgeIn(
        * The SDK reports per-step state, so the failed step and its message are
        * what the sentence should carry.
        */
-      const steps = (result as { steps?: { name?: string; state?: string; error?: unknown }[] })
-        .steps;
-      const failed = steps?.find((step) => step.state === "error");
-      const detail =
-        failed?.error instanceof Error
-          ? failed.error.message
-          : typeof failed?.error === "string"
-            ? failed.error
-            : undefined;
-      if (failed?.name) {
+      const failed = readFailedStep(result);
+      const detail = failed.detail;
+      if (failed.name) {
+        const where = bridgeStepPhrase(failed.name);
         if (detail) {
-          const said = humaniseChainError(detail);
+          // The SDK's own classification first — it exists so consumers do not
+          // string-match on the message — then our reading of the message.
+          const said = categoryPhrase(failed.category) ?? humaniseChainError(detail);
           if (typeof console !== "undefined") console.warn("[bridge]", failed.name, detail);
           return {
             ok: false,
-            // The step name goes FIRST when we have a sentence for the cause, so
-            // "approve" and "burn" failing are distinguishable without the user
-            // having to read a fee cap in wei to tell them apart.
+            // The cause goes FIRST when we have a sentence for it, so two steps
+            // failing are distinguishable without the user having to read a fee
+            // cap in wei to tell them apart.
             reason: said
-              ? `${said} (stopped at ${failed.name})`
-              : `The transfer stopped at ${failed.name}: ${firstLine(detail)}`,
+              ? `${said} (stopped while ${where})`
+              : `The transfer stopped while ${where}: ${firstLine(detail)}`,
           };
         }
-        return { ok: false, reason: `The transfer stopped at ${failed.name}.` };
+        return { ok: false, reason: `The transfer stopped while ${where}.` };
       }
       return { ok: false, reason: "The bridge did not complete." };
     }

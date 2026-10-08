@@ -14,6 +14,10 @@ export function WithdrawView() {
   // which nothing set — so the guard was on this page and inert.
   const [chainId, setChainId] = useState<number | null>(null);
   const onChainChange = useCallback((next: number | null) => setChainId(next), []);
+  /* Lifted for the same reason the chain is: the panel chooses the asset, and
+     the transfer list below has no other way to know which one is on screen. */
+  const [symbol, setSymbol] = useState<string | undefined>(undefined);
+  const onAssetChange = useCallback((next: string | undefined) => setSymbol(next), []);
 
   useEffect(() => {
     openWithdraw();
@@ -23,9 +27,14 @@ export function WithdrawView() {
   return (
     <TransferShell
       chainId={chainId ?? undefined}
-      below={<TransferHistory />}
+      below={<TransferHistory symbol={symbol} />}
     >
-      <WithdrawPanel open={open} onDone={() => undefined} onChainChange={onChainChange} />
+      <WithdrawPanel
+        open={open}
+        onDone={() => undefined}
+        onChainChange={onChainChange}
+        onAssetChange={onAssetChange}
+      />
     </TransferShell>
   );
 }

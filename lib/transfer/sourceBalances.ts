@@ -43,14 +43,24 @@ import * as bridgeKit from "@circle-fin/bridge-kit";
  * ask", which must never read as "you cannot pay".
  */
 
-interface SdkChain {
+export interface SdkChain {
   chainId: number;
+  /** Human name, e.g. "Arbitrum Sepolia" — for anything user-facing. */
+  name: string;
   usdcAddress: string;
   rpcEndpoints: string[];
   nativeCurrency: { symbol: string; decimals: number };
 }
 
-function sdkChains(): Map<number, SdkChain> {
+/**
+ * The CCTP chains the SDK knows, by chain id.
+ *
+ * Exported because the deposit CLAIM needs the same set. A user pasting a hash
+ * for a bridge they just made has the hash of the SEND, which is on a chain
+ * this venue does not serve and wagmi therefore has no client for — see
+ * `ClaimDeposit`. The RPC endpoints here are the only way to reach it.
+ */
+export function sdkChains(): Map<number, SdkChain> {
   const out = new Map<number, SdkChain>();
   for (const value of Object.values(bridgeKit as Record<string, unknown>)) {
     const c = value as Partial<SdkChain> & { cctp?: unknown };
@@ -58,6 +68,7 @@ function sdkChains(): Map<number, SdkChain> {
       c &&
       typeof c === "object" &&
       typeof c.chainId === "number" &&
+      typeof c.name === "string" &&
       typeof c.usdcAddress === "string" &&
       Array.isArray(c.rpcEndpoints) &&
       c.rpcEndpoints.length > 0 &&
@@ -66,6 +77,7 @@ function sdkChains(): Map<number, SdkChain> {
     ) {
       out.set(c.chainId, {
         chainId: c.chainId,
+        name: c.name,
         usdcAddress: c.usdcAddress,
         rpcEndpoints: c.rpcEndpoints,
         nativeCurrency: c.nativeCurrency,

@@ -1,26 +1,45 @@
 "use client";
 
 /**
- * The embedded signer, on mera.
+ * The passkey ceremony, on the APP origin.
  *
- * A passkey's WebAuthn PRF output is 32 secret bytes; mera uses them as a
- * secp256k1 private key and `toViemAccount` adapts the signing session into a
- * viem `LocalAccount`. So the account is self-custodial with no smart-account
- * contract and no service holding key material — which is what
- * `apps/web/CLAUDE.md` has described the OG Pass benefit as since before there
- * was an implementation for it.
+ * A passkey's WebAuthn PRF output is 32 secret bytes, and mera treats them as
+ * a secp256k1 private key. This module runs the ceremony and returns those
+ * bytes to the connector, which hands them straight to the wallet frame
+ * (`lib/wallet/frame`) and zeroes its copy. That is the whole of what the
+ * app origin does with the key now:
  *
- * ## What is secret, and what is merely a pointer
+ *   - it does NOT derive the address — the frame does;
+ *   - it does NOT persist the key — the frame does, on its own origin, under
+ *     a non-extractable wrapping key (`meraSession.ts`);
+ *   - it does NOT sign — every signature is a request to the frame, which
+ *     decides whether the request may be signed silently (`frame/policy.ts`).
  *
- * `prfOutput` IS the private key. It is never written anywhere — not
- * localStorage, not a cookie, not a log line — and only ever lives in the
- * signing session, which zeroes its copy on `end()`.
+ * ## Why the ceremony stays here rather than moving into the frame
  *
- * What IS persisted is the credential POINTER: the credential id, its
- * transports, and the salt. None of them can produce a key without the
- * authenticator, and all three are needed to ask for the same PRF output again
- * on the next visit. Losing them does not lose the account — the passkey can be
- * re-selected — but it does mean prompting the user to pick their credential.
+ * WebAuthn in a cross-origin iframe needs a user gesture INSIDE that frame,
+ * and the app has thirteen "Connect" entry points that are ordinary buttons on
+ * the app's own origin. Moving the ceremony would turn each of those into a
+ * two-step (open a dialog, click again inside the frame), and the brief for
+ * this change was that nothing about the experience moves. So the tap
+ * happens exactly where it did, and the bytes leave this origin one
+ * `postMessage` later.
+ *
+ * Read that trade honestly: script on iter.cx that is present at the moment
+ * of the tap can hook `navigator.credentials.get` and read the PRF output.
+ * Script present at any OTHER moment — which is every moment for the 24 hours
+ * a session lasts — gets nothing, where before it got the key from storage.
+ * Closing the remaining window means the click has to land on the wallet
+ * origin, which is the dialog-only design recorded in the custody doc.
+ *
+ * ## What is a pointer, and stays here
+ *
+ * The credential POINTER — credential id, transports, salt — in localStorage
+ * in the clear, on THIS origin. None of it can produce a key without the
+ * authenticator; all of it is needed to ask for the same PRF output again.
+ * Losing it does not lose the account, it just means picking the passkey
+ * from a list. It stays on the app origin because the ceremony that needs it
+ * does.
  *
  * ## The salt is load-bearing and must never change
  *
@@ -32,29 +51,25 @@
  *
  * ## Passkeys are origin-bound, and that is visible in the address
  *
- * WebAuthn scopes a credential to an rpId. `localhost` and `iter.cx` are
- * different origins, so the same human gets DIFFERENT accounts on each — a dev
- * build cannot spend what production holds. Expect this while testing; it is
- * the platform's rule, not a bug here.
+ * WebAuthn scopes a credential to an rpId — this origin's hostname. `localhost`
+ * and `iter.cx` are different origins, so the same human gets DIFFERENT
+ * accounts on each. The wallet frame's origin plays no part in this: the
+ * ceremony is here, so the rpId is the app's.
  *
  * ## Mera is 0.2.0 / preview
  *
- * This is key derivation: a defect loses funds irreversibly and silently, which
- * is not the failure mode of an ordinary dependency. The version is pinned and
- * the module is kept small and readable for that reason.
+ * This is key derivation: a defect loses funds irreversibly and silently. The
+ * version is pinned and the module is kept small and readable for that reason.
  */
 
 import {
   MeraError,
   createPasskeyWithPrfOutput,
-  createSecp256k1SigningSession,
   getPasskeyPrfOutput,
   type PasskeyCredentialTransport,
-  type Secp256k1SigningSession,
 } from "@category-labs/mera";
-import { toViemAccount } from "@category-labs/mera/viem";
 import { hintedWebAuthnClient, prfKnownUnavailable } from "./webauthnClient";
-import type { LocalAccount } from "viem";
+import { walletFrame } from "./frame/client";
 
 /** Storage key. Has a row in /cookies, as every key in this app must. */
 const CREDENTIAL_KEY = "iter.mera-credential";
@@ -89,8 +104,7 @@ function readCredential(): StoredCredential | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredCredential;
     // Validated on the way OUT as well as in: a hand-edited value must read as
-    // "no credential" rather than be forwarded into WebAuthn. Same rule the
-    // support-ticket store follows.
+    // "no credential" rather than be forwarded into WebAuthn.
     if (parsed?.v !== 1 || typeof parsed.credentialId !== "string" || typeof parsed.salt !== "string") {
       return null;
     }
@@ -116,16 +130,9 @@ export function forgetMeraCredential(): void {
   } catch {
     // A browser refusing storage is not a reason to fail a sign-out.
   }
-}
-
-export type MeraSigner = {
-  account: LocalAccount<"mera">;
-  /** Zeroes the in-memory key copy. Signing after this throws SESSION_ENDED. */
-  end: () => void;
-};
-
-function toSigner(session: Secp256k1SigningSession): MeraSigner {
-  return { account: toViemAccount(session), end: () => session.end() };
+  // Forgetting WHICH passkey must also drop the resumable key, or the next load
+  // silently resumes an account the user just asked this browser to forget.
+  void walletFrame.disconnect().catch(() => {});
 }
 
 /**
@@ -133,8 +140,7 @@ function toSigner(session: Secp256k1SigningSession): MeraSigner {
  *
  * Read from the live host rather than configured, so localhost, a preview
  * deployment and production each stay in their own credential space
- * automatically. A hardcoded value would either break previews or, worse,
- * silently mint a credential the browser then refuses to return.
+ * automatically.
  */
 function rpId(): string {
   return window.location.hostname;
@@ -143,14 +149,13 @@ function rpId(): string {
 /**
  * Create the account. Prompts for a new passkey, so it needs a user gesture.
  *
+ * Returns the PRF output — the private key — and NOTHING else has been done
+ * with it. The caller's job is to hand it to the frame and zero it.
+ *
  * `name` is what the authenticator shows when the user picks a passkey later,
- * so it wants to be something they recognise — their email from the Privy
- * session, not an address.
+ * so it wants to be something they recognise.
  */
-export async function createMeraSigner(user: {
-  name: string;
-  displayName?: string;
-}): Promise<MeraSigner> {
+export async function createPasskeyKey(user: { name: string; displayName?: string }): Promise<Uint8Array> {
   // Asked BEFORE the ceremony, because mera can only learn PRF is missing after
   // `navigator.credentials.create()` has already stored a credential — one this
   // app can never use, one more on every retry, and none of them removable from
@@ -163,7 +168,7 @@ export async function createMeraSigner(user: {
   }
 
   const result = await createPasskeyWithPrfOutput({
-    rp: { id: rpId(), name: "Iter" },
+    rp: { id: rpId(), name: "Rate" },
     user: { name: user.name, displayName: user.displayName ?? user.name },
     prfSalt: PRF_SALT,
     // Adds `hints` so the browser ASKS where to save instead of diving into the
@@ -185,16 +190,16 @@ export async function createMeraSigner(user: {
     // session; the next visit simply has to ask which passkey to use.
   }
 
-  return toSigner(createSecp256k1SigningSession({ privateKey: result.prfOutput }));
+  return result.prfOutput;
 }
 
 /**
  * Unlock the existing account. Prompts the authenticator, so it needs a user
  * gesture too. Returns null when this browser has no stored pointer — the
- * caller should offer `createMeraSigner` or a credential picker instead of
+ * caller should offer `createPasskeyKey` or a credential picker instead of
  * treating that as an error.
  */
-export async function unlockMeraSigner(): Promise<MeraSigner | null> {
+export async function unlockPasskeyKey(): Promise<Uint8Array | null> {
   const stored = readCredential();
   if (!stored) return null;
 
@@ -207,5 +212,5 @@ export async function unlockMeraSigner(): Promise<MeraSigner | null> {
     webAuthnClient: hintedWebAuthnClient,
   });
 
-  return toSigner(createSecp256k1SigningSession({ privateKey: result.prfOutput }));
+  return result.prfOutput;
 }

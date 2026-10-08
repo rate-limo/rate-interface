@@ -1,16 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ExternalLink } from "lucide-react";
 import { wagmiChains } from "@/lib/customChains";
-import {
-  forChain,
-  subscribeTransfers,
-  transfersServerSnapshot,
-  transfersSnapshot,
-  type TransferRecord,
-} from "@/lib/transfer/history";
+import { forAsset, forChain, subscribeTransfers, transfersServerSnapshot, transfersSnapshot, type TransferRecord } from "@/lib/transfer/history";
 import { useTransfers } from "@/hooks/useTransfers";
+import { useDiscoverTransfers } from "@/hooks/useDiscoverTransfers";
 import { useAccount } from "wagmi";
 import { cn } from "@/lib/utils";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
@@ -28,7 +23,14 @@ import { tokenColor } from "@/lib/swap/tokens";
  * deposited", which is the failure this panel would otherwise ship: a confident
  * blank where the truthful answer is "we cannot see those yet".
  */
-export function TransferHistory({ chainId }: { chainId?: number }) {
+export function TransferHistory({
+  chainId,
+  /** Narrow to one asset. Undefined shows every asset on the chain. */
+  symbol,
+}: {
+  chainId?: number;
+  symbol?: string;
+}) {
   // Read in an effect, never during render: localStorage is not available on
   // the server and the first client pass must match the server's HTML. Same
   // rule the consent banner and the OG Pass countdown follow.
@@ -58,13 +60,40 @@ export function TransferHistory({ chainId }: { chainId?: number }) {
   // a receipt to verify against. Without it the server list sits on its cached
   // answer and the table omits the row just confirmed.
   useEffect(() => {
+    // Only with a wallet. `refetch()` ignores `enabled` in react-query v5, so
+    // without this the disabled query still ran and asked the service about
+    // `undefined`.
+    if (!address) return;
     void refetch();
-  }, [local, refetch]);
+  }, [address, local, refetch]);
+
+  // Ask the service to look for deposits nobody reported — a QR send from a
+  // phone, a transfer from a friend, a bridge that settled after the tab was
+  // closed. `refetch` runs only when a pass actually found something.
+  const onFound = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+  useDiscoverTransfers(address, onFound);
 
   const log = server ?? local;
 
   const [tab, setTab] = useState<"all" | "deposit" | "withdraw">("all");
-  const onChain = useMemo(() => (log === null ? [] : forChain(log, chainId)), [log, chainId]);
+  /*
+   * Narrowed to the chain AND the asset the page is about.
+   *
+   * Both panels ask about ONE asset -- the deposit heading is literally "Deposit
+   * USDC", and withdraw derives its chain from the asset -- and this list showed
+   * every asset the wallet had ever touched, so the row the user had just
+   * created arrived among DONUT and BUCKO rows.
+   *
+   * `symbol` is undefined only while nothing has been chosen yet, and an absent
+   * symbol widens rather than narrows: an unchosen asset must never empty the
+   * list.
+   */
+  const onChain = useMemo(
+    () => (log === null ? [] : forAsset(forChain(log, chainId), symbol)),
+    [log, chainId, symbol],
+  );
   const rows = useMemo(
     () => (tab === "all" ? onChain : onChain.filter((r) => r.kind === tab)),
     [onChain, tab],
@@ -122,7 +151,7 @@ export function TransferHistory({ chainId }: { chainId?: number }) {
           {/* The limit is said HERE, where the blank is, instead of as a preamble
               nobody reads when the list is full. */}
           Nothing yet. Transfers sent from another wallet are not listed until you add them
-          above — nothing on Iter watches for incoming transfers.
+          above — nothing on Rate watches for incoming transfers.
         </p>
       )}
 

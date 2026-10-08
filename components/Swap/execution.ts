@@ -6,17 +6,25 @@ import {
   BandPositionManagerABI,
   BandSwapRouterABI,
   ERC20ABI,
+  LadderBuyerABI,
   MatchingEngineABI,
 } from "@iter/abis";
+
+/** Seconds a ladder trade stays valid after signing; `LadderBuyer` reverts `DeadlinePassed` past it. */
+const LADDER_DEADLINE_SEC = 600;
 import { maxUint256, parseUnits } from "viem";
 import { waitForTransactionReceipt } from "@wagmi/core";
 import { wagmiConfig } from "@/lib/providers";
 import { wagmiChains } from "@/lib/customChains";
 import { toast } from "sonner";
 import { describeWalletFailure } from "@/lib/wallet/walletFailure";
+import { useFeeToken } from "@/lib/wallet/feeToken";
+import { eventBus } from "@/utils/events";
 import { remainderSplit } from "@/lib/swap/remainder";
+import { encodeOrderPrice, engineRate } from "@/lib/swap/orderPrice";
 import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import {
+  contractAddress,
   matchingEngineAddress,
   poolFactoryAddress,
   positionManagerAddress,
@@ -52,7 +60,7 @@ export type FlowStep =
    * `BandSwapRouter.swap` has no resting mode and no partial-fill placement, so
    * "fill what you can and rest the rest" cannot be one call — the swap sends
    * only the amount the quote says fills now, and the leftover goes to
-   * `limitBuy`/`limitSell` or `addLiquiditySingleSided` afterwards. That costs
+   * `limitBuy`/`limitSell` or `mintSingleSided` afterwards. That costs
    * the atomicity the swap spec described, and the flow says so rather than
    * hiding a second wallet prompt behind a screen that claims one transaction.
    */
@@ -149,6 +157,15 @@ export interface SwapExecutionConfig extends MockExecutionConfig {
   quote: SwapQuote;
   disposition: Disposition;
   networkName: string;
+  /**
+   * Set when this trade is a launch coin still selling its ladder (see
+   * lib/launch/ladderBuy). The band pool is closed until graduation and a
+   * market order cannot climb a step, so the trade goes through
+   * `LadderBuyer.buy`/`sell`: up to five fill-or-refund orders in one
+   * transaction, never past `price` (the ceiling for a buy, the floor for a
+   * sell), reverting below `minOut`. Nothing rests.
+   */
+  ladder?: { side: "buy" | "sell"; base: string; quote: string; price: bigint; minOut: bigint };
 }
 
 export type SwapExecutionHook = (config: SwapExecutionConfig) => SwapExecution;
@@ -295,14 +312,24 @@ export function useMockSwapExecution(config: MockExecutionConfig): SwapExecution
 export const useRealSwapExecution: SwapExecutionHook = (config) => {
   const { address: account, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
-  const router = swapRouterAddress(config.networkName);
+  const ladder = config.ladder;
+  // The contract this trade's allowance is for: the router for a pool swap,
+  // `LadderBuyer` for a ladder trade. Every approval and allowance read below
+  // goes through it, so the two can never disagree. Both resolve from the
+  // registry, which is what makes the approve and the call session-tier in the
+  // wallet frame (lib/wallet/frame/policy.ts).
+  const router = ladder
+    ? contractAddress(config.networkName, "ladderBuyer")
+    : swapRouterAddress(config.networkName);
   /**
    * What this chain charges fees IN, so a shortfall can name it.
    *
    * Arc bills in USDC and RISE in ETH, and "not enough to cover the network
    * fee" without the asset sends someone to top up the wrong one.
    */
-  const gasSymbol = wagmiChains.find((c) => c.name === config.networkName)?.nativeCurrency.symbol;
+  const gasChain = wagmiChains.find((c) => c.name === config.networkName);
+  // Tempo's registry symbol is a placeholder; name the fee token this account pays in.
+  const gasSymbol = useFeeToken(gasChain?.id, account)?.symbol ?? gasChain?.nativeCurrency.symbol;
   const poolFactory = poolFactoryAddress(config.networkName);
   const amount = parseUnits(String(config.quote.amountIn), config.pay.decimals);
 
@@ -318,7 +345,7 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
    * the one where nothing about this flow changes.
    */
   const remainderIn =
-    config.disposition === "none"
+    config.disposition === "none" || ladder
       ? 0
       : config.quote.placements.reduce((sum, placement) => sum + placement.inAmount, 0);
   const remainderAmount = parseUnits(
@@ -328,7 +355,19 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
     remainderIn.toFixed(config.pay.decimals),
     config.pay.decimals,
   );
-  const matchedAmount = amount > remainderAmount ? amount - remainderAmount : amount;
+  /*
+   * ZERO when the remainder is the whole order, not the whole order.
+   *
+   * This fell back to `amount`, so a quote that fills NOTHING sent the entire
+   * order to the router anyway. The router matched what it could — nothing —
+   * and refunded, which is the `0 filled · 1 refunded` a user sees after paying
+   * gas for a transaction that could never do anything, and only THEN was asked
+   * to sign the order that was the whole point.
+   *
+   * `remainderAmount >= amount` means the book cannot take any of it right now.
+   * The honest amount to swap is none.
+   */
+  const matchedAmount = amount > remainderAmount ? amount - remainderAmount : BigInt(0);
 
   /**
    * `BandPoolFactory.getPool(base, quote)` is order-sensitive (its CREATE2 salt is
@@ -378,7 +417,24 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
    */
   const swapKind = classifySwap(config.pay, config.get, config.pay.chainId);
   const isWrapKind = swapKind === "wrap" || swapKind === "unwrap";
-  const needsApproval = isWrapKind
+  /*
+   * NO ROUTER APPROVAL when no swap is going to be sent.
+   *
+   * `confirm` skips the swap outright when the book can take none of the order,
+   * so the router is never called — but the flow still walked the user through
+   * granting it an allowance first, and the placement then asked for a SECOND
+   * approval on its own spender. Measured end to end on Arc: `approve` to the
+   * swap router, `approve` to the matching engine, `limitBuy`. Three
+   * transactions, of which the first can never be spent.
+   *
+   * That is the same defect as the zero-amount swap this flow already refuses to
+   * send, one step earlier — a fee for a call that cannot do anything — and it
+   * is why "it asks twice" survived fixing the swap. The remainder path grants
+   * its own allowance to its own spender (`placeRemainder`), so skipping here
+   * costs nothing and removes a prompt.
+   */
+  const swapWillBeSent = remainderIn <= 0 || amount > remainderAmount;
+  const needsApproval = isWrapKind || (!swapWillBeSent && !ladder)
     ? false
     : typeof allowance !== "bigint" || allowance < amount;
   const { writeContractAsync } = useWriteContract();
@@ -410,6 +466,9 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
     if (!approvalHash || !receipt || receipt.transactionHash !== approvalHash) return;
     if (receipt.status === "success") {
       void refetchAllowance();
+      // An approval moves no tokens, but it does spend gas — which on Arc comes
+      // out of the balance the next screen is about to show.
+      eventBus.emit("spot-balance-refetch");
       setState((current) => ({ ...current, step: "review", approved: true, needsApproval: false }));
     } else {
       setState((current) => ({ ...current, step: "result", outcome: "failure", reason: "rejected" }));
@@ -426,6 +485,11 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
     const receipt = swapReceipt.data;
     if (!swapHash || !receipt || receipt.transactionHash !== swapHash) return;
     const filled = receipt.status === "success";
+    // The balances on screen are now stale, and this is the first moment that is
+    // known — the same call `PlaceOrderButton` makes, at the receipt rather than
+    // at broadcast. Emitted on a FAILURE too: a reverted swap still burned gas,
+    // and on Arc gas is the asset being traded.
+    eventBus.emit("spot-balance-refetch");
     setState((current) => ({
       ...current,
       // A successful swap with something left over stops at `remainder` rather
@@ -456,6 +520,8 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
   useEffect(() => {
     const receipt = remainderReceipt.data;
     if (!receipt) return;
+    // A rested order or an LP deposit has moved funds out of the wallet again.
+    eventBus.emit("spot-balance-refetch");
     // The swap already succeeded, so `outcome` is left alone. Only whether the
     // REMAINDER landed is recorded here — a reverted placement must not turn a
     // completed trade into a reported failure.
@@ -490,6 +556,16 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
     });
   }, [amount, chainId, config.pay.address, config.pay.chainId, router, state.unlimited, switchChainAsync, writeContractAsync]);
 
+  /**
+   * `placeRemainder`, reachable from `confirm` above it.
+   *
+   * A ref rather than a reordering: the two are mutually referential (confirm
+   * hands off to the placement; the placement needs everything confirm set up),
+   * and a ref keeps that seam in one place instead of shuffling 150 lines of
+   * hook to satisfy declaration order.
+   */
+  const placeRemainderRef = useRef<() => void>(() => {});
+
   const confirm = useCallback(() => {
     if (!router || !account) return;
     /**
@@ -503,6 +579,33 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
      */
     const swapAmount = remainderIn > 0 ? matchedAmount : amount;
     const minOut = parseUnits(String(config.quote.minReceived), config.get.decimals);
+    /*
+     * NOTHING fills, so there is no swap to send — go straight to placing it.
+     *
+     * A zero-amount swap is a transaction that costs gas, matches nothing and
+     * refunds the lot, and it used to run before the wallet was asked a second
+     * time for the order the user actually wanted. On a thin market — a freshly
+     * launched coin with no resting asks, which is the common case here — that
+     * was every single buy: two prompts and a wasted fee for one order.
+     *
+     * The flow's `remainder` step already owns "the swap is settled, place the
+     * rest"; entering it with nothing filled is the same screen with a better
+     * story, and it costs ONE signature.
+     */
+    if (swapAmount <= BigInt(0)) {
+      /*
+       * Straight to the wallet — the disposition IS the decision.
+       *
+       * This used to stop on the remainder screen and ask "place it or leave
+       * it?", which is the same question the card already asked when the user
+       * picked "Rest it as an order". Asking twice for one choice reads as the
+       * app not having heard the first answer. That screen earns its place only
+       * when a swap actually happened and the user may now want to stop; with
+       * nothing filled there is no new information to act on.
+       */
+      placeRemainderRef.current();
+      return;
+    }
     setState((current) => ({ ...current, step: "confirmWait", failure: null }));
     void (async () => {
       if (chainId !== config.pay.chainId) await switchChainAsync({ chainId: config.pay.chainId });
@@ -555,6 +658,26 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
         );
       }
 
+      // A ladder trade: up to five fill-or-refund orders through LadderBuyer.
+      // No pool is involved — it is closed until graduation — and nothing rests.
+      if (ladder) {
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + LADDER_DEADLINE_SEC);
+        return writeContractAsync({
+          abi: LadderBuyerABI,
+          address: router as `0x${string}`,
+          functionName: ladder.side === "buy" ? "buy" : "sell",
+          args: [
+            ladder.base as `0x${string}`,
+            ladder.quote as `0x${string}`,
+            amount,
+            ladder.price,
+            ladder.minOut,
+            account,
+            deadline,
+          ],
+        });
+      }
+
       if (ineligibleReason) throw new Error(ineligibleReason);
       if (!bandPool) {
         throw new Error(
@@ -600,6 +723,7 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
     config.pay.symbol,
     config.quote.minReceived,
     ineligibleReason,
+    ladder,
     router,
     switchChainAsync,
     writeContractAsync,
@@ -616,7 +740,7 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
    *  - `limit` -> `limitBuy` / `limitSell` on the MatchingEngine. Which one
    *    depends on the direction the band pool told us: paying the quote asset to
    *    receive the base is a BID.
-   *  - `lp` -> `addLiquiditySingleSided` on the BandPositionManager, into the
+   *  - `lp` -> `mintSingleSided` on the BandPositionManager, into the
    *    tightest open band, with `isBase` set from the same direction.
    *
    * A failure here is NOT a failed swap. The swap already happened and cannot be
@@ -669,7 +793,27 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
          */
         const rate = remainderSplit(config.quote).restPrice;
         if (!(rate > 0)) throw new Error("No price to rest this order at.");
-        const price = parseUnits(rate.toFixed(config.get.decimals), config.get.decimals);
+        /*
+         * Two corrections, and the order never rested without either.
+         *
+         * The SCALE was the get token's decimals. The engine's `price` is a
+         * fixed 1e8 fraction whatever the tokens are — decimals belong to
+         * `amount` alone — so a 6-decimal get encoded 100x too small and an
+         * 18-decimal one 1e10x too large. `TradePageProvider` and the swap
+         * card's own limit form both had this right; this path was the third
+         * encoding.
+         *
+         * The ORIENTATION was unflipped on the bid side. `restPrice` is
+         * GET-per-PAY, and the engine wants QUOTE-per-BASE — which on a BUY is
+         * the reciprocal, because base is the token being received. So every
+         * resting buy was priced at the inverse of what the user agreed to.
+         *
+         * Either way the order was priced far from the book, so it crossed and
+         * filled outright or was refused, and nothing rested — which is what
+         * "the portfolio never shows my limit order" looked like from outside.
+         */
+        const price = encodeOrderPrice(engineRate(rate, isBid));
+        if (price <= BigInt(0)) throw new Error("No price to rest this order at.");
         return writeContractAsync({
           abi: MatchingEngineABI,
           address: matchingEngineAddress(config.networkName) as `0x${string}`,
@@ -692,11 +836,20 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
       return writeContractAsync({
         abi: BandPositionManagerABI,
         address: positionManagerAddress(config.networkName) as `0x${string}`,
-        functionName: "addLiquiditySingleSided",
+        functionName: "mintSingleSided",
         // Band 0 — the tightest, which is also the one that fills first. The
         // pool-deposit page is where a real band choice belongs; a swap
-        // remainder is not the place to ask.
-        args: [bandPool.pool, 0, remainderAmount, !bandPool.quoteToBase, BigInt(0)],
+        // remainder is not the place to ask. One token, one band: the LP can
+        // widen it later from the position card's Adjust distribution.
+        args: [
+          bandPool.pool,
+          [0],
+          [remainderAmount],
+          !bandPool.quoteToBase,
+          [BigInt(0)],
+          account,
+          BigInt(Math.floor(Date.now() / 1000) + 20 * 60),
+        ],
       });
     })()
       .then((hash) => {
@@ -730,6 +883,10 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
     remainderAmount,
     writeContractAsync,
   ]);
+
+  // Kept in step with the callback above; `confirm` reaches the placement
+  // through this when nothing filled and there is no swap to send first.
+  placeRemainderRef.current = placeRemainder;
 
   const skipRemainder = useCallback(
     () => setState((current) => ({ ...current, step: "result" })),

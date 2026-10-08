@@ -127,12 +127,105 @@ export function record(
   return [parsed, ...rest].slice(0, MAX_RECORDS);
 }
 
+/**
+ * The record a hash was already claimed under, or null.
+ *
+ * `record()` keys on the lowercased hash, so re-claiming one REPLACES the row
+ * rather than listing the transfer twice — which is correct for the log and
+ * silent for the user: "Added 0.05 USDC" fired again, identically, for a
+ * transfer that was already there. This is what lets the claim say so instead.
+ *
+ * Trimmed and lowercased because a pasted hash routinely differs in case from
+ * the one the wallet wrote, and a case-sensitive lookup would report "not
+ * claimed" for the very row it is about to overwrite.
+ */
+export function findByHash(
+  log: readonly TransferRecord[],
+  hash: string,
+): TransferRecord | null {
+  const key = hash.trim().toLowerCase();
+  if (!key) return null;
+  return log.find((r) => r.hash.toLowerCase() === key) ?? null;
+}
+
 /** Records for one chain, or all of them when `chainId` is undefined. */
 export function forChain(
   log: readonly TransferRecord[],
   chainId?: number,
 ): TransferRecord[] {
   return chainId === undefined ? [...log] : log.filter((r) => r.chainId === chainId);
+}
+
+/**
+ * Records for one ASSET, or all of them when `symbol` is undefined.
+ *
+ * The deposit and withdraw pages each ask about one asset at a time — the
+ * deposit panel's whole job is "add USDC to this wallet", and withdraw derives
+ * the chain FROM the chosen asset — and the list under them showed every asset
+ * the wallet had ever touched, so the row the user was looking for was the
+ * hardest one to find.
+ *
+ * Matched case-insensitively on the symbol, which is what the record stores.
+ * That is deliberately loose: this is a VIEW filter over rows the user already
+ * owns, so the cost of a false match is one extra row, not a mistaken payment.
+ * Nothing that decides value may match on a symbol — see the token-catalogue
+ * rule about anyone being able to mint a coin called USDC.
+ */
+export function forAsset(
+  log: readonly TransferRecord[],
+  symbol?: string,
+): TransferRecord[] {
+  // Trimmed BEFORE the emptiness check: a whitespace-only symbol is truthy, so
+  // testing `symbol` alone filtered the list down to nothing rather than
+  // leaving it alone. An absent asset must always widen, never narrow.
+  const wanted = symbol?.trim().toUpperCase();
+  if (!wanted) return [...log];
+  return log.filter((r) => r.symbol.toUpperCase() === wanted);
+}
+
+/** How many recent recipients the picker offers. */
+export const MAX_RECENT_RECIPIENTS = 5;
+
+/**
+ * Addresses this wallet has withdrawn to, newest first.
+ *
+ * DERIVED from the transfer log rather than kept in a store of its own, and
+ * that is the whole design. Every confirmed withdrawal already records its
+ * `peer`, so a second list could only ever be a copy that drifts — and each new
+ * storage key also owes a row in `/cookies`. Nothing new is written; this reads
+ * what is already there.
+ *
+ * Because the log is written at the RECEIPT (see `useTransferConfirmation`), an
+ * address appears here only after a withdrawal to it actually confirmed. A
+ * transfer that reverted is not somewhere you have successfully sent, and
+ * offering it as one would be a recommendation the evidence does not support.
+ *
+ * Deduplicated case-insensitively, keeping the most recent occurrence: EVM
+ * addresses differ only by checksum casing, and listing one address twice in a
+ * five-row list wastes two of the five.
+ *
+ * NOT filtered by chain. An EOA exists at the same address on every EVM chain,
+ * and the saved address book is not chain-scoped either; scoping this one would
+ * make the two disagree about the same address for no gain.
+ */
+export function recentRecipients(
+  log: readonly TransferRecord[],
+  limit: number = MAX_RECENT_RECIPIENTS,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  // The log is already newest-first; sorting again would only re-derive that.
+  for (const row of log) {
+    if (row.kind !== "withdraw") continue;
+    const peer = row.peer;
+    if (!peer) continue;
+    const key = peer.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(peer);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export function readLog(): TransferRecord[] {

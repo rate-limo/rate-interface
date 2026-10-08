@@ -232,7 +232,7 @@ describe("DepositPanel", () => {
     openGasDeposit();
     await chooseAsset(/USDC.*Arc Testnet/);
 
-    expect(await screen.findByText(/Iter account/)).toBeTruthy();
+    expect(await screen.findByText(/Rate account/)).toBeTruthy();
     expect(screen.getByText(/passkey/i)).toBeTruthy();
     // No QR either: a code with no address in it would scan to nowhere.
     expect(toDataURL).not.toHaveBeenCalled();
@@ -316,6 +316,12 @@ function announceWallet(rdns: string, name: string, icon = "") {
 }
 
 describe("the wallet picker", () => {
+  // `discoverWallets` listens for EIP-6963 announcements over a real 300 ms
+  // window before the rows render. Testing Library's default 1 s wait leaves
+  // little room for that when the whole suite runs in parallel, which is how
+  // these failed one case at a time, a different one each run.
+  const DISCOVERY_WAIT = { timeout: 5000 };
+
   const PIXEL =
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3C/svg%3E";
 
@@ -335,7 +341,7 @@ describe("the wallet picker", () => {
       openGasDeposit();
       await chooseAsset(/USDC.*Arc Testnet/);
 
-      const row = await screen.findByRole("button", { name: /MetaMask/ });
+      const row = await screen.findByRole("button", { name: /MetaMask/ }, DISCOVERY_WAIT);
       expect(row.querySelector("img")?.getAttribute("src")).toBe(PIXEL);
     } finally {
       mm.cleanup();
@@ -353,7 +359,7 @@ describe("the wallet picker", () => {
       openGasDeposit();
       await chooseAsset(/USDC.*Arc Testnet/);
 
-      const row = await screen.findByRole("button", { name: /MetaMask/ });
+      const row = await screen.findByRole("button", { name: /MetaMask/ }, DISCOVERY_WAIT);
       expect(row.querySelector("img")).toBeNull();
       expect(row.textContent).toContain("M");
     } finally {
@@ -377,7 +383,7 @@ describe("the wallet picker", () => {
       openGasDeposit();
       await chooseAsset(/USDC.*Arc Testnet/);
 
-      expect(await screen.findByRole("button", { name: /MetaMask/ })).toBeTruthy();
+      expect(await screen.findByRole("button", { name: /MetaMask/ }, DISCOVERY_WAIT)).toBeTruthy();
       expect(screen.queryByRole("button", { name: /Connect your wallet/i })).toBeNull();
     } finally {
       mm.cleanup();
@@ -401,7 +407,7 @@ describe("the wallet picker", () => {
     openGasDeposit();
     await chooseAsset(/USDC.*Arc Testnet/);
 
-    expect(await screen.findByText(/no browser wallet found/i)).toBeTruthy();
+    expect(await screen.findByText(/no browser wallet found/i, {}, DISCOVERY_WAIT)).toBeTruthy();
     expect(screen.getByText(/send USDC to the address below/i)).toBeTruthy();
   });
 
@@ -413,7 +419,7 @@ describe("the wallet picker", () => {
       openGasDeposit();
       await chooseAsset(/USDC.*Arc Testnet/);
 
-      expect(await screen.findByRole("button", { name: /MetaMask/ })).toBeTruthy();
+      expect(await screen.findByRole("button", { name: /MetaMask/ }, DISCOVERY_WAIT)).toBeTruthy();
       expect(screen.queryByText(/no browser wallet found/i)).toBeNull();
     } finally {
       mm.cleanup();
@@ -435,7 +441,7 @@ describe("the wallet picker", () => {
 
       expect(screen.queryByRole("button", { name: /Choose a wallet above/i })).toBeNull();
 
-      const row = await screen.findByRole("button", { name: /MetaMask/ });
+      const row = await screen.findByRole("button", { name: /MetaMask/ }, DISCOVERY_WAIT);
       fireEvent.click(row);
       // The click reaches the wallet: the fixture throws when asked anything,
       // which is exactly the proof that it was asked.

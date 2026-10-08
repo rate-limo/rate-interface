@@ -111,3 +111,47 @@ describe("hasDistinctNativeAsset", () => {
     expect(hasDistinctNativeAsset("Some Chain Nobody Listed")).toBe(true);
   });
 });
+
+/*
+ * `verified` means GRADUATED, so on a freshly deployed chain it is false for
+ * everything — including the asset the venue settles in. The deposit screen
+ * showed "No assets available yet" while offering nine searchable tokens.
+ */
+describe("the settlement asset is always offered", () => {
+  const USDC = {
+    id: "0x3600000000000000000000000000000000000000",
+    symbol: "USDC",
+    name: "USD Coin",
+    verified: false,
+    creator: "",
+    balance: "0",
+  } as unknown as SpotTokenWithBalance;
+  const impostor = {
+    id: "0xdeadbeef00000000000000000000000000000001",
+    symbol: "USDC",
+    name: "USD Coin",
+    verified: false,
+    creator: "0xsomeone",
+    balance: "0",
+  } as unknown as SpotTokenWithBalance;
+  const settlement = new Set([USDC.id.toLowerCase()]);
+
+  it("lists the deployment's own asset even though it is unverified", () => {
+    const rows = defaultDepositAssets([USDC], settlement);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.token.id).toBe(USDC.id);
+  });
+
+  it("does NOT badge it as unverified — nobody can mint into that address", () => {
+    expect(defaultDepositAssets([USDC], settlement)[0]!.trust).toBe("verified");
+  });
+
+  it("matches on the ADDRESS, so a same-symbol impostor stays behind search", () => {
+    const rows = defaultDepositAssets([impostor, USDC], settlement);
+    expect(rows.map((r) => r.token.id)).toEqual([USDC.id]);
+  });
+
+  it("still hides an unverified token when no settlement set is given", () => {
+    expect(defaultDepositAssets([USDC])).toHaveLength(0);
+  });
+});

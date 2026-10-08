@@ -10,6 +10,7 @@ import {
   type EIP1193Provider,
 } from "viem";
 import { wagmiChains } from "@/lib/customChains";
+import { tip20GasToken } from "@/lib/chains/gasToken";
 
 /**
  * A browser wallet used ONLY to send money to the passkey account.
@@ -17,7 +18,7 @@ import { wagmiChains } from "@/lib/customChains";
  * ## Deliberately outside wagmi
  *
  * `lib/providers.tsx` configures exactly one connector — the passkey — so
- * `useAccount()` anywhere in the app is the Iter wallet and every write is signed
+ * `useAccount()` anywhere in the app is the Rate wallet and every write is signed
  * by it. That is the whole point: an injected wallet signs only for the network
  * it is currently on, so as a SIGNER it forces a switch prompt on every
  * cross-chain trade. Removing it from the config removes that class of problem
@@ -213,7 +214,7 @@ async function ensureChain(
   }
 
   const chain = wagmiChains.find((c) => c.id === chainId);
-  if (!chain) throw new Error(`Iter does not serve chain ${chainId}.`);
+  if (!chain) throw new Error(`Rate does not serve chain ${chainId}.`);
 
   onStep?.("add-network");
   await provider.request({
@@ -222,7 +223,10 @@ async function ensureChain(
       {
         chainId: hex,
         chainName: chain.name,
-        nativeCurrency: chain.nativeCurrency,
+        // MetaMask refuses any nativeCurrency that is not 18 decimals. Tempo's registry
+        // entry is a 6-decimal placeholder for a coin that does not exist (gas is a
+        // TIP-20), so the wallet gets the same placeholder at 18; nothing here sends value.
+        nativeCurrency: tip20GasToken(chain.id) ? { ...chain.nativeCurrency, decimals: 18 } : chain.nativeCurrency,
         rpcUrls: [...chain.rpcUrls.default.http],
         blockExplorerUrls: chain.blockExplorers?.default?.url
           ? [chain.blockExplorers.default.url]
@@ -284,6 +288,15 @@ export interface FundingPreflight {
   onChain: boolean;
   /** Balance of the asset being sent, in its own smallest unit. */
   held: bigint;
+  /**
+   * Wei per gas, in the chain's NATIVE view. Null when the read failed.
+   *
+   * Here so "Max" can hold gas back on a chain where the asset being deposited
+   * is also what pays for the deposit — Arc, where the gas asset IS USDC. Null
+   * is a real answer and must not be read as free: `gasReserve` reserves
+   * nothing rather than inventing a price it could not read.
+   */
+  gasPrice: bigint | null;
 }
 
 /**
@@ -355,7 +368,21 @@ export async function preflightFunding({
     held = parseUnits(amount || "0", token ? token.decimals : chain.nativeCurrency.decimals);
   }
 
-  return { account, onChain, held };
+  /*
+   * Read alongside the balance, not at click time. Both feed the Max button,
+   * which the user presses before the send — and the click path must stay free
+   * of awaits for the reason this function's own docstring gives.
+   *
+   * A failure is null, never a guess: see `FundingPreflight.gasPrice`.
+   */
+  let gasPrice: bigint | null = null;
+  try {
+    gasPrice = await reader.getGasPrice();
+  } catch {
+    gasPrice = null;
+  }
+
+  return { account, onChain, held, gasPrice };
 }
 
 /**
@@ -388,7 +415,7 @@ export async function sendFunding({
   const provider = chosen?.provider ?? injectedProvider();
   if (!provider) throw new Error("No browser wallet found in this browser.");
   const chain = wagmiChains.find((c) => c.id === chainId);
-  if (!chain) throw new Error(`Iter does not serve chain ${chainId}.`);
+  if (!chain) throw new Error(`Rate does not serve chain ${chainId}.`);
 
   if (needsSwitch) await ensureChain(provider, chainId, onStep);
 

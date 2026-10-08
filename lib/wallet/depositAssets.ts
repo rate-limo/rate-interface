@@ -1,4 +1,7 @@
 import defaultTokenList from "@iter/token-list";
+import { findChain } from "@iter/deployments";
+import { supportedChains } from "@/consts";
+import { feeTokenOptions } from "@/lib/chains/gasToken";
 import type { SpotTokenWithBalance } from "@/types/tables/tokens";
 
 /**
@@ -47,13 +50,35 @@ function held(token: SpotTokenWithBalance): boolean {
 }
 
 /**
- * The curated default: what this wallet holds, then everything trustworthy.
+ * The curated default: what this wallet holds, the venue's own asset, then
+ * everything trustworthy.
  *
  * Held assets come first and are included even when unverified — a balance is
  * the strongest possible statement that a token is one the user already deals
  * with, and hiding something they own behind a search would be absurd.
+ *
+ * ## `settlement` — the addresses the DEPLOYMENT vouches for
+ *
+ * Lowercased addresses taken from `@iter/deployments`, not from the indexer.
+ * They are listed regardless of `verified`, and that does not weaken the safety
+ * rule above: the filter asks for assets "whose identity somebody has already
+ * established", and an address compiled into the deployment registry is the
+ * strongest establishment available here. Nobody can launch a token into it —
+ * it is not a row the indexer wrote, it is the contract this venue settles on.
+ *
+ * Without it the screen said "No assets available yet" on a freshly deployed
+ * chain while offering nine searchable tokens, because `verified` means
+ * "graduated" and on day one nothing has. USDC — the asset the page's own title
+ * says it is depositing — was among the hidden.
+ *
+ * It is a SET, not a symbol: matching "USDC" by name is the precise mistake
+ * this module exists to prevent, since two tokens can carry that symbol and
+ * only one is the one the router settles against.
  */
-export function defaultDepositAssets(tokens: readonly SpotTokenWithBalance[]): DepositAsset[] {
+export function defaultDepositAssets(
+  tokens: readonly SpotTokenWithBalance[],
+  settlement: ReadonlySet<string> = new Set(),
+): DepositAsset[] {
   const out: DepositAsset[] = [];
   const seen = new Set<string>();
 
@@ -64,12 +89,37 @@ export function defaultDepositAssets(tokens: readonly SpotTokenWithBalance[]): D
   }
 
   for (const token of tokens) {
-    if (seen.has(token.id.toLowerCase())) continue;
-    if (!token.verified) continue;
-    seen.add(token.id.toLowerCase());
-    out.push({ token, trust: trustOf(token) });
+    const id = token.id.toLowerCase();
+    if (seen.has(id)) continue;
+    if (!token.verified && !settlement.has(id)) continue;
+    seen.add(id);
+    // An unverified settlement asset is still the venue's own: label it
+    // `verified` rather than `unverified`, which would put a warning badge on
+    // the one address here that cannot be impersonated.
+    out.push({ token, trust: token.verified ? trustOf(token) : "verified" });
   }
 
+  return out;
+}
+
+/**
+ * The `settlement` set for `defaultDepositAssets`: addresses the DEPLOYMENT vouches
+ * for, lowercased, on every served chain.
+ *
+ * Each chain's `weth` from the registry -- on Arc that is USDC at 0x3600…0000, the
+ * same funds as gas -- and, on a chain with no gas coin, the TIP-20s it charges gas
+ * in. Tempo's are protocol precompiles at 0x20c0…000N: nobody can launch a token
+ * into those addresses either, and PathUSD is what a Tempo wallet must hold to do
+ * anything. Without them the Tempo rows were reachable only by searching.
+ */
+export function settlementAddresses(): Set<string> {
+  const out = new Set<string>();
+  for (const name of supportedChains) {
+    const chain = findChain(name);
+    const weth = chain?.contracts?.weth?.address;
+    if (weth) out.add(weth.toLowerCase());
+    for (const token of feeTokenOptions(chain?.chainId)) out.add(token.address.toLowerCase());
+  }
   return out;
 }
 

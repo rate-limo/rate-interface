@@ -46,9 +46,15 @@ const AVATAR_COLORS = [
   "#199e70",
   "#5f93d6",
 ];
-export function tokenColor(symbol: string): string {
+export function tokenColor(symbol: string | undefined | null): string {
+  // Total by construction. This is a pure hash behind `TokenImageIcon`, which
+  // is an atom on essentially every row in the app — so a caller with an
+  // unresolved token took the whole PAGE down here, four frames from anything
+  // that knew what the token was. A colour for "nothing" is the first entry;
+  // being wrong about a swatch costs nothing, throwing costs the render.
   let h = 0;
-  for (let i = 0; i < symbol.length; i++) h = (h * 31 + symbol.charCodeAt(i)) >>> 0;
+  const key = symbol ?? "";
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
@@ -127,11 +133,25 @@ export function getSwapTokens(networkName: string): SwapToken[] {
   });
 }
 
-/** The hub token (USDC) on `networkName`, or a priced fallback if absent. */
+/**
+ * The hub token (USDC) on `networkName`; else the chain's listed stablecoin; else a
+ * priced fallback.
+ *
+ * The middle step is Tempo: no static pairs, and its stablecoin is PathUSD, not
+ * USDC. Without it the card opened on a made-up "USDC" with an empty address --
+ * a token that does not exist there, so its balance read was switched off and
+ * the pay leg sat on "Balance Unavailable" / "No USDC to spend".
+ */
 export function getHubToken(networkName: string): SwapToken {
   const tokens = getSwapTokens(networkName);
   const hub = tokens.find((t) => t.symbol === HUB_SYMBOL);
   if (hub) return hub;
+  const groups = (defaultTokenlist.groupTokens ?? {}) as unknown as Record<
+    string,
+    { iter_stablecoin?: RawToken[] } | undefined
+  >;
+  const stable = groups[networkName]?.iter_stablecoin?.[0];
+  if (stable) return toSwapToken(stable, 1);
   return {
     symbol: HUB_SYMBOL,
     name: "USD Coin",

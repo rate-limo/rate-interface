@@ -11,10 +11,12 @@ import { encodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
  *
  * ## Why a batch at all
  *
- * A withdrawal that also pays a fee is two transfers. As two transactions there
- * is a window where the first lands and the second reverts — the user is
- * charged and unpaid, which is the worst failure this flow has. Under EIP-7702
- * the account delegates to `BatchExecutor` and both land or neither does.
+ * Several transfers that must land together. As separate transactions there is
+ * a window where the first lands and a later one reverts. Under EIP-7702 the
+ * account delegates to `BatchExecutor` and all land or none do.
+ *
+ * Withdrawals no longer use it: the interface takes no withdrawal fee (removed
+ * 2026-10-02), so a withdrawal is one plain transfer of the full amount.
  *
  * ## The native/ERC-20 distinction is the whole shape
  *
@@ -70,8 +72,8 @@ export function buildTransferBatch(payments: readonly Payment[], token?: Address
 
   for (const payment of payments) {
     if (payment.amount <= BigInt(0)) {
-      // A zero leg costs gas to move nothing, and in a fee split it usually
-      // means the split was built from a waived fee without checking.
+      // A zero leg costs gas to move nothing, and usually means the caller
+      // built it from an amount it never checked.
       throw new BatchTransferError(`Payment to ${payment.to} is not greater than zero.`);
     }
   }
@@ -86,31 +88,6 @@ export function buildTransferBatch(payments: readonly Payment[], token?: Address
         }
       : { to, value: amount, data: "0x" as Hex },
   );
-}
-
-/**
- * The two legs of a withdrawal: the destination, then the fee wallet.
- *
- * Order is deliberate and worth keeping. `BatchExecutor` runs calls in sequence
- * and reverts the whole batch on the first failure, so if anything is going to
- * fail on a balance boundary it fails before the fee has been reasoned about —
- * and `CallFailed(0, …)` then names the leg the user cares about rather than
- * one they did not ask for.
- *
- * A waived fee (below the truncation boundary — see `withdrawSplit`) yields ONE
- * call, not a zero-value second leg. A zero transfer emits a Transfer event and
- * costs gas to move nothing, and on some tokens it reverts outright.
- */
-export function buildWithdrawalBatch(args: {
-  destination: Address;
-  feeWallet: Address;
-  rest: bigint;
-  fee: bigint;
-  token?: Address;
-}): BatchCall[] {
-  const payments: Payment[] = [{ to: args.destination, amount: args.rest }];
-  if (args.fee > BigInt(0)) payments.push({ to: args.feeWallet, amount: args.fee });
-  return buildTransferBatch(payments, args.token);
 }
 
 /**

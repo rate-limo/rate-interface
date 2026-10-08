@@ -84,10 +84,20 @@ describe("buildDepthModel", () => {
 
   it("attaches pool depth to each book point and reports the axis maximum", () => {
     const m = buildDepthModel(base)!;
-    expect(m.bids[0]).toMatchObject({ price: 99, book: 2, pool: 10 });
-    expect(m.asks[0]).toMatchObject({ price: 101, book: 4, pool: 15 });
+    // Sampled at the book's own level AND at the band edges around it, so the
+    // point carrying the resting order is found by price rather than by index.
+    expect(m.bids.find((p) => p.price === 99)).toMatchObject({ book: 2, pool: 10 });
+    expect(m.asks.find((p) => p.price === 101)).toMatchObject({ book: 4, pool: 15 });
     expect(m.max).toBe(19);
     expect(m.unitSymbol).toBe("ETH");
+  });
+
+  it("gives the pool its own vertices, so a band is drawn where it actually ends", () => {
+    const m = buildDepthModel(base)!;
+    // 90 and 110 are band edges, not book levels. Without them the pool is
+    // smeared between distant book prices instead of ending where the band does.
+    expect(m.bids.map((p) => p.price)).toContain(90);
+    expect(m.asks.map((p) => p.price)).toContain(110);
   });
 
   it("returns null when there is no book AND no pool — not an empty chart", () => {
@@ -98,6 +108,17 @@ describe("buildDepthModel", () => {
     const m = buildDepthModel({ ...base, bids: [], asks: [] });
     expect(m).not.toBeNull();
     expect(m!.max).toBe(15);
+  });
+
+  /*
+   * The bug this file did not catch: the model was non-null, so this suite
+   * passed, while the chart drew its frame over an empty plot. Non-null is not
+   * drawable — a series needs VERTICES, and with no book there were none.
+   */
+  it("draws the pool with no book at all — points, not just a non-null model", () => {
+    const m = buildDepthModel({ ...base, bids: [], asks: [] })!;
+    expect(m.bids.length + m.asks.length).toBeGreaterThan(0);
+    expect([...m.bids, ...m.asks].some((p) => p.pool > 0)).toBe(true);
   });
 
   it("takes its bounds from the window, so the axis does not move with the data", () => {

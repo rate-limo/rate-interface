@@ -12,9 +12,7 @@ import {
   BatchTransferError,
   batchNativeValue,
   buildTransferBatch,
-  buildWithdrawalBatch,
 } from "./batchTransfer";
-import { splitWithdrawal } from "./withdrawSplit";
 
 const BOB = "0x2222222222222222222222222222222222222222" as Address;
 const CAROL = "0x3333333333333333333333333333333333333333" as Address;
@@ -79,47 +77,6 @@ describe("buildTransferBatch — refusals", () => {
   });
 });
 
-describe("buildWithdrawalBatch", () => {
-  it("puts the destination FIRST and the fee second", () => {
-    // The executor reverts on the first failing leg, so a balance failure names
-    // the leg the user asked for rather than one they did not.
-    const { rest, fee } = splitWithdrawal(BigInt(1_000_000));
-    const calls = buildWithdrawalBatch({ destination: BOB, feeWallet: FEE, rest, fee });
-    expect(calls.map((c) => c.to)).toEqual([BOB, FEE]);
-    expect(calls.map((c) => c.value)).toEqual([rest, fee]);
-  });
-
-  it("conserves the amount across the two legs", () => {
-    const amount = BigInt(1_234_567);
-    const { rest, fee } = splitWithdrawal(amount);
-    const calls = buildWithdrawalBatch({ destination: BOB, feeWallet: FEE, rest, fee });
-    expect(batchNativeValue(calls)).toBe(amount);
-  });
-
-  it("emits ONE leg when the fee is waived", () => {
-    // Below the truncation boundary the fee is zero. A zero-value second leg
-    // would emit a Transfer for nothing, cost gas, and revert on some tokens.
-    const { rest, fee } = splitWithdrawal(BigInt(9_999));
-    expect(fee).toBe(BigInt(0));
-    const calls = buildWithdrawalBatch({ destination: BOB, feeWallet: FEE, rest, fee });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.to).toBe(BOB);
-    expect(batchNativeValue(calls)).toBe(BigInt(9_999));
-  });
-
-  it("routes both legs through the token when one is given", () => {
-    const { rest, fee } = splitWithdrawal(BigInt(1_000_000));
-    const calls = buildWithdrawalBatch({
-      destination: BOB,
-      feeWallet: FEE,
-      rest,
-      fee,
-      token: TOKEN,
-    });
-    expect(calls.every((c) => c.to === TOKEN)).toBe(true);
-    expect(decodeFunctionData({ abi: erc20Abi, data: calls[1]!.data }).args).toEqual([FEE, fee]);
-  });
-});
 
 describe("batchNativeValue", () => {
   it("is what a caller must reserve gas ON TOP OF", () => {

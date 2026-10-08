@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { remainderSplit } from "./remainder";
+import { positionAfter, remainderSplit } from "./remainder";
 import type { SwapQuote, SwapToken } from "./types";
 
 const token = (symbol: string, priceUsd: number) =>
@@ -75,5 +75,41 @@ describe("remainderSplit", () => {
 
   it("is empty for no quote at all", () => {
     expect(remainderSplit(null)).toEqual({ unfilled: 0, filled: 0, restsTo: 0, restPrice: 0 });
+  });
+});
+
+describe("positionAfter", () => {
+  /*
+   * The review screen's receive leg. Its failure mode is not a wrong number but
+   * a CONTRADICTION: "0 ITRA" above a row promising "$1 → ITRA", on the screen
+   * where someone decides whether to sign.
+   */
+  const quote = (delivered: number, placements: { inAmount: number; outAmount: number }[]) =>
+    ({ amountIn: 1, delivered, placements }) as unknown as Parameters<typeof positionAfter>[0];
+
+  it("counts the resting part when nothing fills now", () => {
+    const p = positionAfter(quote(0, [{ inAmount: 1, outAmount: 0.9802 }]), "limit");
+    expect(p.now).toBe(0);
+    expect(p.resting).toBeCloseTo(0.9802, 9);
+    expect(p.total).toBeCloseTo(0.9802, 9);
+  });
+
+  it("adds a partial fill to what rests", () => {
+    const p = positionAfter(quote(0.4, [{ inAmount: 0.6, outAmount: 0.58 }]), "limit");
+    expect(p.total).toBeCloseTo(0.98, 9);
+  });
+
+  it("ignores the remainder when it is refunded rather than converted", () => {
+    const p = positionAfter(quote(0.4, [{ inAmount: 0.6, outAmount: 0.58 }]), "none");
+    expect(p.resting).toBe(0);
+    expect(p.total).toBe(0.4);
+  });
+
+  it("is delivered-only when the book took the whole order", () => {
+    expect(positionAfter(quote(0.98, []), "limit").total).toBeCloseTo(0.98, 9);
+  });
+
+  it("survives a missing quote", () => {
+    expect(positionAfter(null, "limit")).toEqual({ now: 0, resting: 0, total: 0 });
   });
 });

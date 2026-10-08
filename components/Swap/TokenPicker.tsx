@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Search, X } from "lucide-react";
+import { ChevronDown, Search, X, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { tokenColor } from "@/lib/swap/tokens";
@@ -176,7 +176,12 @@ function OpenTokenPicker({
               className="min-w-0 flex-1 border-0 bg-transparent text-[17px] text-[color:var(--m-text-primary)] outline-none placeholder:text-[color:var(--m-text-secondary-2)]"
             />
             <button type="button" aria-label={`Filter tokens by network, currently ${browseChain ?? "all chains"}`} aria-expanded={networkOpen} onClick={() => setNetworkOpen((open) => !open)} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-2.5 py-1.5 font-mono text-[10px] font-semibold text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]">
-              <TokenImageIcon symbol={browseChain ?? "All"} color="#666666" logoURI={browseChain ? networkIcon(browseChain) : undefined} size="sm" />
+              {browseChain ? (
+                <TokenImageIcon symbol={browseChain} color="#666666" logoURI={networkIcon(browseChain)} size="sm" />
+              ) : (
+                // "All" is not a chain, so it gets no initials avatar ("AL").
+                <Globe className="h-4 w-4" strokeWidth={1.7} aria-hidden />
+              )}
               <span className="max-w-[84px] truncate">{browseChain ?? "All chains"}</span>
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", networkOpen && "rotate-180")} />
             </button>

@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { MAX_RECORDS, forChain, parseLog, parseRecord, record, type TransferRecord } from "./history";
+import {
+  MAX_RECENT_RECIPIENTS,
+  MAX_RECORDS,
+  forAsset,
+  forChain,
+  parseLog,
+  parseRecord,
+  recentRecipients,
+  record,
+  findByHash,
+  type TransferRecord,
+} from "./history";
 
 const H = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
 const PEER = "0x1111111111111111111111111111111111111111";
@@ -88,5 +99,109 @@ describe("forChain", () => {
     const log = record(record([], base), { ...base, hash: H(2), chainId: 11155931 });
     expect(forChain(log, 5042002).map((r) => r.chainId)).toEqual([5042002]);
     expect(forChain(log)).toHaveLength(2);
+  });
+});
+
+describe("forAsset", () => {
+  const log = [
+    { chainId: 5042002, symbol: "USDC", hash: "0x1", kind: "deposit" },
+    { chainId: 5042002, symbol: "DONUT", hash: "0x2", kind: "deposit" },
+    { chainId: 5042002, symbol: "usdc", hash: "0x3", kind: "withdraw" },
+  ] as unknown as TransferRecord[];
+
+  it("narrows to the asset the page is about", () => {
+    // The deposit panel asks about one asset; the list under it showed every
+    // asset the wallet had ever received.
+    expect(forAsset(log, "USDC").map((r) => r.hash)).toEqual(["0x1", "0x3"]);
+  });
+
+  it("matches the symbol however it was cased when recorded", () => {
+    expect(forAsset(log, "usdc")).toHaveLength(2);
+  });
+
+  it("returns everything when no asset is named", () => {
+    // Withdraw has no single asset in view, so it must keep the full list.
+    expect(forAsset(log, undefined)).toHaveLength(3);
+    expect(forAsset(log, "  ")).toHaveLength(3);
+  });
+
+  it("answers empty for an asset with no transfers, rather than everything", () => {
+    expect(forAsset(log, "HOOPS")).toEqual([]);
+  });
+});
+
+describe("recentRecipients", () => {
+  const row = (over: Partial<TransferRecord>): TransferRecord =>
+    ({
+      hash: "0x" + "1".repeat(64),
+      kind: "withdraw",
+      chainId: 5042002,
+      symbol: "USDC",
+      amount: "1",
+      peer: "0x" + "a".repeat(40),
+      at: 1,
+      ...over,
+    }) as TransferRecord;
+
+  it("lists addresses withdrawn to, newest first", () => {
+    const log = [
+      row({ hash: "0x1", peer: "0xAAA" }),
+      row({ hash: "0x2", peer: "0xBBB" }),
+    ];
+    expect(recentRecipients(log)).toEqual(["0xAAA", "0xBBB"]);
+  });
+
+  it("ignores DEPOSITS — a sender is not somewhere you chose to send", () => {
+    const log = [row({ hash: "0x1", kind: "deposit", peer: "0xDEAD" })];
+    expect(recentRecipients(log)).toEqual([]);
+  });
+
+  it("caps at five, so the list stays a shortcut rather than a history", () => {
+    const log = Array.from({ length: 12 }, (_, i) =>
+      row({ hash: "0x" + i, peer: "0x" + String(i).repeat(4) }),
+    );
+    expect(recentRecipients(log)).toHaveLength(MAX_RECENT_RECIPIENTS);
+  });
+
+  it("deduplicates on casing, keeping the most recent form", () => {
+    // The same address differs only by checksum casing; two rows would waste
+    // two of the five slots on one destination.
+    const log = [
+      row({ hash: "0x1", peer: "0xAbCd" }),
+      row({ hash: "0x2", peer: "0xABCD" }),
+    ];
+    expect(recentRecipients(log)).toEqual(["0xAbCd"]);
+  });
+
+  it("skips a row with no recorded peer rather than emitting a blank", () => {
+    const log = [row({ hash: "0x1", peer: null }), row({ hash: "0x2", peer: "0xBBB" })];
+    expect(recentRecipients(log)).toEqual(["0xBBB"]);
+  });
+
+  it("is empty for a wallet that has never withdrawn", () => {
+    expect(recentRecipients([])).toEqual([]);
+  });
+});
+
+describe("findByHash", () => {
+  const log: TransferRecord[] = [base, { ...base, hash: H(2), symbol: "ETH", amount: "1.5" }];
+
+  it("finds the record a hash was already claimed under", () => {
+    expect(findByHash(log, H(2))?.symbol).toBe("ETH");
+  });
+
+  it("matches regardless of case and surrounding space", () => {
+    // A pasted hash routinely differs in case from the one the wallet wrote,
+    // and `record()` keys on the lowercased form — so a case-sensitive lookup
+    // would report "not claimed" for a row that is about to be overwritten.
+    expect(findByHash(log, `  ${H(2).toUpperCase().replace("0X", "0x")}  `)?.amount).toBe("1.5");
+  });
+
+  it("answers null for a hash nobody has claimed", () => {
+    expect(findByHash(log, H(9))).toBeNull();
+  });
+
+  it("answers null on an empty log rather than throwing", () => {
+    expect(findByHash([], H(1))).toBeNull();
   });
 });

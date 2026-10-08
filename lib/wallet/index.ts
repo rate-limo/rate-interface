@@ -33,6 +33,7 @@
 import { useCallback } from "react";
 import { useConnect, useConnectors } from "wagmi";
 import { toast } from "sonner";
+import { playSound } from "@/lib/sound";
 import { MERA_CONNECTOR_ID } from "./meraConnector";
 import { useAccount, useDisconnect } from "wagmi";
 
@@ -161,7 +162,7 @@ function isUserCancellation(err: unknown): boolean {
  * It also warns that a passkey WAS created. mera checks PRF only after
  * `navigator.credentials.create()` has already succeeded, so the authenticator
  * has stored a credential this app can never use — and every retry stores
- * another. Someone left staring at a list of identical "Iter wallet" entries
+ * another. Someone left staring at a list of identical "Rate wallet" entries
  * deserves to know where they came from.
  */
 /** The innermost message on the `cause` chain, which is where a wrapper hides it. */
@@ -229,7 +230,9 @@ export function useWalletConnect(): WalletConnect {
       // Both connectors need a user gesture — the passkey prompt is refused
       // without one, and an injected wallet opens its own window. This is only
       // ever called from a click for that reason.
-      void connectAsync({ connector }).catch((err: unknown) => {
+      void connectAsync({ connector })
+        .then(() => playSound("connect"))
+        .catch((err: unknown) => {
         // Dismissing a passkey sheet or a wallet popup is a decision, not a
         // failure, and a toast for "no thanks" is noise.
         //

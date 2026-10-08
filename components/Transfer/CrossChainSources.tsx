@@ -11,6 +11,7 @@ import { useSourceBalances } from "@/hooks/useSourceBalances";
 import { destinationLeg, sourcesFor, withinLimits } from "@/lib/transfer/registry";
 import { bySourceBalance, canPayGas, holdsSomething } from "@/lib/transfer/sourceBalances";
 import { BRIDGE_STEP_LABEL, bridgeIn, type BridgeStep } from "@/lib/transfer/cctp";
+import { reportTransfer } from "@/lib/transfer/report";
 
 /**
  * "Already have it somewhere else?" — the networks this asset can arrive from.
@@ -204,7 +205,7 @@ export function CrossChainSources({
       return;
     }
     if (!provider || !recipient) {
-      setError("Connect your Iter wallet first.");
+      setError("Connect your Rate wallet first.");
       return;
     }
 
@@ -235,7 +236,54 @@ export function CrossChainSources({
     if (abandonedRef.current) return;
     if (!outcome.ok) setError(outcome.reason);
     else {
-      toast.success(`${value} ${tokenSymbol} is on its way to your Iter wallet.`);
+      /*
+       * RECORD IT. A completed bridge used to raise a toast and nothing else.
+       *
+       * `bridgeIn` returns the MINT hash — the transaction that actually
+       * credited the account — and this branch threw it away, so a deposit that
+       * had fully settled left no row in Recent transfers, no hash, and no
+       * explorer link. The only way to get one was for the user to find the
+       * hash themselves and paste it into "Already sent it?", which is the
+       * manual fallback for QR deposits the app never saw. This one it saw
+       * every step of.
+       *
+       * Reported against the DESTINATION chain, because that is where the mint
+       * is and identity-service verifies a report by reading its receipt. The
+       * burn on the source chain is a different transaction on a different
+       * chain, and it credits nobody — reporting that hash here would be a 422.
+       *
+       * The symbol comes from `tokenSymbol`, the asset this panel is already
+       * bridging. The local row exists precisely so the list is right before the
+       * service answers, and a row recorded with no symbol renders as "Received
+       * 0.05 —" — the em-dash `history.ts` substitutes when a record arrives
+       * without one.
+       *
+       * Guarded on the hash because `BridgeOutcome.mintTxHash` is nullable: the
+       * SDK reports it from the mint event, and a settlement that completes
+       * without one leaves nothing to link to. A row keyed on a missing hash
+       * cannot be deduplicated or verified, so no row is better than a broken
+       * one — the toast still fires.
+       */
+      if (outcome.mintTxHash) {
+        reportTransfer({
+          hash: outcome.mintTxHash,
+          kind: "deposit",
+          chainId,
+          account: recipient,
+          symbol: tokenSymbol,
+          amount: value,
+          peer: null,
+        });
+      }
+      // "On its way" was true when nothing waited for the mint. `bridgeIn`
+      // resolves only after the mint event, so by here the money has landed —
+      // saying it is still travelling sends people back to check on a transfer
+      // that is already done.
+      toast.success(`${value} ${tokenSymbol} arrived in your Rate wallet.`, {
+        description: outcome.mintTxHash
+          ? "It is in your transfer list now."
+          : `Delivered on ${destinationName}.`,
+      });
       setSelected(null);
       setDraft("");
     }
@@ -619,7 +667,7 @@ export function CrossChainSources({
  * Circle ships no icon: its chain objects carry an explorer URL, RPC endpoints,
  * the USDC address and the CCTP domain, and nothing image-shaped. So the artwork
  * can only come from `chainMeta`, which an operator uploads — and for a chain
- * Iter does not serve there is no row, hence initials.
+ * Rate does not serve there is no row, hence initials.
  *
  * Two letters from the NAME, not the provider key, so "Base Sepolia" gives BS
  * rather than B_. Deterministic and unstyled by brand: inventing a colour for a

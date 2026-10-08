@@ -36,8 +36,9 @@ describe("describeWithdrawFailure", () => {
   });
 
   it("explains a locked passkey as an ended session, not a fault", () => {
-    // meraConnector.getProvider throws exactly this string, and it is the most
-    // likely failure on this screen: a reload ends the session by design.
+    // The passkey provider's `request` throws exactly this string while locked
+    // (it was `getProvider` until 2026-09-20 — see meraConnector). Still the most
+    // likely failure on this screen: past the 24-hour window the session is gone.
     const said = describeWithdrawFailure(new Error("Passkey wallet is locked."));
     expect(said).toMatch(/session has ended/i);
     expect(said).toMatch(/sign in again/i);
@@ -141,7 +142,7 @@ describe("sign-in copy names an action, never a place", () => {
     const blocked = describeWithdrawBlock({ hasChain: true, hasAmount: true, hasAccount: false });
     expect(blocked).toBeTruthy();
     expect(blocked).not.toMatch(/top of the page/i);
-    expect(blocked).toMatch(/no iter account is signed in/i);
+    expect(blocked).toMatch(/no rate account is signed in/i);
   });
 
   it("still says WHAT is wrong, not merely that something is", () => {

@@ -5,17 +5,25 @@
  *
  * Book depth is already a step function — cumulative size as you walk levels away
  * from mid. Pool depth turns out to be one too, and that was the finding that made
- * this chart worth drawing: `Pool.sol` is a TIERED position model, not Uniswap-v3
- * ticks. Positions are assembled in `(slippageLimit, positionId)` order and consumed
- * tier by tier, so there is no continuous liquidity function to integrate. Each
- * `spotLiquidityRanges` row is an interval `[minPrice, maxPrice]` holding an amount,
- * and pool depth at a price is simply the sum of the amounts whose interval covers
- * it.
+ * this chart worth drawing: this venue's pools are BAND pools, not Uniswap-v3 ticks.
+ * `BandPool` prices a fill at `marketPrice * (DENOM ± tolerance) / DENOM`, so a band
+ * with tolerance `t` is an interval `[P * (1 - t/1e8), P * (1 + t/1e8)]` holding a
+ * reserve of each token, and pool depth at a price is the sum of the reserves whose
+ * band covers it. There is no continuous liquidity function to integrate.
+ *
+ * Bands OVERLAP rather than tile — band 1's interval contains band 0's — and summing
+ * them is right rather than double counting: their price ranges overlap, their
+ * reserves do not, and liquidity in the wider band genuinely is available near spot.
  *
  * So both layers are sums over price, computed the same way, and neither is
  * approximated. That is why pool liquidity is drawn in the SIDE's colour with a
  * hatch rather than a third hue: it is not a third kind of thing, it is the same
  * depth from another venue.
+ *
+ * The ranges arrive from `GET /api/liquidity/depth`, which reads `bandReserves`. It
+ * used to read `spotLiquidityRanges` — fed by a `PositionManager` event no contract
+ * emits any more — and so returned nothing for every pair on the deployment. This
+ * chart drew its book layer and never once drew its pool layer.
  *
  * ## Units are displayed, never guessed
  *
@@ -127,12 +135,57 @@ export function buildDepthModel(input: {
   const lo = mid * (1 - window);
   const hi = mid * (1 + window);
 
-  const bidPoints = cumulativeBook(bids, mid, "bid")
-    .filter((p) => p.price >= lo)
-    .map((p) => ({ ...p, pool: poolDepthAt(ranges, p.price, unit) }));
-  const askPoints = cumulativeBook(asks, mid, "ask")
-    .filter((p) => p.price <= hi)
-    .map((p) => ({ ...p, pool: poolDepthAt(ranges, p.price, unit) }));
+  /*
+   * THE POOL IS SAMPLED AT ITS OWN EDGES, not only where the book has levels.
+   *
+   * This used to map pool depth onto book points alone. On a market with no
+   * resting orders `cumulativeBook` returns [], so there were no prices at which
+   * to sample — and the pool, however deep, produced no vertices and drew
+   * nothing. `midPool` kept the model non-null, so the chart rendered its frame,
+   * its axis and its mid line over an empty plot: it looked like a venue with no
+   * liquidity while the pool held ~996 ITRA (Arc, ITRA/USDC, 2026-09-22).
+   *
+   * Band edges are also where the pool actually CHANGES. Without a vertex there,
+   * a band that is 0.1% wide gets linearly smeared between two distant book
+   * levels, which overstates depth everywhere between them. So this is the right
+   * sample set even when the book is full, not a special case for an empty one.
+   */
+  const rawBids = cumulativeBook(bids, mid, "bid").filter((p) => p.price >= lo);
+  const rawAsks = cumulativeBook(asks, mid, "ask").filter((p) => p.price <= hi);
+
+  const edges = ranges
+    .flatMap((r) => [r.minPrice, r.maxPrice])
+    .filter((price) => Number.isFinite(price) && price >= lo && price <= hi);
+
+  /** Cumulative book at an arbitrary price — the step the book already describes. */
+  const bookAt = (points: DepthPoint[], price: number, side: "bid" | "ask"): number => {
+    let depth = 0;
+    for (const point of points) {
+      // `points` already walk away from mid, so the first level that has not been
+      // reached ends the walk.
+      if (side === "bid" ? point.price < price : point.price > price) break;
+      depth = point.book;
+    }
+    return depth;
+  };
+
+  const sideOf = (side: "bid" | "ask"): DepthPoint[] => {
+    const raw = side === "bid" ? rawBids : rawAsks;
+    const own = edges.filter((price) => (side === "bid" ? price <= mid : price >= mid));
+    // Mid earns a vertex only when the pool is live there: adding one
+    // unconditionally would put a point on every empty market's chart.
+    const anchor = poolDepthAt(ranges, mid, unit) > 0 ? [mid] : [];
+    const prices = Array.from(new Set([...raw.map((p) => p.price), ...own, ...anchor]));
+    prices.sort((a, b) => (side === "bid" ? b - a : a - b));
+    return prices.map((price) => ({
+      price,
+      book: bookAt(raw, price, side),
+      pool: poolDepthAt(ranges, price, unit),
+    }));
+  };
+
+  const bidPoints = sideOf("bid");
+  const askPoints = sideOf("ask");
 
   // Nothing on either side and no pool anywhere means there is no chart to draw.
   // Rendering an empty frame would claim we looked and found a flat book, which

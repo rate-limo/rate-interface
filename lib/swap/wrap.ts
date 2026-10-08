@@ -32,7 +32,7 @@
  * every pair on it classifies as an ordinary `trade`.
  */
 
-import type { SwapToken } from "./types";
+import type { SwapQuote, SwapToken } from "./types";
 
 /**
  * The address a native asset takes in the token list.
@@ -71,6 +71,23 @@ export const WRAPPED_NATIVE: Record<number, WrappedNative> = {
   // carries both deposit() (0xd0e30db0) and withdraw(uint256) (0x2e1a7d4d).
   11155931: {
     address: "0x008fCD6315c68EbAa31244aea174993f63Ef14D5",
+    wrappedSymbol: "WETH",
+    nativeSymbol: "ETH",
+    nativeName: "Ether",
+    decimals: 18,
+  },
+  // Monad Testnet: the engine's WETH9 (0x7Eff…65D8), deployed 2026-10-02. Its own
+  // symbol() reads "WETH" because WETH9 hardcodes it; on this chain it wraps MON.
+  10143: {
+    address: "0x7Eff1500024D9393BE3Ad2B5e643C540018365D8",
+    wrappedSymbol: "WMON",
+    nativeSymbol: "MON",
+    nativeName: "Monad",
+    decimals: 18,
+  },
+  // Robinhood Chain Testnet: the engine's WETH9, deployed 2026-10-02.
+  46630: {
+    address: "0x14325a62d71848c1Ed358CEA3EfAE883920C13bf",
     wrappedSymbol: "WETH",
     nativeSymbol: "ETH",
     nativeName: "Ether",
@@ -167,3 +184,101 @@ export const wrappedNativeAbi = [
     outputs: [],
   },
 ] as const;
+
+/**
+ * Whether changing the pay token invalidates the amount already typed.
+ *
+ * The amount on the swap card is an ABSOLUTE quantity of the pay token, and the
+ * slider's whole track is `[0, that token's balance]`. So when the pay token
+ * changes, the number stops meaning anything: the thumb re-scales against a
+ * balance the figure was never sized against, and commonly pins at 100% while
+ * the input above it still shows the old number. The two controls then actively
+ * disagree, and `insufficientBalance` can fail an amount nobody typed for that
+ * token.
+ *
+ * `same-asset` is the exception, and it is the reason this is a function rather
+ * than an address comparison. On Arc the native asset and the ERC-20 at
+ * `0x3600…` are one pool of funds behind two interfaces — flipping between them
+ * changes `pay.address` while the spendable balance and the meaning of the
+ * number are identical, so clearing there would throw away a valid amount.
+ * `classifySwap` already answers this, including for the same address on both
+ * legs, and routing through it is what stops a second opinion about what "the
+ * same asset" means from growing here.
+ */
+export function payChangeClearsAmount(
+  previous: SwapToken,
+  next: SwapToken,
+  chainId: number,
+): boolean {
+  /*
+   * A different CHAIN always clears, and `classifySwap` cannot say so — it takes
+   * one `chainId` and compares addresses, so two deployments of one token at the
+   * same address (which CREATE2 produces routinely; Multicall3 is identical on
+   * every chain) would classify as `same-asset` and carry an amount across a
+   * re-home. The balance there is a different balance in every sense that
+   * matters.
+   */
+  if (previous.chainId !== next.chainId) return true;
+  return classifySwap(previous, next, chainId) !== "same-asset";
+}
+
+/**
+ * The quote for a wrap, computed here because there is nothing to ask.
+ *
+ * A wrap is `deposit()` / `withdraw()` on the wrapped contract: exactly 1:1, no
+ * book, no pool, no counterparty and no protocol fee. `execution.ts` has
+ * implemented it that way all along — it branches to the contract BEFORE any
+ * pool lookup, precisely because "a wrap has no pool by design".
+ *
+ * The card did not follow. It sent every pair to `useRouteQuote`, which asked
+ * the gateway for a route between two tokens that share no market. The request
+ * failed, `quote.execution` stayed undefined, and the primary button was
+ * disabled on a conversion the execution path could have performed. `isWrapKind`
+ * was computed in the card for exactly this and read by nothing.
+ *
+ * On RISE it is one pick away, in the direction that is easy to get backwards:
+ * the card opens paying the WRAPPED token, because `initial` takes the static
+ * list's "ETH" entry and on RISE that entry is the WETH contract. So the first
+ * reachable conversion is an UNWRAP. See `SwapCard.wrap.test.tsx`, which pins
+ * it.
+ *
+ * Every figure below is exact rather than estimated, which is the unusual part
+ * and the reason this is not a fallback shaped like a quote:
+ *
+ * - **`delivered` is `amountIn`.** Not approximately — the contract mints one
+ *   for one.
+ * - **`minReceived` is `amountIn` too**, so slippage is not applied. There is no
+ *   price to slip against, and a `minReceived` below the amount would imply a
+ *   worse fill is possible when none is.
+ * - **`impactPct` and `feeUsd` are 0 because they ARE zero**, not because they
+ *   are unknown. This is the one place on the card where that distinction runs
+ *   the other way from the usual em-dash rule.
+ * - **`hops` is empty and `placements` is empty.** A wrap has no hop to break
+ *   down and nothing can fail to fill, so there is never a remainder.
+ *
+ * No `execution` field: that carries the gateway's router path, and the wrap
+ * never touches the router. Callers gate on the KIND rather than on its
+ * presence — fabricating a path here would put a route into a structure that
+ * something later could try to send.
+ */
+export function wrapQuote(pay: SwapToken, get: SwapToken, amountIn: number): SwapQuote {
+  const amount = Number.isFinite(amountIn) && amountIn > 0 ? amountIn : 0;
+  // Priced off the PAY leg for both sides. Native and wrapped are the same asset
+  // at the same price, and `nativeTokenFor` already seeds the native entry's
+  // price from its twin — so reading `get.priceUsd` for the receive side would
+  // reintroduce a second source for one number.
+  const usd = amount * (Number.isFinite(pay.priceUsd) ? pay.priceUsd : 0);
+  return {
+    amountIn: amount,
+    payUsd: usd,
+    route: [pay, get],
+    hops: [],
+    delivered: amount,
+    deliveredUsd: usd,
+    placedUsd: 0,
+    placements: [],
+    impactPct: 0,
+    minReceived: amount,
+    feeUsd: 0,
+  };
+}

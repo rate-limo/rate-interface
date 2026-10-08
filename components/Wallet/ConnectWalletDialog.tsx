@@ -94,7 +94,7 @@ export function ConnectWalletDialog() {
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-[color:var(--m-primary)] text-[color:var(--m-on-primary)]">
             <WalletCards className="h-4 w-4" />
           </span>
-          <span className="font-semibold tracking-tight text-[color:var(--m-text-primary)]">Iter</span>
+          <span className="font-semibold tracking-tight text-[color:var(--m-text-primary)]">Rate</span>
         </div>
 
         <h2
@@ -109,7 +109,7 @@ export function ConnectWalletDialog() {
             the wallet button — without it, an unexplained modal appearing over a
             bookmark reads as the page misfiring. */}
         <p className="mt-1 text-[13px] text-[color:var(--m-text-secondary)]">
-          {reason ?? "Trade on Iter with a wallet that is yours alone."}
+          {reason ?? "Trade on Rate with a wallet that is yours alone."}
         </p>
 
         <button
@@ -125,7 +125,7 @@ export function ConnectWalletDialog() {
           <span className="text-sm font-semibold text-[color:var(--m-on-primary)]">Continue with a passkey</span>
           <span className="text-[12px] text-[color:var(--m-on-primary)]/80">
             Face ID or a security key. No seed phrase, and no network switching —
-            it works on every chain Iter serves.
+            it works on every chain Rate serves.
           </span>
         </button>
 
@@ -147,7 +147,7 @@ export function ConnectWalletDialog() {
         </button>
 
         <p className="mt-3 border-t border-[color:var(--m-border)] pt-3 text-center text-[11.5px] text-[color:var(--m-text-secondary-2)]">
-          Iter never holds your keys.
+          Rate never holds your keys.
         </p>
       </div>
     </div>,

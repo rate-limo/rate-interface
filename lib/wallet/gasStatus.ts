@@ -2,6 +2,9 @@
 
 import { useCallback } from "react";
 import { useAccount, useBalance } from "wagmi";
+import { setFeeToken, useFeeTokenChoice } from "@/lib/wallet/feeToken";
+import { wagmiConfig } from "@/lib/providers";
+import { toast } from "sonner";
 import { gasAssetFor, type GasAsset } from "@/lib/errors/insufficientGas";
 import { goToDeposit } from "@/lib/transfer/routes";
 
@@ -67,13 +70,24 @@ export function useGasStatus(): {
   requireGas: (action?: () => void) => boolean;
 } {
   const { address, chainId, isConnected } = useAccount();
-  const { data, isLoading, isError } = useBalance({
+  // On a TIP-20-gas chain (Tempo) the native balance is a fixed placeholder that
+  // always looks rich, so the gas check reads the fee token instead -- the one THIS
+  // account chose in Tempo's FeeManager, else PathUSD.
+  const choice = useFeeTokenChoice(chainId, address);
+  const feeToken = choice?.current ?? null;
+  const native = useBalance({
     address,
     chainId,
-    query: { enabled: Boolean(address) && isConnected },
+    query: { enabled: Boolean(address) && isConnected && !feeToken },
   });
+  // A failed or pending fee-token read is `unknown`, exactly like the native one.
+  const isLoading = choice ? choice.currentBalance === undefined && isConnected && Boolean(address) : native.isLoading;
+  const isError = choice ? false : native.isError;
+  const data = choice ? { value: choice.currentBalance } : native.data;
+  const alternative = choice?.alternative ?? null;
 
-  const asset = gasAssetFor(chainId);
+  const chainAsset = gasAssetFor(chainId);
+  const asset = chainAsset && feeToken ? { ...chainAsset, symbol: feeToken.symbol } : chainAsset;
 
   const status = resolveGasStatus({
     isConnected,
@@ -84,6 +98,33 @@ export function useGasStatus(): {
 
   const requireGas = useCallback(
     (action?: () => void) => {
+      if (status === "empty" && alternative && chainId !== undefined) {
+        // Tempo: the current gas token is empty but another listed stablecoin is
+        // funded. The protocol will not fall back on its own -- the transaction is
+        // simply rejected -- so offer the switch instead of a trip to Deposit.
+        // setUserToken is paid in the NEW token, so it works from here.
+        const to = alternative.token;
+        toast.warning(`No ${feeToken?.symbol ?? "gas token"} for network fees`, {
+          id: "gas-token-switch",
+          description: `You hold ${to.symbol}. Pay network fees in ${to.symbol} instead, then try again.`,
+          duration: 20_000,
+          action: {
+            label: `Use ${to.symbol}`,
+            onClick: () => {
+              toast.loading(`Switching network fees to ${to.symbol}…`, { id: "gas-token-switch" });
+              setFeeToken(wagmiConfig, chainId, to.address).then(
+                () => toast.success(`Network fees now paid in ${to.symbol}`, { id: "gas-token-switch", duration: 6_000 }),
+                (error: unknown) =>
+                  toast.error("Could not change the gas token", {
+                    id: "gas-token-switch",
+                    description: error instanceof Error ? error.message.split("\n")[0] : undefined,
+                  }),
+              );
+            },
+          },
+        });
+        return false;
+      }
       if (status === "empty") {
         // Deposit is a PAGE now, so this navigates rather than opening a sheet
         // over the action the user was mid-way through. That is the trade the
@@ -95,7 +136,7 @@ export function useGasStatus(): {
       action?.();
       return true;
     },
-    [status, chainId],
+    [status, chainId, alternative, feeToken],
   );
 
   return { status, asset, requireGas };

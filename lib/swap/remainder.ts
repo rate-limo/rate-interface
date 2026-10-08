@@ -57,3 +57,30 @@ export function remainderSplit(quote: SwapQuote | null): RemainderSplit {
     restPrice: restsTo > 0 ? restsTo / unfilled : 0,
   };
 }
+
+/**
+ * What the wallet ENDS UP holding in the get token: filled now plus resting.
+ *
+ * The review screen showed `delivered` alone, which with a disposition set is
+ * routinely zero — a thin market takes none of the order and the whole thing
+ * rests. So it read "0 ITRA · You receive · est · $0" directly above a
+ * Remainder row promising "$1 → ITRA": one trade described twice, contradicting
+ * itself, on the screen where the user decides whether to sign. Nobody trades
+ * in order to receive nothing.
+ *
+ * `restsTo` comes from the PLACEMENT, so this is the same figure the
+ * disposition rail already renders rather than a second derivation of it — the
+ * property `remainderSplit` exists to protect.
+ *
+ * With no disposition the remainder is refunded, not converted, so the answer
+ * is `delivered` and nothing else.
+ */
+export function positionAfter(
+  quote: SwapQuote | null,
+  disposition: "none" | "limit" | "lp",
+): { now: number; resting: number; total: number } {
+  const now = quote?.delivered ?? 0;
+  if (!quote || disposition === "none") return { now, resting: 0, total: now };
+  const { restsTo } = remainderSplit(quote);
+  return { now, resting: restsTo, total: now + restsTo };
+}

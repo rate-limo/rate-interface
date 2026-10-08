@@ -8,7 +8,7 @@ import NumberFlow from "@number-flow/react";
 import { useWalletConnect } from "@/lib/wallet";
 import { useGasStatus } from "@/lib/wallet/gasStatus";
 import { useAccount, useBalance, usePublicClient, useReadContract, useSwitchChain, useWriteContract } from "wagmi";
-import { erc20Abi, parseAbi, parseUnits, zeroAddress } from "viem";
+import { erc20Abi, formatUnits, parseAbi, parseUnits, zeroAddress } from "viem";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { matchingEngineAddress, matchingEngineSupportsDeadlines } from "@/lib/deployments";
@@ -18,8 +18,9 @@ import { chainIdToNetworkName } from "@/consts";
 import { useChainSwitch } from "@/hooks/useChainSwitch";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { quoteSwap, routeTokens, lpAprPct } from "@/lib/swap/quote";
-import { WRAPPED_NATIVE, classifySwap, isNativeAddress, wrappedNativeAbi } from "@/lib/swap/wrap";
+import { WRAPPED_NATIVE, classifySwap, isNativeAddress, payChangeClearsAmount, wrapQuote, wrappedNativeAbi } from "@/lib/swap/wrap";
 import { emptyQuote } from "@/lib/swap/emptyQuote";
+import { swapSubmitDisabled } from "@/lib/swap/submitGate";
 import { isNativeSymbol } from "@/utils/order";
 import { useRouteQuote } from "@/lib/swap/routeQuote";
 import { useLiveSwapTokens } from "@/lib/swap/useLiveSwapTokens";
@@ -30,7 +31,7 @@ import {
   defaultSwapPair,
   tokenColor,
 } from "@/lib/swap/tokens";
-import type { Disposition, SwapToken } from "@/lib/swap/types";
+import type { Disposition, SwapQuote, SwapToken } from "@/lib/swap/types";
 import { TokenPicker } from "./TokenPicker";
 import { SwapFlow } from "./SwapFlow";
 import { SwapDepthChart } from "./SwapDepthChart";
@@ -38,11 +39,17 @@ import { useSwapDepth } from "@/hooks/useSwapDepth";
 import { depthStepFor } from "@/lib/swap/depth";
 import { useOrderPreview } from "@/hooks/useOrderPreview";
 import { useRealSwapExecution } from "./execution";
+import { useLadderTrade } from "@/hooks/useLadderTrade";
+import { REFUND_NOTE } from "@/lib/launch/ladderBuy";
 import { usePairCandles, type PairCandlePeriod } from "@/hooks/usePairCandles";
 import { toastContractError } from "@/lib/errors/toastContractError";
+import { wagmiChains } from "@/lib/customChains";
+import { useFeeToken } from "@/lib/wallet/feeToken";
+import { maxSpendable, spendsGas } from "@/lib/wallet/gasReserve";
+import { hasDistinctNativeAsset } from "@/lib/wallet/depositAssets";
 
 /**
- * The Iter swap card. Two user-selectable tokens (pay + receive) with a flip
+ * The Rate swap card. Two user-selectable tokens (pay + receive) with a flip
  * control; numbers come entirely from `quoteSwap` (the validated per-hop cascade).
  * Shows the route (collapsed → per-hop matched/placed), the overall fill split,
  * and the three remainder dispositions (Leave unfilled [default] / Rest as limit /
@@ -207,6 +214,8 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
     return Math.round(clamped * 100) / 100;
   });
   const [amountText, setAmountText] = useState(() => preview ? String(amountIn) : "");
+  /** Bumped whenever the pay leg changed enough to invalidate a typed amount. */
+  const [payEpoch, setPayEpoch] = useState(0);
   const [disposition, setDisposition] = useState<Disposition>("none");
   const [routeOpen, setRouteOpen] = useState(false);
   const [picker, setPicker] = useState<null | "pay" | "get">(null);
@@ -286,6 +295,51 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
    * existing engine path untouched.
    */
   const swapKind = get ? classifySwap(pay, get, pay.chainId) : "trade";
+  /*
+   * One asset on both legs, refused HERE rather than only at confirm.
+   *
+   * `execution.ts` already throws by name for this, but only once the user has
+   * typed an amount, read a quote, opened the flow and pressed confirm. Until
+   * then the card quoted it like any other pair — which is what produced the
+   * `USDC/USDC` route and chart requests that 404'd in a loop, the symptom
+   * `lib/swap/wrap.ts` records and then says the UI "must refuse rather than
+   * route".
+   *
+   * `swapKind` was computed for exactly this and read by nothing, so the refusal
+   * was written down in three places and implemented in one.
+   *
+   * What PREVENTS it today is the token list, not this: `useLiveSwapTokens`
+   * appends no native entry on Arc precisely so the native leg cannot be picked
+   * against its own ERC-20. That is data, and it is not enforced where the swap
+   * is decided.
+   *
+   * `pick()` is the other half and it is a weaker guard than it looks: it flips
+   * when `token.symbol === other.symbol`, a SYMBOL comparison, while
+   * `classifySwap`'s first branch compares ADDRESSES. On a venue where anyone
+   * can mint a coin called USDC the two come apart in both directions — two
+   * distinct tokens sharing a symbol flip instead of pairing, and one token
+   * listed under two symbols pairs with itself without flipping. The second is
+   * what this catches.
+   */
+  const sameAsset = swapKind === "same-asset";
+  /**
+   * A wrap is a contract call, not a trade, and the card treated it as one.
+   *
+   * `deposit()` / `withdraw()` on the wrapped token: 1:1, no book, no pool, no
+   * counterparty. `execution.ts` branches to it before any pool lookup — but
+   * every pair went to `useRouteQuote` first, so it asked the gateway for a
+   * route between two tokens that share no market. It failed, `quote.execution`
+   * stayed undefined, and the primary button was disabled on a conversion the
+   * execution path could already perform.
+   *
+   * On RISE it is one pick away rather than an edge case, and in the direction
+   * the two earlier versions of this comment got backwards: `initial` picks the
+   * STATIC list's ETH entry, which on RISE is the WETH contract — the "ETH"
+   * label was an `adminTokenMeta` override that `correctWrappedSymbol` undoes
+   * once the live list lands. So the card opens holding WRAPPED, and the native
+   * entry beside it makes UNWRAP the first thing reachable, with wrap one flip
+   * further. `SwapCard.wrap.test.tsx` pins that rather than restating it.
+   */
   const isWrapKind = swapKind === "wrap" || swapKind === "unwrap";
   const payBalance = preview ? MOCK_BALANCE : Number(payBalanceData?.formatted ?? 0);
   const getBalance = preview ? 0 : Number(getBalanceData?.formatted ?? 0);
@@ -308,13 +362,27 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
   // execution.ts, which approves and has no native `value:`), and on RISE the
   // token the list calls ETH is the WETH contract, so a wallet holding native
   // ETH reads zero here and is right to.
+  /*
+   * 100% on the slider must leave the fee behind when the pay token IS what gas is
+   * charged in: native ETH on RISE, USDC on Arc, the account's fee token (PathUSD
+   * by default) on Tempo -- whose registry symbol is a placeholder, hence
+   * `useFeeToken`. The same 1% reserve the deposit and withdraw forms keep.
+   */
+  const payChain = wagmiChains.find((c) => c.id === pay.chainId);
+  const payFeeToken = useFeeToken(pay.chainId, address);
+  const payIsGas = spendsGas({
+    symbol: pay.symbol,
+    gasSymbol: payFeeToken?.symbol ?? payChain?.nativeCurrency.symbol,
+    hasSeparateNativeRow: hasDistinctNativeAsset(payChain?.name ?? networkName),
+    isNativeRow: payIsNative,
+  });
   const sliderLive = preview || (isConnected && payBalance > 0);
   const sliderMin = preview ? SLIDER_MIN : 0;
   // When the slider is dead the track still has to hold the typed amount, or the
   // thumb pins below a number the input above it plainly shows — a disabled
   // control that also reads as wrong. Only a fundable balance IS the scale.
   const sliderMax = sliderLive
-    ? (preview ? MOCK_BALANCE : Math.max(sliderMin, payBalance))
+    ? (preview ? MOCK_BALANCE : Math.max(sliderMin, maxSpendable(payBalance, payIsGas)))
     : Math.max(EXPLORE_SLIDER_MAX, amountIn);
   const insufficientBalance = !preview && isConnected && !!payBalanceData && amountIn > payBalance;
   const balanceLabel = (
@@ -339,7 +407,10 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
   // Quoting is intentionally driven by the amount the user entered, not by
   // the wallet balance. A user may want to preview a route before funding the
   // wallet; the balance is an execution constraint only.
-  const canQuote = !preview && hasAmount && Boolean(get);
+  // `sameAsset` gates the QUOTE, not just the button: the request is the thing
+  // that 404s, and a spinner over a pair that can never be quoted is worse than
+  // the refusal it delays.
+  const canQuote = !preview && hasAmount && Boolean(get) && !sameAsset && !isWrapKind;
   const previewQuote = useMemo(
     () => quoteSwap({ pay, get: getOrHub, amountIn, slippagePct }, hub),
     [pay, getOrHub, amountIn, hub, slippagePct]
@@ -356,11 +427,51 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
   // The preview remains exactly the approved illustrative landing card. The app
   // card uses only a gateway-issued quote; the zero-size placeholder merely
   // keeps the existing markup stable while that quote is loading.
-  const quote = preview ? previewQuote : (live.quote ?? emptyQuote(pay, getOrHub));
+  // A wrap is quoted from the conversion itself — exact, and with nothing to
+  // wait for. See `wrapQuote`, which is where the reasoning lives.
+  /*
+   * A LAUNCH COIN STILL SELLING ITS LADDER (see lib/launch/ladderBuy).
+   *
+   * Its pool is closed until graduation and a market order cannot climb a
+   * step, so Buy and Sell here go to the book as a fill-or-refund order. A buy
+   * is quoted by walking the five steps' remaining amounts — not by the
+   * gateway's route, which knows nothing of the ladder — and its ceiling is the
+   * highest step reached plus the slippage setting. A sell takes the gateway's
+   * quote and floors the price at its minimum.
+   */
+  const ladder = useLadderTrade({
+    networkName,
+    pay,
+    get,
+    amountIn,
+    slippage: slippagePct,
+    liveQuote: live.quote,
+    enabled: !preview && hasAmount,
+  });
+  const ladderBuy = ladder.buy;
+
+  const baseQuote = preview
+    ? previewQuote
+    : isWrapKind && get
+      ? wrapQuote(pay, get, amountIn)
+      : (live.quote ?? emptyQuote(pay, getOrHub));
+  const quote: SwapQuote = ladderBuy && ladder.quote ? ladder.quote : baseQuote;
+  const ladderTrade = ladder.order;
   // Never gate a displayed quote on balance. `insufficientBalance` is used by
   // the primary action below, while this value controls the read-only output
   // and route details. This keeps an over-sized amount useful for planning.
-  const quoteReady = preview || (canQuote && !live.loading && !live.error && Boolean(live.quote));
+  const quoteReady =
+    preview ||
+    // No request was made, so there is no loading state to clear and no error
+    // that could arrive. Gating on `live` here would leave a wrap permanently
+    // un-ready, which is the disabled button this change removes.
+    (isWrapKind
+      ? hasAmount && Boolean(get)
+      : ladderBuy
+        // A ladder buy is quoted from the chain, not the gateway, so a gateway
+        // error about pools does not block it.
+        ? ladderBuy.coinsOut > BigInt(0)
+        : canQuote && !live.loading && !live.error && Boolean(live.quote));
   const cardExpanded = preview || (hasAmount && hasShownResults);
   // Only quote results need the two-column swap layout. The chart is an
   // external sibling panel, so opening it must not stretch an otherwise
@@ -382,11 +493,51 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
   const fillPct = quote.payUsd > 0 ? Math.round((quote.deliveredUsd / quote.payUsd) * 100) : 0;
   const remPct = 100 - fillPct;
 
+  /**
+   * Retire an amount its token no longer explains.
+   *
+   * `amountIn` is an ABSOLUTE quantity of the pay token and the slider's whole
+   * track is `[0, that token's balance]`, so the two are only coherent together.
+   * Called wherever the PAY leg changes — never when only the receive leg does,
+   * where the number still means exactly what it meant.
+   */
+  function clearAmount() {
+    setAmountIn(0);
+    setAmountText("");
+    // Published so `ConditionalOrderCard` can retire ITS size on exactly the
+    // same occasions, without re-deriving the rule. A counter rather than the
+    // token, because "the pay leg changed in a way that invalidates an amount"
+    // is the fact, and `payChangeClearsAmount` is the only thing that decides
+    // it — an Arc native↔`0x3600…` flip changes the token and must NOT clear.
+    setPayEpoch((n) => n + 1);
+  }
+
+  /** …unless the "new" token is the same funds under another interface. */
+  function setPayToken(next: SwapToken) {
+    if (payChangeClearsAmount(pay, next, pay.chainId)) clearAmount();
+    setPay(next);
+  }
+
   function flip() {
     // Nothing to swap with until the receive leg is chosen; flipping would
     // otherwise move the native default into a slot the user never filled.
     if (!get) return;
-    setPay(get);
+    /*
+     * The amount goes with the leg it was denominated in.
+     *
+     * It used to survive the flip, against a slider whose scale is the NEW pay
+     * token's balance — so the thumb re-scaled and commonly pinned at 100% while
+     * the input above it went on showing the old number, two controls actively
+     * disagreeing about one value. Where the new balance was zero the slider
+     * disabled itself beside a nonzero amount, and `insufficientBalance` could
+     * fail a figure nobody had typed for that token.
+     *
+     * Cleared rather than converted. The quote is an estimate, the route and the
+     * price both differ in the other direction, and pre-filling the pay field
+     * with a derived number would have the user spending an amount they never
+     * chose — the one thing this card refuses to do anywhere else.
+     */
+    setPayToken(get);
     setGet(pay);
   }
   function pick(token: SwapToken) {
@@ -418,15 +569,19 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
       if (nextNetwork) {
         const nextHub = getHubToken(nextNetwork);
         const isHub = token.symbol === nextHub.symbol;
+        // Both branches move the PAY leg — the second one onto a token the user
+        // never picked — so both retire the amount. It was denominated in a
+        // token on a different CHAIN, which is the furthest from still meaning
+        // something that it gets.
         if (side === "pay") {
-          setPay(token);
+          setPayToken(token);
           // Picking the hub itself leaves nothing sensible to receive; let them
           // choose rather than seeding both sides with the same token.
           setGet(isHub ? null : nextHub);
         } else {
           // `defaultSwapPair` returns two distinct NON-hub tokens, so it can
           // never collide with the hub the user just chose to receive.
-          setPay(isHub ? defaultSwapPair(nextNetwork).pay : nextHub);
+          setPayToken(isHub ? defaultSwapPair(nextNetwork).pay : nextHub);
           setGet(token);
         }
         switchHere(nextNetwork);
@@ -439,7 +594,9 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
       flip();
       return;
     }
-    if (side === "pay") setPay(token);
+    // Only the pay side retires the amount: picking a new token to RECEIVE
+    // changes neither what is being spent nor how much of it.
+    if (side === "pay") setPayToken(token);
     else setGet(token);
   }
 
@@ -467,8 +624,15 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
   // Before the amount: an amount cannot be quoted against a leg that is not set,
   // so asking for one first would be asking for the wrong thing.
   else if (!get) buttonLabel = "Select a token";
+  // Before the amount: no amount of it converts an asset into itself, so asking
+  // for one first would be asking for something that cannot help.
+  else if (sameAsset) buttonLabel = "Same asset — nothing to convert";
   else if (!hasAmount) buttonLabel = "Enter an amount";
   else if (insufficientBalance) buttonLabel = `Insufficient ${pay.symbol} balance`;
+  // "Trade" over a 1:1 contract call describes the wrong operation, and the
+  // remainder controls below it never apply — a wrap cannot partially fill.
+  else if (swapKind === "wrap") buttonLabel = `Wrap ${pay.symbol}`;
+  else if (swapKind === "unwrap") buttonLabel = `Unwrap ${pay.symbol}`;
   else if (anyPlaced && disposition === "none") {
     buttonLabel = `Trade available ${tok(quote.delivered, getDec)} ${get.symbol} (${fillPct}%)`;
   }
@@ -544,7 +708,31 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
       {!preview && <SwapChartPanel open={chartOpen} networkName={networkName} pay={pay} get={get} hub={hub} />}
       {cardHeader}
       {!preview && mode !== "trade" ? (
+        /*
+         * Two signals, because this card's fields do not all expire together.
+         *
+         * It was keyed on the pair, which remounted it on ANY leg change. That
+         * fixed the stale size and the stale price at once, and over-fixed both:
+         * picking a new token to RECEIVE wiped a size the trade card beside it
+         * deliberately keeps, and an Arc native↔`0x3600…` flip wiped everything
+         * although the balance and the number are unchanged — the one case
+         * `payChangeClearsAmount` exists to exempt. Two cards behaving
+         * differently on one gesture is the drift this file keeps deleting.
+         *
+         * So the size follows `payEpoch`, which is the parent's own decision to
+         * clear and therefore the SAME rule the trade card uses; and the prices
+         * follow the pair, because both are quote-per-base and either leg moving
+         * makes them describe a different market.
+         *
+         * A third reset rides the mode switch and is not expressed here: this
+         * branch renders nothing in `trade` mode, so leaving the surface and
+         * returning unmounts the card and empties all three fields. `limit` and
+         * `stop` are both non-trade and keep it mounted, which is what lets a
+         * size survive that toggle.
+         */
         <ConditionalOrderCard
+          payEpoch={payEpoch}
+          pairKey={`${pay.address}-${get?.address ?? ""}`}
           mode={mode}
           networkName={networkName}
           pay={pay}
@@ -671,6 +859,7 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
         <button
           type="button"
           onClick={flip}
+          data-sound="swoosh"
           title="Flip"
           aria-label="Flip pay and receive"
           className="flex h-[34px] w-[34px] items-center justify-center rounded-[11px] border border-[color:var(--m-border)] bg-[color:var(--m-surface)] text-[15px] text-[color:var(--m-primary)] shadow-sm transition-transform hover:rotate-180"
@@ -691,6 +880,7 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
               readOnly
               aria-label={get ? `Estimated ${get.symbol} to receive` : "Estimated amount to receive"}
               aria-busy={!preview && hasAmount && live.loading}
+              data-testid="swap-get-amount"
               placeholder="0"
               className={cn(
                 "w-full min-w-0 border-0 bg-transparent font-mono text-[27px] font-normal tracking-[-0.02em] text-[color:var(--m-text-primary)] outline-none placeholder:text-[color:var(--m-text-secondary-2)] placeholder:opacity-70",
@@ -917,7 +1107,10 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
       )}
 
       {/* Remainder disposition */}
-      {quoteReady && (
+      {/* Not for a wrap. A 1:1 contract call with no counterparty cannot
+          partially fill, so "none at this size" would understate it — the
+          control offers three answers to a question that never arises. */}
+      {quoteReady && !isWrapKind && (
       <div className="mx-1 mb-0.5 mt-1.5 rounded-[13px] border border-[color:var(--m-border)] bg-[color:var(--m-background)] px-3.5 py-3">
         <div className="mb-2 flex items-center justify-between text-[12.5px] text-[color:var(--m-text-secondary)]">
           <span>Unmatched remainder</span>
@@ -932,6 +1125,10 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
               <button
                 key={d.key}
                 type="button"
+                /* Named for e2e: the disposition decides which SHAPE the review
+                   and result take, so a spec has to be able to pick one without
+                   matching on copy that is expected to change. */
+                data-testid={`swap-disposition-${d.key}`}
                 disabled={!anyPlaced}
                 onClick={() => setDisposition(d.key)}
                 className={cn(
@@ -1043,7 +1240,22 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
           v={`${quote.impactPct.toFixed(2)}%`}
           vClass={impactClass}
         />
-        <MetaRow k="Min received · slippage 0.5%" v={`${tok(quote.minReceived, getDec)} ${getOrHub.symbol}`} />
+        {ladderBuy && get ? (
+          <>
+            <MetaRow
+              k="Average price"
+              v={`1 ${get.symbol} = ${(amountIn > 0 && quote.delivered > 0
+                ? Number(formatUnits(ladderBuy.quoteUsed, pay.decimals)) / quote.delivered
+                : 0
+              ).toPrecision(4)} ${pay.symbol}`}
+            />
+            <p className="px-0.5 text-[11.5px] text-[color:var(--m-text-secondary)]">{REFUND_NOTE}</p>
+          </>
+        ) : ladderTrade ? (
+          <p className="px-0.5 text-[11.5px] text-[color:var(--m-text-secondary)]">{REFUND_NOTE}</p>
+        ) : (
+          <MetaRow k="Min received · slippage 0.5%" v={`${tok(quote.minReceived, getDec)} ${getOrHub.symbol}`} />
+        )}
         <MetaRow k="Taker fee 0.10% · maker 0.00%" v={`≈ ${money(quote.feeUsd)}`} />
       </div> : cardExpanded && live.loading ? <SwapMetaSkeleton /> : <div className="min-h-[18px]" />
       )}
@@ -1063,10 +1275,25 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
           type="button"
           data-testid="swap-submit"
           onClick={onPrimary}
-          disabled={isConnected && (!hasAmount || insufficientBalance || !quote.execution || live.loading || !!live.error)}
+          disabled={swapSubmitDisabled({
+            connected: isConnected,
+            sameAsset,
+            isWrap: isWrapKind,
+            hasAmount,
+            insufficientBalance,
+            // The GATEWAY's router path, which a wrap never reaches. Requiring
+            // one here is what disabled the conversion that needs no route.
+            hasExecution: Boolean(quote.execution),
+            quoteLoading: live.loading,
+            quoteError: Boolean(live.error),
+          })}
           className="mt-2.5 w-full cursor-pointer rounded-[15px] bg-[color:var(--m-primary)] px-4 py-3.5 text-[15px] font-semibold text-[color:var(--m-on-primary)] transition-colors hover:bg-[color:var(--m-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {insufficientBalance
+          {/* `sameAsset` first: `routeQuote` clears its own error when disabled,
+              but only in an effect, so for one frame after picking such a pair
+              the PREVIOUS pair's failure would still be the label — a message
+              about a market, over a pair that is not one. */}
+          {sameAsset || insufficientBalance
             ? buttonLabel
             : live.loading
               ? "Getting quote…"
@@ -1097,8 +1324,9 @@ export function SwapCard({ networkName, networkSlug, variant = "full" }: SwapCar
           pay={pay}
           get={get}
           quote={quote}
-          disposition={disposition}
+          disposition={ladderTrade ? "none" : disposition}
           networkName={networkName}
+          ladder={ladderTrade}
           onClose={() => setFlowOpen(false)}
           useExecution={useRealSwapExecution}
         />
@@ -1190,7 +1418,12 @@ function SwapCardHeader({
   );
 }
 
-function ConditionalOrderCard({ mode, networkName, pay, get, hub, payBalance, getBalance, connected, onConnect, onFlip, onPickPay, onPickGet }: { mode: Exclude<CardMode, "trade">; networkName: string; pay: SwapToken; get: SwapToken | null; hub: SwapToken; payBalance: number; getBalance: number; connected: boolean; onConnect: () => void; onFlip: () => void; onPickPay: () => void; onPickGet: () => void }) {
+function ConditionalOrderCard({ mode, networkName, pay, get, hub, payBalance, getBalance, connected, payEpoch, pairKey, onConnect, onFlip, onPickPay, onPickGet }: { mode: Exclude<CardMode, "trade">; networkName: string; pay: SwapToken; get: SwapToken | null; hub: SwapToken; payBalance: number; getBalance: number; connected: boolean;
+  /** Changes when the parent retired ITS amount — the same rule, one decision. */
+  payEpoch: number;
+  /** Changes when either leg moves, which is when a quote-per-base price expires. */
+  pairKey: string;
+  onConnect: () => void; onFlip: () => void; onPickPay: () => void; onPickGet: () => void }) {
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient({ chainId: pay.chainId });
@@ -1200,6 +1433,29 @@ function ConditionalOrderCard({ mode, networkName, pay, get, hub, payBalance, ge
   const router = useRouter();
   const [limitPriceText, setLimitPriceText] = useState("");
   const [expiry, setExpiry] = useState("1 week");
+
+  /*
+   * Cleared DURING render, not from an effect.
+   *
+   * React's documented way to adjust state when a prop changes: compare against
+   * the previous value and set during render, which re-renders immediately with
+   * the corrected state. An effect would paint one frame of the stale figure
+   * first — on this card that frame shows a size against the wrong balance and a
+   * price against the wrong market, which is the bug, briefly.
+   */
+  const [seenPayEpoch, setSeenPayEpoch] = useState(payEpoch);
+  if (seenPayEpoch !== payEpoch) {
+    setSeenPayEpoch(payEpoch);
+    // The size alone. Both prices are quote-per-base and a flip inverts the
+    // market rather than emptying it, so they expire on `pairKey` below.
+    setSellText("");
+  }
+  const [seenPairKey, setSeenPairKey] = useState(pairKey);
+  if (seenPairKey !== pairKey) {
+    setSeenPairKey(pairKey);
+    setPriceText("");
+    setLimitPriceText("");
+  }
   const [submitting, setSubmitting] = useState<"approval" | "order" | null>(null);
   // Mirrors the trade card: the hub stands in so the route/pair reads keep their
   // types, and every path that could ACT on it is gated on `get` being real.

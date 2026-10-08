@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   BRIDGE_STEP_LABEL,
   bridgeIn,
+  bridgeStepPhrase,
   describeBridgeFailure,
   ensureSourceChain,
   firstLine,
   humaniseChainError,
+  readFailedStep,
+  shouldRetrySequentially,
 } from "./cctp";
 
 describe("describeBridgeFailure", () => {
@@ -182,7 +185,7 @@ describe("ensureSourceChain", () => {
 
   it("adds the chain when the wallet does not know it (4902)", async () => {
     /*
-     * The normal case for a bridge source: these are testnets Iter does not
+     * The normal case for a bridge source: these are testnets Rate does not
      * serve, so most wallets have never been configured for them. 4902 is a
      * request to add, not a failure — and the details come from the SDK, since
      * externalFunding's version reads wagmiChains and would refuse every one.
@@ -261,5 +264,87 @@ describe("firstLine", () => {
   it("drops viem's Request Arguments, Details and Version blocks", () => {
     const raw = "Something broke. Request Arguments: chain: X Details: RPC Version: viem@2.55.0";
     expect(firstLine(raw)).toBe("Something broke.");
+  });
+});
+
+describe("shouldRetrySequentially", () => {
+  it("retries when the wallet cannot batch at all", () => {
+    // The batch never reached a node, so re-sending it costs nothing.
+    expect(shouldRetrySequentially("atomic_unsupported", undefined)).toBe(true);
+    expect(shouldRetrySequentially("batch_too_large", undefined)).toBe(true);
+    expect(shouldRetrySequentially("duplicate_batch_id", undefined)).toBe(true);
+  });
+
+  it("retries when the SDK says the batch did not land", () => {
+    // failed_offchain: "batch not included onchain, wallet will not retry".
+    // reverted_onchain: "batch reverted COMPLETELY onchain" — nothing applied.
+    expect(shouldRetrySequentially("failed_offchain", undefined)).toBe(true);
+    expect(shouldRetrySequentially("reverted_onchain", undefined)).toBe(true);
+  });
+
+  it("NEVER retries when money may already have moved", () => {
+    /*
+     * The whole point of the gate. A second burn on a partially-applied or
+     * unknown batch bridges the user's money twice, which no error message
+     * makes up for.
+     */
+    expect(shouldRetrySequentially("partial_reverted", "anything")).toBe(false);
+    expect(shouldRetrySequentially("unknown_bundle", "anything")).toBe(false);
+    expect(shouldRetrySequentially("polling_timeout", "anything")).toBe(false);
+  });
+
+  it("does not retry a user's decision", () => {
+    expect(shouldRetrySequentially("user_rejected", undefined)).toBe(false);
+  });
+
+  it("retries an unclassified failure ONLY when the node refused before inclusion", () => {
+    // The measured case: a fee cap under the base fee on Arbitrum Sepolia.
+    expect(
+      shouldRetrySequentially("unknown", "max fee per gas less than block base fee"),
+    ).toBe(true);
+    expect(shouldRetrySequentially(undefined, "intrinsic gas too low")).toBe(true);
+    expect(shouldRetrySequentially("unknown", "nonce too low")).toBe(true);
+  });
+
+  it("does not retry an unclassified failure that says nothing", () => {
+    expect(shouldRetrySequentially("unknown", "something went wrong")).toBe(false);
+    expect(shouldRetrySequentially(undefined, undefined)).toBe(false);
+  });
+});
+
+describe("bridgeStepPhrase", () => {
+  it("turns the SDK's 'batch' into words a person can read", () => {
+    // This reached a user as "(stopped at batch)" — a word that appears nowhere
+    // else in the app.
+    expect(bridgeStepPhrase("batch")).toBe("approving and sending");
+  });
+
+  it("passes an unknown step through rather than hiding it", () => {
+    expect(bridgeStepPhrase("somethingNew")).toBe("somethingNew");
+  });
+});
+
+describe("readFailedStep", () => {
+  it("finds the errored step, its category and its message", () => {
+    expect(
+      readFailedStep({
+        steps: [
+          { name: "approve", state: "success" },
+          { name: "batch", state: "error", errorCategory: "failed_offchain", errorMessage: "nope" },
+        ],
+      }),
+    ).toEqual({ name: "batch", category: "failed_offchain", detail: "nope" });
+  });
+
+  it("reads an Error instance and a bare string alike", () => {
+    expect(readFailedStep({ steps: [{ name: "burn", state: "error", error: new Error("boom") }] }).detail).toBe("boom");
+    expect(readFailedStep({ steps: [{ name: "burn", state: "error", error: "boom" }] }).detail).toBe("boom");
+  });
+
+  it("answers empty rather than throwing on a shape it does not recognise", () => {
+    // It runs inside an error path: a throw here replaces a real message.
+    expect(readFailedStep(undefined)).toEqual({});
+    expect(readFailedStep({})).toEqual({});
+    expect(readFailedStep({ steps: [{ name: "burn", state: "success" }] })).toEqual({});
   });
 });

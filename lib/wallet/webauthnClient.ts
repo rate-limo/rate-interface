@@ -40,7 +40,7 @@ import type { WebAuthnClient } from "@category-labs/mera";
  * mera can only check PRF AFTER `navigator.credentials.create()` has succeeded,
  * because that is when the authenticator reports it. So a provider without PRF
  * leaves a credential behind that this app can never use, and every retry
- * leaves another — a list of identical "Iter wallet" entries with no way to
+ * leaves another — a list of identical "Rate wallet" entries with no way to
  * delete them from script, since WebAuthn has no delete API.
  *
  * `PublicKeyCredential.getClientCapabilities()` reports `extension:prf` and is

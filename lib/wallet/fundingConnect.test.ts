@@ -7,7 +7,9 @@ const ARC = 5042002;
 const ARC_HEX = `0x${ARC.toString(16)}`;
 
 /** A wallet that records every RPC method it is asked for, in order. */
-function stub(opts: { accounts?: string[]; chainId?: string; balance?: string } = {}) {
+function stub(
+  opts: { accounts?: string[]; chainId?: string; balance?: string; gasPrice?: string | null } = {},
+) {
   const methods: string[] = [];
   const wallet: DiscoveredWallet = {
     rdns: "test.wallet",
@@ -19,6 +21,11 @@ function stub(opts: { accounts?: string[]; chainId?: string; balance?: string } 
         if (method === "eth_accounts") return opts.accounts ?? [ME];
         if (method === "eth_chainId") return opts.chainId ?? ARC_HEX;
         if (method === "eth_getBalance") return opts.balance ?? "0x0";
+        // Feeds the Max button's gas reserve. Silent, like the three above.
+        if (method === "eth_gasPrice") {
+          if (opts.gasPrice === null) throw new Error("no gas price");
+          return opts.gasPrice ?? "0x3b9aca00";
+        }
         // Everything past the reads is out of scope: these tests are about
         // WHICH requests are made and when, not about signing.
         throw new Error("stop");
@@ -37,9 +44,30 @@ describe("preflightFunding", () => {
 
     expect(result?.account).toBe(ME);
     expect(result?.onChain).toBe(true);
-    expect(methods).toEqual(["eth_accounts", "eth_chainId", "eth_getBalance"]);
+    expect(methods).toEqual([
+      "eth_accounts",
+      "eth_chainId",
+      "eth_getBalance",
+      // Added for the Max button's gas reserve: on Arc the asset being
+      // deposited is also what pays for the deposit, so Max has to hold some
+      // back. Silent, like the three above — which is what this list guards.
+      "eth_gasPrice",
+    ]);
     expect(methods).not.toContain("eth_requestAccounts");
     expect(methods).not.toContain("wallet_switchEthereumChain");
+  });
+
+  it("still answers when the gas price cannot be read", async () => {
+    /*
+     * "We could not ask" is not "gas is free". The preflight keeps working and
+     * reports a null price; `gasReserve` then holds nothing back rather than
+     * inventing a number, so Max falls back to the plain balance and the wallet
+     * remains the thing that refuses an unaffordable send.
+     */
+    const { wallet } = stub({ gasPrice: null });
+    const result = await preflightFunding({ chainId: ARC, amount: "0.05", wallet });
+    expect(result?.account).toBe(ME);
+    expect(result?.gasPrice).toBeNull();
   });
 
   it("answers null when the site is not connected, instead of prompting", async () => {

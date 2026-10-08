@@ -4,6 +4,7 @@ import { findChain } from "@iter/deployments";
 import type { Address, Hex } from "viem";
 import { MERA_CONNECTOR_ID } from "./meraConnector";
 import type { BatchCall } from "./batchTransfer";
+import type { WalletRpc } from "./frame/protocol";
 
 /**
  * Sending a batch, and deciding whether this wallet can.
@@ -71,37 +72,29 @@ export class BatchUnavailableError extends Error {
 }
 
 /**
- * Send several calls as ONE transaction.
+ * The batch as an EIP-1193 request, for the wallet's confirm control.
  *
- * Goes through the connector's provider rather than wagmi's `sendTransaction`,
- * which has no `authorizationList` in its parameters and drops it — the result
- * being an ordinary transaction that runs the first call and nothing else, with
- * no error anywhere. That silence is the reason this is its own function.
+ * A batch is always value-moving — an EIP-7702 authorization is a standing
+ * power over the account — so the wallet frame refuses it on the silent path
+ * (`lib/wallet/frame/policy.ts`) and it is signed only from the visible
+ * confirm frame. This builds the request that control is handed.
+ *
+ * Hex, not bigint: this crosses a `postMessage` boundary, and the frame
+ * converts back.
  */
-export async function sendBatch(args: {
-  connector: ConnectorLike | undefined;
-  chainId: number | undefined;
-  calls: readonly BatchCall[];
-}): Promise<Hex> {
+export function batchRpc(args: { chainId: number | undefined; calls: readonly BatchCall[] }): WalletRpc {
   const executor = batchExecutorFor(args.chainId);
-  if (!args.connector || args.connector.id !== MERA_CONNECTOR_ID) {
-    throw new BatchUnavailableError("This wallet cannot send a batched transaction.");
-  }
   if (!executor) {
     throw new BatchUnavailableError("No batch executor is deployed on this chain.");
   }
   if (args.calls.length === 0) {
     throw new BatchUnavailableError("A batch needs at least one call.");
   }
-
-  const provider = (await args.connector.getProvider()) as ProviderLike;
-  return (await provider.request({
+  return {
     method: "mera_sendBatch",
     params: [
       {
         executor,
-        // Hex, not bigint: this crosses an EIP-1193 boundary, and JSON has no
-        // bigint. The connector converts back.
         calls: args.calls.map((c) => ({
           to: c.to,
           value: `0x${c.value.toString(16)}` as Hex,
@@ -109,5 +102,27 @@ export async function sendBatch(args: {
         })),
       },
     ],
-  })) as Hex;
+  };
+}
+
+/**
+ * Send several calls as ONE transaction, through the connector's provider.
+ *
+ * Kept for the shape's sake, but on the passkey connector this now FAILS with
+ * the frame's `CONFIRM_REQUIRED`: a batch cannot be signed without a click on
+ * the wallet origin. Callers use `batchRpc` and `WalletConfirmFrame` instead.
+ * Left in place rather than deleted so that a caller written against the old
+ * shape fails loudly at the call, not silently at the signature.
+ */
+export async function sendBatch(args: {
+  connector: ConnectorLike | undefined;
+  chainId: number | undefined;
+  calls: readonly BatchCall[];
+}): Promise<Hex> {
+  if (!args.connector || args.connector.id !== MERA_CONNECTOR_ID) {
+    throw new BatchUnavailableError("This wallet cannot send a batched transaction.");
+  }
+  const rpc = batchRpc(args);
+  const provider = (await args.connector.getProvider()) as ProviderLike;
+  return (await provider.request(rpc)) as Hex;
 }

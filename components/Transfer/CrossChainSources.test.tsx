@@ -39,6 +39,22 @@ vi.mock("@/hooks/useSourceBalances", () => ({
   useSourceBalances: () => ({ balances, isLoading: false }),
 }));
 
+// The bridge itself is Circle's SDK over a real wallet; what this file pins is
+// what the component does with the OUTCOME.
+let bridgeOutcome: { ok: true; mintTxHash: string | null } | { ok: false; reason: string } = {
+  ok: true,
+  mintTxHash: `0x${"ab".repeat(32)}`,
+};
+vi.mock("@/lib/transfer/cctp", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/transfer/cctp")>()),
+  bridgeIn: vi.fn(async () => bridgeOutcome),
+}));
+
+const reported = vi.fn();
+vi.mock("@/lib/transfer/report", () => ({
+  reportTransfer: (t: unknown) => reported(t),
+}));
+
 const props = {
   asset: "USDC",
   tokenSymbol: "USDC",
@@ -53,6 +69,8 @@ const props = {
 beforeEach(() => {
   routes = [];
   balances = new Map<number, SourceFunds>();
+  reported.mockClear();
+  bridgeOutcome = { ok: true, mintTxHash: `0x${"ab".repeat(32)}` };
 });
 
 // Explicit, because vitest `globals` is off in this project so Testing
@@ -497,5 +515,54 @@ describe("choosing a network is not confirming a transfer", () => {
     fireEvent.click(screen.getByRole("button", { name: /change network/i }));
     fireEvent.click(screen.getByRole("button", { name: /^hide$/i }));
     expect(seen.at(-1)).toBe(false);
+  });
+});
+
+
+/*
+ * A completed bridge has to leave a row behind.
+ *
+ * It did not: the success branch raised a toast and dropped `mintTxHash`, so a
+ * settled deposit was absent from Recent transfers, had no hash and no explorer
+ * link, and the only route to one was pasting the hash into the manual claim
+ * form meant for QR deposits the app never saw.
+ */
+describe("a finished bridge", () => {
+  const openAndSend = async () => {
+    routes = [arc, baseSepolia];
+    render(<CrossChainSources {...props} amount="10" provider={{} as never} />);
+    fireEvent.click(screen.getByRole("button", { name: /already have/i }));
+    fireEvent.click(screen.getByLabelText(/^Deposit from Base Sepolia$/));
+    fireEvent.change(screen.getByLabelText(/amount of USDC to bridge/i), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Deposit 10 USDC$/ }));
+    // Let the awaited bridge settle and the success branch run.
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it("records the transfer, against the DESTINATION chain and with the asset named", async () => {
+    await openAndSend();
+    expect(reported).toHaveBeenCalledTimes(1);
+    const row = reported.mock.calls[0]![0] as Record<string, unknown>;
+    // The mint is what credits the account, and it is on the destination.
+    expect(row.chainId).toBe(5042002);
+    expect(row.hash).toBe(`0x${"ab".repeat(32)}`);
+    expect(row.kind).toBe("deposit");
+    // The em-dash in "Received 0.05 —" is what an unnamed asset renders as.
+    expect(row.symbol).toBe("USDC");
+    expect(row.amount).toBe("10");
+  });
+
+  it("records nothing when the SDK reported no mint hash, rather than a row that cannot be verified", async () => {
+    bridgeOutcome = { ok: true, mintTxHash: null };
+    await openAndSend();
+    expect(reported).not.toHaveBeenCalled();
+  });
+
+  it("records nothing when the bridge failed", async () => {
+    bridgeOutcome = { ok: false, reason: "The transfer stopped while the send." };
+    await openAndSend();
+    expect(reported).not.toHaveBeenCalled();
   });
 });

@@ -21,7 +21,7 @@ export function describeWithdrawBlock(opts: {
     // No location named: WithdrawPanel now raises its Sign in button for this
     // case (it previously cleared `signInFixes` and rendered the sentence
     // alone), so the control is beside the words.
-    return "No Iter account is signed in, so there is nothing to send from.";
+    return "No Rate account is signed in, so there is nothing to send from.";
   }
   if (!opts.hasChain) return "This withdrawal has no network yet. Go back and choose the asset again.";
   if (!opts.hasAmount) return "Enter an amount to withdraw.";

@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, useBalance, useReadContract, useSendTransaction, useWriteContract } from "wagmi";
-import { erc20Abi, formatUnits, parseUnits } from "viem";
+import { useAccount, useBalance, useReadContract } from "wagmi";
+import { encodeFunctionData, erc20Abi, formatUnits, parseUnits, type Hex } from "viem";
 import { toast } from "sonner";
-import { splitWithdrawal } from "@/lib/wallet/withdrawSplit";
-import { buildWithdrawalBatch } from "@/lib/wallet/batchTransfer";
-import { canBatch, sendBatch } from "@/lib/wallet/sendBatch";
-import { FEE_WALLET, feeWalletConfigured } from "@/lib/wallet/feeWallet";
+import { WalletConfirmFrame } from "@/components/Wallet/WalletConfirmFrame";
+import type { WalletRpc } from "@/lib/wallet/frame/protocol";
 import { cn } from "@/lib/utils";
+import { TransferResult } from "./TransferResult";
 import { normalizeAmountInput } from "@/utils/numberInput";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { chainIconFrom, useChainBrand } from "@/lib/chains/useChainBrand";
@@ -27,14 +26,19 @@ import {
 } from "@/lib/transfer/withdrawError";
 import { requestWalletConnect } from "@/lib/wallet/connectGate";
 import { useDepositAssets, type DepositCandidate } from "@/hooks/useDepositAssets";
+import { hasDistinctNativeAsset } from "@/lib/wallet/depositAssets";
+import { maxSpendableUnits, spendsGas } from "@/lib/wallet/gasReserve";
+import { useFeeTokenChoice } from "@/lib/wallet/feeToken";
+import { chargedFeeToken } from "@/lib/chains/gasToken";
 import {
   defaultDepositAssets,
+  settlementAddresses,
   needsAddress,
   searchDepositAssets,
 } from "@/lib/wallet/depositAssets";
 
 /**
- * Send funds OUT of the Iter wallet.
+ * Send funds OUT of the Rate wallet.
  *
  * ## Why this exists at all
  *
@@ -74,6 +78,7 @@ export function WithdrawPanel({
   open,
   onDone,
   onChainChange,
+  onAssetChange,
 }: {
   /** Whether the withdraw surface is showing. `false` renders nothing. */
   open: boolean;
@@ -81,6 +86,8 @@ export function WithdrawPanel({
   onDone: () => void;
   /** The chain the chosen asset settled on, so the shell can guard the network. */
   onChainChange?: (chainId: number | null) => void;
+  /** The asset now on screen, so the transfer list below can narrow to it. */
+  onAssetChange?: (symbol: string | undefined) => void;
 }) {
   const { address, connector } = useAccount();
   const { data: chainBrands } = useChainBrand();
@@ -128,18 +135,41 @@ export function WithdrawPanel({
     onChainChange?.(chainId);
   }, [chainId, onChainChange]);
 
+  /*
+   * Same lift as the chain, for the transfer list below.
+   *
+   * `asset` IS the settle signal here — the chain is derived from it — so there
+   * is no separate "has the user decided" flag to consult, unlike the deposit
+   * panel. Nothing chosen reports undefined, which widens the list rather than
+   * emptying it.
+   *
+   * Read off `asset` rather than the `symbol` binding below: that one falls back
+   * to the chain's gas symbol for DISPLAY, and using it here would narrow the
+   * list to the gas asset before the user has picked anything.
+   */
+  useEffect(() => {
+    onAssetChange?.(asset?.token.symbol);
+  }, [asset, onAssetChange]);
+
+  // Tempo has no gas coin: its native balance is a fixed placeholder (~4.2e75) and
+  // a value transfer is refused. So with nothing picked, the default asset is the
+  // TIP-20 this account pays gas in, sent with `transfer` like any ERC-20.
+  const feeChoice = useFeeTokenChoice(chainId ?? undefined, address);
+  const feeToken = feeChoice?.current ?? null;
+
   const balance = useBalance({
     address,
     chainId: chainId ?? undefined,
-    query: { enabled: Boolean(address && chainId) },
+    query: { enabled: Boolean(address && chainId) && !feeToken },
   });
 
-  const { sendTransactionAsync, isPending: sending } = useSendTransaction();
-  const { writeContractAsync, isPending: writing } = useWriteContract();
-  const isPending = sending || writing;
-
   const { assets, isLoading: assetsLoading } = useDepositAssets();
-  const erc20 = asset && !asset.native ? (asset.token.id as `0x${string}`) : undefined;
+  const erc20 =
+    asset && !asset.native
+      ? (asset.token.id as `0x${string}`)
+      : !asset && feeToken
+        ? feeToken.address
+        : undefined;
   // Balance for an ERC-20 comes from the token itself; `useBalance` answers for
   // the native asset only in wagmi v2.
   const tokenBalance = useReadContract({
@@ -166,12 +196,38 @@ export function WithdrawPanel({
   // sending an ERC-20 is how an amount comes out 10^12 wrong — the trap
   // apps/web/CLAUDE.md records for Arc, whose native view is 18 decimals while
   // its USDC contract is 6.
-  const decimals = asset ? asset.token.decimals : (chain?.nativeCurrency.decimals ?? 18);
-  const symbol = asset ? asset.token.symbol : (chain?.nativeCurrency.symbol ?? "");
-  const held = asset && !asset.native
+  const decimals = asset ? asset.token.decimals : (feeToken?.decimals ?? chain?.nativeCurrency.decimals ?? 18);
+  const symbol = asset ? asset.token.symbol : (feeToken?.symbol ?? chain?.nativeCurrency.symbol ?? "");
+  const held = erc20
     ? ((tokenBalance.data as bigint | undefined) ?? BigInt(0))
     : (balance.data?.value ?? BigInt(0));
   const heldLabel = formatUnits(held, decimals);
+
+  /**
+   * Does sending this asset also spend the gas that sends it?
+   *
+   * Not the same question as `asset.native`, which answers whether this row is
+   * the SYNTHETIC native entry. On Arc there is no such entry — its gas asset
+   * and its USDC ERC-20 are one pool of funds behind two interfaces, which is
+   * why `hasDistinctNativeAsset` is false there — so the flag reads false for
+   * USDC while spending it drains the gas budget all the same. Max filled the
+   * whole balance and the transfer then had nothing to pay for itself with.
+   *
+   * A null asset is the chain's own gas asset: that is what the selector
+   * defaults to, and what `held` above reads through `useBalance`.
+   */
+  const spendsItsOwnGas = spendsGas({
+    symbol,
+    // Tempo charges a stablecoin TRANSFER in the coin it sends unless the account
+    // picked a gas token, so sending AlphaUSD can spend AlphaUSD's own gas.
+    gasSymbol:
+      chargedFeeToken(chainId ?? undefined, feeChoice?.chosenAddress, erc20)?.symbol ??
+      chain?.nativeCurrency.symbol,
+    hasSeparateNativeRow: hasDistinctNativeAsset(chain?.name ?? asset?.chainName ?? ""),
+    isNativeRow: !asset || asset.native,
+  });
+  /** What Max fills: everything, less a reserve when the send pays for itself. */
+  const maxLabel = formatUnits(maxSpendableUnits(held, spendsItsOwnGas), decimals);
 
   const parsed = useMemo(() => {
     if (!amount || !Number(amount)) return null;
@@ -182,25 +238,6 @@ export function WithdrawPanel({
     }
   }, [amount, decimals]);
 
-  /**
-   * The fee split, or null when this withdrawal does not take one.
-   *
-   * Null in three cases, and each is a real answer rather than a degraded one:
-   * no fee wallet configured, a wallet that cannot batch (injected — it cannot
-   * authorize a 7702 delegate), or a chain with no executor deployed. In every
-   * one of them the withdrawal goes out in full as a single transfer, which is
-   * exactly what it did before this existed.
-   *
-   * Charging the fee WITHOUT a batch would mean two transactions, and the
-   * window between them is the failure this whole path exists to remove.
-   */
-  const split = useMemo(() => {
-    if (parsed === null || parsed <= BigInt(0)) return null;
-    if (!feeWalletConfigured()) return null;
-    if (!canBatch(connector, chainId ?? undefined)) return null;
-    if (to.trim().toLowerCase() === FEE_WALLET.toLowerCase()) return null;
-    return splitWithdrawal(parsed);
-  }, [parsed, connector, chainId, to]);
 
   const overBalance = parsed !== null && parsed > held;
   const selfSend = to.length > 0 && isSelfSend(address, to);
@@ -220,90 +257,98 @@ export function WithdrawPanel({
   /** The one failure with a one-click remedy, so it gets a button rather than advice. */
   const [signInFixes, setSignInFixes] = useState(false);
 
-  const confirm = async () => {
-    setProblem(null);
-    setSignInFixes(false);
-    // Never a silent return. These two conditions used to end the handler with
-    // no state change and nothing on screen.
-    const blocked = describeWithdrawBlock({
-      hasChain: chain !== undefined,
-      hasAmount: parsed !== null,
-      hasAccount: Boolean(address),
-    });
-    if (blocked) {
-      setProblem(blocked);
-      // A missing account is the one blocked reason with a one-tap fix, so it
-      // raises the same Sign in control a failed signature does. Without this
-      // the sentence rendered alone and the copy had to describe where a button
-      // might be — which is not dependable, since AppShell's chrome is hidden
-      // below 1200px.
-      if (!address) setSignInFixes(true);
-      return;
-    }
-    if (!chain || parsed === null) return;
+  /**
+   * The request the wallet's confirm control will sign, or null with the
+   * reason it cannot.
+   *
+   * The signature is no longer requested from HERE. A withdrawal moves value
+   * out, so the wallet frame refuses to sign it on the silent path and signs it
+   * only from a click inside its own control (`WalletConfirmFrame`), which
+   * draws the button below. This component's job shrank to building the
+   * request and reacting to the outcome — the pre-checks that used to run on
+   * click run as the review step renders, so the same sentence appears in the
+   * same place, a moment earlier.
+   */
+  const blocked = describeWithdrawBlock({
+    hasChain: chain !== undefined,
+    hasAmount: parsed !== null,
+    hasAccount: Boolean(address),
+  });
+
+  const rpc = useMemo<WalletRpc | null>(() => {
+    if (blocked || !chain || parsed === null) return null;
+    const destination = to.trim() as `0x${string}`;
     try {
-      const hash = split
-        ? // ONE transaction carrying both legs. The fee and the withdrawal land
-          // together or neither does — as two transactions there is a window
-          // where the fee lands and the transfer reverts, leaving the user
-          // charged and unpaid.
-          await sendBatch({
-            connector,
-            chainId: chain.id,
-            calls: buildWithdrawalBatch({
-              destination: to.trim() as `0x${string}`,
-              feeWallet: FEE_WALLET as `0x${string}`,
-              rest: split.rest,
-              fee: split.fee,
-              token: erc20,
-            }),
-          })
-        : // Unchanged. An injected wallet cannot authorize a 7702 delegate, and
-          // a chain with no executor has nothing to delegate to — so the
-          // withdrawal is exactly what it was, in full, with no fee. Charging
-          // one here would mean two transactions and the window above.
-          erc20
-          ? await writeContractAsync({
-              abi: erc20Abi,
-              address: erc20,
-              functionName: "transfer",
-              args: [to.trim() as `0x${string}`, parsed],
-              chainId: chain.id,
-            })
-          : await sendTransactionAsync({
-              to: to.trim() as `0x${string}`,
-              value: parsed,
-              chainId: chain.id,
-            });
-      onDone();
-      // Watched to its receipt, not reported at broadcast: identity-service
-      // verifies a transfer by READING that receipt, so an unmined hash was
-      // answering 404 and writing nothing.
-      confirmation.watch({
-        hash,
-        chainId: chain.id,
-        kind: "withdraw",
-        account: address ?? "",
-        symbol,
-        amount,
-        peer: to.trim(),
-      });
-      toast.success(`Submitted ${amount} ${symbol}`, {
-        description: `${hash.slice(0, 10)}… — confirming on ${chain.name}.`,
-      });
-    } catch (error) {
-      // A declined prompt is a decision, not a failure — the same rule the
-      // connect and deposit paths follow. Anything else is SAID, in the card as
-      // well as in a toast, and `describeWithdrawFailure` is what unwraps
-      // mera's wrapper so the sentence is the real reason rather than
-      // "Passkey operation failed".
-      // The chain names its own fee asset, so a shortfall says which one.
-      const said = describeWithdrawFailure(error, { gasSymbol: chain.nativeCurrency.symbol });
-      if (said) {
-        setProblem(said);
-        setSignInFixes(withdrawNeedsSignIn(error));
-        toast.error("Withdrawal failed", { description: said });
-      }
+      // The full amount, as one plain transfer. The interface takes no fee on
+      // withdrawals: what you send is what arrives, less only network gas.
+      return erc20
+        ? {
+            method: "eth_sendTransaction",
+            params: [
+              {
+                to: erc20,
+                value: "0x0",
+                data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [destination, parsed] }),
+              },
+            ],
+          }
+        : {
+            method: "eth_sendTransaction",
+            params: [{ to: destination, value: `0x${parsed.toString(16)}` as Hex }],
+          };
+    } catch {
+      return null;
+    }
+  }, [blocked, chain, parsed, to, erc20]);
+
+  /** The review step's failure, in the card. Runs when the frame reports one. */
+  useEffect(() => {
+    if (!previewing) return;
+    setProblem(blocked);
+    // A missing account is the one blocked reason with a one-tap fix, so it
+    // raises the same Sign in control a failed signature does.
+    setSignInFixes(blocked !== null && !address);
+  }, [previewing, blocked, address]);
+
+  const onSubmitted = (hash: Hex) => {
+    if (!chain) return;
+    // Watched BEFORE `onDone()`. The callback is a no-op on the page, but it
+    // is the caller's chance to close the panel — and closing it before the
+    // watch starts would unmount the result screen before it could render.
+    //
+    // Watched to its receipt, not reported at broadcast: identity-service
+    // verifies a transfer by READING that receipt, so an unmined hash was
+    // answering 404 and writing nothing.
+    confirmation.watch({
+      hash,
+      chainId: chain.id,
+      kind: "withdraw",
+      account: address ?? "",
+      symbol,
+      amount,
+      peer: to.trim(),
+    });
+    onDone();
+    toast.success(`Submitted ${amount} ${symbol}`, {
+      description: `${hash.slice(0, 10)}… — confirming on ${chain.name}.`,
+    });
+  };
+
+  const onFailed = (error: unknown) => {
+    if (!chain) return;
+    // A declined prompt is a decision, not a failure — the same rule the
+    // connect and deposit paths follow. Anything else is SAID, in the card as
+    // well as in a toast, and `describeWithdrawFailure` is what unwraps
+    // mera's wrapper so the sentence is the real reason rather than
+    // "Passkey operation failed".
+    // The chain names its own fee asset, so a shortfall says which one.
+    const said = describeWithdrawFailure(error, {
+      gasSymbol: chargedFeeToken(chain.id, feeChoice?.chosenAddress, erc20)?.symbol ?? chain.nativeCurrency.symbol,
+    });
+    if (said) {
+      setProblem(said);
+      setSignInFixes(withdrawNeedsSignIn(error));
+      toast.error("Withdrawal failed", { description: said });
     }
   };
 
@@ -311,47 +356,40 @@ export function WithdrawPanel({
 
   return (
     <>
-      {/* The panel owns its heading so the page and the dialog cannot disagree,
-          and so the title still tracks the preview step. */}
-      {confirmation.status !== "idle" && confirmation.transfer && (
-        <div
-          className={cn(
-            "flex items-center gap-2.5 rounded-xl border px-3 py-2.5",
-            confirmation.status === "reverted"
-              ? "border-[color:var(--m-error)]/40 bg-[color:var(--m-error)]/10"
-              : "border-[color:var(--m-border)] bg-[color:var(--m-surface-2)]",
-          )}
-        >
-          {confirmation.status === "confirming" && (
-            <span
-              className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[color:var(--m-border)] border-t-[color:var(--m-primary)] motion-reduce:animate-none"
-              aria-hidden
-            />
-          )}
-          <span className="flex min-w-0 flex-col leading-tight">
-            <span className="truncate text-[12.5px] font-semibold text-[color:var(--m-text-primary)]">
-              {confirmation.status === "confirming"
-                ? `Confirming ${confirmation.transfer.amount} ${confirmation.transfer.symbol}`
-                : confirmation.status === "confirmed"
-                  ? `Sent ${confirmation.transfer.amount} ${confirmation.transfer.symbol}`
-                  : "That transaction failed on chain"}
-            </span>
-            <span className="truncate font-dm-mono text-[10.5px] text-[color:var(--m-text-secondary)]">
-              {confirmation.transfer.hash.slice(0, 14)}…
-            </span>
-          </span>
-          {confirmation.status !== "confirming" && (
-            <button
-              type="button"
-              onClick={confirmation.reset}
-              className="ml-auto shrink-0 rounded-lg border border-[color:var(--m-border)] px-2.5 py-1 text-[11.5px] text-[color:var(--m-text-secondary)] transition-colors hover:text-[color:var(--m-text-primary)]"
-            >
-              Dismiss
-            </button>
-          )}
-        </div>
-      )}
+      {/*
+        THE RESULT REPLACES THE FORM.
 
+        This was a dismissible strip rendered ABOVE everything below, so a
+        completed withdrawal sat on top of a heading still reading "Confirm
+        withdrawal" with a live "Confirm with passkey" button under it. The
+        money had gone and the screen said it had not — on a page whose own copy
+        says the action cannot be undone.
+
+        Branching around the whole body is what makes that structural, rather
+        than a matter of remembering to hide each piece separately.
+      */}
+      {confirmation.status !== "idle" && confirmation.transfer ? (
+        <TransferResult
+          status={confirmation.status}
+          transfer={confirmation.transfer}
+          receipt={confirmation.receipt}
+          onDismiss={() => {
+            confirmation.reset();
+            // Back to a clean form rather than the review step the transfer was
+            // launched from, which would re-offer a withdrawal already made.
+            setPreviewing(false);
+            setAmount("");
+          }}
+          onRetry={() => {
+            // The amount and destination are deliberately KEPT: a reverted
+            // transfer is usually retried with the same figures, and clearing
+            // them makes the user re-derive what they already decided.
+            confirmation.reset();
+            setPreviewing(true);
+          }}
+        />
+      ) : (
+      <>
       <div className="flex flex-col gap-1">
         <h1 className="text-lg font-semibold text-[color:var(--m-text-primary)]">
           {previewing ? "Confirm withdrawal" : "Withdraw"}
@@ -359,11 +397,47 @@ export function WithdrawPanel({
         <p className="text-sm text-[color:var(--m-text-secondary)]">
           {previewing
             ? "Check every line. This cannot be undone."
-            : `Send ${symbol || "funds"} from your Iter wallet to another address.`}
+            : `Send ${symbol || "funds"} from your Rate wallet to another address.`}
         </p>
       </div>
 
-        {!previewing && (
+      {/*
+        NO WALLET, NO FORM.
+
+        This page assumed a connected wallet: with none, every balance read
+        answers zero, so it rendered "0 available", "0 USDC available" and
+        "More than the 0 USDC this wallet holds" under a live Preview button.
+        Three separate statements that the user is broke, when the truth is that
+        nobody has signed in yet — and the only mention of signing in came AFTER
+        a submit had already failed.
+
+        A reload ending the session is routine rather than an error: the passkey
+        key lives only inside a live mera session. So the wording asks for a tap;
+        it does not report a fault. Same gate and same reasoning as the deposit
+        panel's.
+      */}
+      {!address && (
+        <div className="flex flex-col gap-1.5 rounded-xl bg-[color:var(--m-surface-2)] px-3 py-6 text-center">
+          <p className="text-xs font-semibold text-[color:var(--m-text-primary)]">
+            Sign in to withdraw
+          </p>
+          <p className="text-[11.5px] leading-relaxed text-[color:var(--m-text-secondary)]">
+            Withdrawals move funds out of your Rate account, so it has to be unlocked
+            before there is a balance to send or a passkey to sign with.
+          </p>
+          {/* OFFERED, not described: AppShell's chrome is hidden below 1200px, so
+              "use Connect Wallet at the top" points at nothing on a narrow screen. */}
+          <button
+            type="button"
+            onClick={() => requestWalletConnect("Withdraw from your Rate wallet")}
+            className="mt-2 self-center rounded-lg border border-[color:var(--m-border)] px-3 py-1.5 text-[12px] font-medium text-[color:var(--m-text-primary)] transition-colors hover:border-[color:var(--m-primary)]"
+          >
+            Sign in
+          </button>
+        </div>
+      )}
+
+        {address && !previewing && (
           <>
             {/* The amount is the hero, with Max as a chip — the shape Coinbase's
                 send screen uses, and it is right: everything else on this screen
@@ -396,7 +470,7 @@ export function WithdrawPanel({
                   const searching = assetSearch.trim().length > 0;
                   const rows = searching
                     ? searchDepositAssets(assets.map((a) => a.token), assetSearch)
-                    : defaultDepositAssets(assets.map((a) => a.token));
+                    : defaultDepositAssets(assets.map((a) => a.token), settlementAddresses());
                   const byId = new Map(assets.map((a) => [a.token.id, a]));
                   if (assetsLoading) {
                     return (
@@ -499,6 +573,11 @@ export function WithdrawPanel({
                 </span>
                 <span className="font-dm-mono text-[10.5px] text-[color:var(--m-text-secondary)]">
                   {heldLabel} available
+                {spendsItsOwnGas && maxLabel !== heldLabel && (
+                  <span className="ml-1 text-[color:var(--m-text-secondary-2)]">
+                    · Max keeps a little {symbol} back for gas
+                  </span>
+                )}
                 </span>
               </div>
               <button
@@ -531,7 +610,7 @@ export function WithdrawPanel({
               </span>
               <button
                 type="button"
-                onClick={() => setAmount(heldLabel)}
+                onClick={() => setAmount(maxLabel)}
                 className="mt-1 rounded-full border border-[color:var(--m-border)] px-3 py-0.5 font-dm-mono text-[10.5px] text-[color:var(--m-text-secondary)] transition-colors hover:text-[color:var(--m-text-primary)]"
               >
                 Max
@@ -541,7 +620,7 @@ export function WithdrawPanel({
             <div className="flex flex-col overflow-hidden rounded-xl border border-[color:var(--m-border)]">
               <div className="flex flex-col gap-0.5 bg-[color:var(--m-surface-2)] px-3 py-2.5">
                 <span className="font-dm-mono text-[10px] uppercase tracking-[0.1em] text-[color:var(--m-text-secondary-2)]">
-                  From · Iter wallet
+                  From · Rate wallet
                 </span>
                 <span className="font-dm-mono text-[12px] tabular-nums text-[color:var(--m-text-secondary)]">
                   {balance.isLoading
@@ -608,7 +687,7 @@ export function WithdrawPanel({
           </>
         )}
 
-        {chain && previewing && (
+        {address && chain && previewing && (
           <>
             <div className="flex flex-col items-center gap-0.5 pt-1">
               <span className="font-dm-mono text-[30px] font-semibold tabular-nums text-[color:var(--m-text-primary)]">
@@ -617,42 +696,6 @@ export function WithdrawPanel({
               <span className="font-dm-mono text-[11px] text-[color:var(--m-text-secondary)]">
                 {symbol} · {chain.name}
               </span>
-            {/*
-              The fee is disclosed HERE, on the review step, beside the figure
-              it comes out of — not in a tooltip and not only in the terms. A
-              charge a person meets for the first time in their transaction
-              history is not disclosed, whatever a document says.
-
-              It renders only when one is actually taken, so a MetaMask user or
-              a chain with no executor never sees a row about a fee they are not
-              paying. `feeWaived` is the third case and says so in words: below
-              10,000 base units the 0.01% truncates to nothing, and "0" beside a
-              fee label reads as a bug rather than as the answer.
-            */}
-            {split && (
-              <div className="mt-2 flex w-full flex-col gap-1 rounded-xl bg-[color:var(--m-surface-2)] px-3 py-2">
-                <div className="flex items-center justify-between text-[11.5px]">
-                  <span className="text-[color:var(--m-text-secondary)]">
-                    {to.trim().slice(0, 6)}…{to.trim().slice(-4)} receives
-                  </span>
-                  <span className="font-dm-mono tabular-nums text-[color:var(--m-text-primary)]">
-                    {formatUnits(split.rest, decimals)} {symbol}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11.5px]">
-                  <span className="text-[color:var(--m-text-secondary)]">Network fee (0.01%)</span>
-                  <span className="font-dm-mono tabular-nums text-[color:var(--m-text-secondary)]">
-                    {split.feeWaived
-                      ? "waived"
-                      : `${formatUnits(split.fee, decimals)} ${symbol}`}
-                  </span>
-                </div>
-                <p className="pt-0.5 text-[10.5px] leading-snug text-[color:var(--m-text-secondary)]">
-                  Both transfers are sent as one transaction, so they succeed or
-                  fail together.
-                </p>
-              </div>
-            )}
             </div>
 
             <div className="flex flex-col overflow-hidden rounded-xl border border-[color:var(--m-border)]">
@@ -677,7 +720,7 @@ export function WithdrawPanel({
 
             <div className="rounded-xl border border-[color:var(--m-warning-600)]/35 bg-[color:var(--m-warning-600)]/10 px-3 py-2.5">
               <p className="text-[11.5px] leading-4 text-[color:var(--m-warning-600)]">
-                This cannot be undone. Iter does not hold your funds and cannot reverse or
+                This cannot be undone. Rate does not hold your funds and cannot reverse or
                 recover a transfer sent to the wrong address or the wrong network.
               </p>
             </div>
@@ -718,17 +761,23 @@ export function WithdrawPanel({
               >
                 Back
               </button>
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() => void confirm()}
-                className="flex-[2] rounded-xl bg-[color:var(--m-primary)] px-4 py-2.5 text-[13.5px] font-bold text-[color:var(--m-on-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isPending ? "Confirm with your passkey…" : "Confirm with passkey"}
-              </button>
+              {/* Drawn by the WALLET origin, in this spot, with this label. The
+                  click that signs a withdrawal has to land somewhere script on
+                  this page cannot reach — see components/Wallet/WalletConfirmFrame. */}
+              <WalletConfirmFrame
+                chainId={chain.id}
+                rpc={rpc}
+                label="Confirm with passkey"
+                variant="sheet"
+                onSubmitted={onSubmitted}
+                onFailed={onFailed}
+                className="flex-[2]"
+              />
             </div>
           </>
         )}
+      </>
+      )}
     </>
   );
 }
