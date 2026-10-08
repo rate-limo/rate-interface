@@ -7,7 +7,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { useBalance } from "wagmi";
+import { useAccount, useBalance } from "wagmi";
+import { MERA_CONNECTOR_ID } from "@/lib/wallet/meraConnector";
 import {
   GroupedOrderbookResult,
   SpotBarEvent,
@@ -24,9 +25,14 @@ import {
   priceEncodesToZero,
 } from "@/utils/number";
 import { exchangeAbi } from "@/components/abis/exchange";
-import { wethAddress } from "@/lib/deployments";
+import { contractAddress, wethAddress } from "@/lib/deployments";
+import { LadderBuyerABI } from "@iter/abis";
 import { isNative } from "@/utils/order";
+import { useLadderBook } from "@/hooks/useLadderBook";
+import { ladderSellFloor, quoteLadderBuy, type LadderBuyQuote } from "@/lib/launch/ladderBuy";
 import { useMarketPageContext } from "./MarketPageProvider";
+import { recordRecentMarket } from "@/lib/markets/recentMarkets";
+import { networkNameToSlug } from "@/consts";
 import {
   ERC20BalanceAllowance,
   useERC20BalanceAllowance,
@@ -37,8 +43,9 @@ import { getDefaultScale } from "@/queries/client/orderbook";
 import { useRecentTrades } from "@/hooks/useRecentTrades";
 import { eventBus } from "@/utils/events";
 import { usePair } from "@/hooks/usePair";
-import { chainIdToNetworkName, PonderWssLinks } from "@/consts";
+import { chainIdToNetworkName, chainIds, PonderWssLinks } from "@/consts";
 import { getDefaultPair } from "@/queries/server/pairs";
+import { slippagePctToEngine } from "@/lib/orders/slippage";
 
 export interface TokenData {
   tokens: SpotToken[];
@@ -95,6 +102,14 @@ interface TradeContextType {
   approvalNeeded: boolean;
   setApprovalNeeded: (approvalNeeded: boolean) => void;
   limitPriceEncodesToZero: boolean;
+  /**
+   * Set when this market is a launch coin still selling its ladder and the
+   * ticket is on Market + Buy: what the buy is expected to deliver. The market
+   * order is then sent as a fill-or-refund limit order (see lib/launch/ladderBuy).
+   */
+  ladderBuyQuote: LadderBuyQuote | null;
+  /** True for a pre-graduation launch market, either side. */
+  ladderMarket: boolean;
   orderAmountIsDust: boolean;
   limitOrderContractArgsForGasEstimation: ContractArgs;
   marketOrderContractArgsForGasEstimation: ContractArgs;
@@ -129,6 +144,7 @@ export const TradePageProvider = ({
     connectedChainId,
     matchingEngine,
   } = useMarketPageContext();
+  const { connector: activeConnector } = useAccount();
 
   // The address `createOrder` wraps native value into on this chain — same
   // registry, same resolution as `matchingEngine` above. Needed only by the
@@ -147,6 +163,13 @@ export const TradePageProvider = ({
   // update pair data
   const { data: pairData } = usePair(displayNetworkName, pair);
 
+  // Every market opened on Pro joins the picker's Recent tab — including one
+  // reached by a pair link or a pasted address, which the picker no longer
+  // lists by browsing. Keyed by the pair's address on this network.
+  useEffect(() => {
+    if (pairData?.id) recordRecentMarket(networkNameToSlug[displayNetworkName], pairData.id);
+  }, [pairData?.id, displayNetworkName]);
+
   const [step, setStep] = useState<string>(
     getDefaultScale(pairData.price, pairData.scales)
   );
@@ -163,7 +186,20 @@ export const TradePageProvider = ({
     orderbookInput
   );
 
-  const connectedChainIdRef = useRef<number | undefined>(undefined);
+  /*
+   * Seeded with the chain the PAGE is showing, not undefined.
+   *
+   * `connectedChainId` is a real chain id on the first render even with no
+   * wallet connected (MarketPageProvider initialises it from the displayed
+   * chain). With this ref starting empty, the effect below read that first
+   * value as a network CHANGE and replaced the market with the chain's default
+   * pair — so any /trade/pro link to a non-default market showed it for about
+   * two seconds, then the chart and order book snapped to the default while the
+   * title kept the market the link named. Measured on production: base=TWALL
+   * showed TWALL at 1–2 s and TITER from 3 s on. Only a wallet moving to a
+   * different chain than the one on screen should swap the market.
+   */
+  const connectedChainIdRef = useRef<number | undefined>(chainIds[displayNetworkName]);
 
   const handleNetworkChange = async (newNetwork: string | number) => {
     const newNetworkChainId = Number(newNetwork);
@@ -203,8 +239,19 @@ export const TradePageProvider = ({
   // reactivity on the connected chain id.
   useEffect(() => {
     if (connectedChainId === undefined) return;
+    // With no wallet, `connectedChainId` is the app's DEFAULT chain, not a wallet
+    // that moved. Treating it as one swapped every disconnected visitor of a
+    // non-default-chain market to that default chain's first pair: a RISE
+    // LQJOG55/tUSD link rendered TITER/USDC under a header still naming LQJOG55
+    // (found by the ladder-launch e2e, 2026-10-02).
+    if (!isConnected) return;
+    // The passkey wallet FOLLOWS the page (MarketPageProvider switches it to the
+    // displayed chain), so its chain changes are the page's doing, not a wallet
+    // moving away. Swapping the market on them replaced every RISE market with
+    // RISE's first pair the moment a resumed passkey settled (ladder-launch e2e).
+    if (activeConnector?.id === MERA_CONNECTOR_ID) return;
     handleNetworkChangeRef.current(connectedChainId);
-  }, [connectedChainId]);
+  }, [connectedChainId, isConnected, activeConnector?.id]);
 
   /// get states for submitting orders
   // is this limit order?
@@ -231,6 +278,39 @@ export const TradePageProvider = ({
   // address to receive order ownership and trade
   const [recipient, setRecipient] = useState(address);
 
+  /*
+   * FOLLOW THE PAIR THE PAGE WAS GIVEN.
+   *
+   * Picking a market in Pro is a <Link> to this same route with new search
+   * params. The App Router re-renders the server page with the new pair but
+   * REUSES this provider, and `useState(pairInput)` only reads its argument on
+   * the first render — so the header said TWALL/USDC while the chart, the order
+   * book and the order form stayed on TITER/USDC, and an order placed there went
+   * to the market the reader had just left. Measured: the switch made no chart
+   * and no order-book request at all.
+   *
+   * Remounting (a `key` on the provider) would also fix it, but would rebuild
+   * the TradingView widget on every switch; TradingViewChart keeps one widget and
+   * calls `setSymbol` precisely to avoid that. So the market state is re-adopted
+   * here, the per-market order form is cleared — a limit price typed for one
+   * market is meaningless on another — and the reader's preferences (limit vs
+   * market, side, slippage) are kept.
+   */
+  const adoptedPairId = useRef(pairInput.id);
+  useEffect(() => {
+    if (pairInput.id === adoptedPairId.current) return;
+    adoptedPairId.current = pairInput.id;
+    setBase(baseInput);
+    setQuote(quoteInput);
+    setPair(pairInput);
+    setOrderbook(orderbookInput);
+    setStep(getDefaultScale(pairInput.price, pairInput.scales));
+    setLimitPrice(pairInput.price);
+    setAmount("");
+    setQuoteAmount(0);
+    setBaseAmount(0);
+  }, [pairInput, baseInput, quoteInput, orderbookInput]);
+
   const {
     data: nativeBalance,
     status: nativeBalanceStatus,
@@ -241,13 +321,34 @@ export const TradePageProvider = ({
     address,
   });
 
+  // A launch coin selling its ladder cannot be traded with a market order — the
+  // 1% slippage cap stops it at the current step — and one limit order reaches
+  // only one step. So the ticket's ordinary market Buy and Sell go through
+  // `LadderBuyer` (up to five fill-or-refund orders in one transaction), and the
+  // allowance they need is to IT, exact amount. The Limit tab still goes to the
+  // engine. See lib/launch/ladderBuy.
+  const ladder = useLadderBook(displayNetworkName, base?.id, quote?.id);
+  const ladderBuyer = contractAddress(displayNetworkName, "ladderBuyer");
+  const ladderRoute = Boolean(ladder.active && !isLimit && ladderBuyer && !isNative(quote) && !isNative(base));
+  const orderSpender = ladderRoute ? ladderBuyer : matchingEngine;
+  const ladderBuyQuote = useMemo(() => {
+    if (!ladderRoute || !isBid) return null;
+    let quoteIn: bigint;
+    try {
+      quoteIn = parseUnits(quoteAmount.toString(), quote.decimals);
+    } catch {
+      return null;
+    }
+    return quoteLadderBuy(ladder.steps, quoteIn, quote.decimals, buySlippageLimit, ladder.takerFeeNum);
+  }, [ladderRoute, ladder, isBid, quote, quoteAmount, buySlippageLimit]);
+
   const {
     data: baseBalanceAllowance,
     status: baseBalanceAllowanceStatus,
     error: baseBalanceAllowanceError,
     queryKey: baseBalanceAllowanceQueryKey,
     refetch: refetchBaseBalanceAllowance,
-  } = useERC20BalanceAllowance(base, address as `0x${string}`, matchingEngine);
+  } = useERC20BalanceAllowance(base, address as `0x${string}`, orderSpender);
 
   // quote balance and allowance
   const {
@@ -256,7 +357,7 @@ export const TradePageProvider = ({
     error: quoteBalanceAllowanceError,
     queryKey: quoteBalanceAllowanceQueryKey,
     refetch: refetchQuoteBalanceAllowance,
-  } = useERC20BalanceAllowance(quote, address as `0x${string}`, matchingEngine);
+  } = useERC20BalanceAllowance(quote, address as `0x${string}`, orderSpender);
 
   const trueBaseBalance = useMemo(() => {
     if (isNative(base)) {
@@ -373,11 +474,13 @@ export const TradePageProvider = ({
         functionName: "approve",
         chainId: connectedChainId,
         args: [
-          matchingEngine,
-          parseUnits(
-            "10000000000000000000000000000000000000",
-            quote.decimals
-          ).toString(),
+          orderSpender,
+          ladderRoute
+            ? parseUnits(quoteAmount.toString(), quote.decimals).toString()
+            : parseUnits(
+                "10000000000000000000000000000000000000",
+                quote.decimals
+              ).toString(),
         ],
       };
     } else {
@@ -387,15 +490,20 @@ export const TradePageProvider = ({
         functionName: "approve",
         chainId: connectedChainId,
         args: [
-          matchingEngine,
-          parseUnits(
-            "10000000000000000000000000000000000000",
-            base.decimals
-          ).toString(),
+          orderSpender,
+          ladderRoute
+            ? parseUnits(baseAmount.toString(), base.decimals).toString()
+            : parseUnits(
+                "10000000000000000000000000000000000000",
+                base.decimals
+              ).toString(),
         ],
       };
     }
-  }, [isBid, quote, base, matchingEngine]);
+    // connectedChainId: the passkey wallet resumes on Arc and then follows the
+    // page, so args memoised before that carried Arc's id and every RISE
+    // approval refused with "chain mismatch" (found by the ladder-launch e2e).
+  }, [isBid, quote, base, orderSpender, ladderRoute, quoteAmount, baseAmount, connectedChainId]);
 
   const limitOrderContractArgs = useMemo(() => {
     if (isBid) {
@@ -507,9 +615,56 @@ export const TradePageProvider = ({
     baseAmount,
     limitPrice,
     weth,
+    connectedChainId,
   ]);
 
   const marketOrderContractArgs = useMemo(() => {
+    if (ladderRoute && ladderBuyer) {
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+      const lastPrice = BigInt(Math.max(1, Math.round(Number(pair.price ?? 0) * 1e8)));
+      if (isBid) {
+        // No step left to walk fills nothing on the ladder; bound the order at
+        // the last price rather than send it unpriced.
+        const maxPrice = ladderBuyQuote && ladderBuyQuote.limitPrice > BigInt(0)
+          ? ladderBuyQuote.limitPrice
+          : (lastPrice * BigInt(Math.round((100 + buySlippageLimit) * 100))) / BigInt(10_000);
+        return {
+          abi: LadderBuyerABI,
+          address: ladderBuyer,
+          functionName: "buy",
+          chainId: connectedChainId,
+          args: [
+            base.id,
+            quote.id,
+            parseUnits(quoteAmount.toString(), quote.decimals),
+            maxPrice,
+            ladderBuyQuote?.minBaseOut ?? BigInt(0),
+            recipient ?? address,
+            deadline,
+          ],
+        };
+      }
+      const minPrice = ladderSellFloor(lastPrice, sellSlippageLimit);
+      const baseIn = parseUnits(baseAmount.toString(), base.decimals);
+      // What the floor guarantees, in quote units, net of the taker fee.
+      const atFloor = base.decimals >= quote.decimals
+        ? (baseIn * minPrice) / BigInt(100_000_000) / BigInt(10) ** BigInt(base.decimals - quote.decimals)
+        : ((baseIn * minPrice) / BigInt(100_000_000)) * BigInt(10) ** BigInt(quote.decimals - base.decimals);
+      const minQuoteOut = atFloor - (atFloor * BigInt(ladder.takerFeeNum)) / BigInt(100_000_000);
+      return {
+        abi: LadderBuyerABI,
+        address: ladderBuyer,
+        functionName: "sell",
+        chainId: connectedChainId,
+        args: [base.id, quote.id, baseIn, minPrice, minQuoteOut, recipient ?? address, deadline],
+      };
+    }
+    // Market orders are TAKERS (`isMaker: false`) on every branch below. With
+    // `isMaker: true` the engine rests whatever the book does not fill as a limit
+    // order at the band edge (OrderPlacementLib.detMake) — so a "market buy" that
+    // met a thin book quietly became a resting bid. As a taker the remainder goes
+    // to the pair's pool and whatever the pool does not take is refunded in the
+    // same transaction; PlaceOrderButton reads the receipt and says which happened.
     if (isBid) {
       if (isNative(quote)) {
         // Buying `base` with native ETH, market order: same `quote: weth` +
@@ -531,8 +686,8 @@ export const TradePageProvider = ({
             amount,
             n: matchN,
             recipient: recipient ?? address,
-            isMaker: true,
-            slippageLimit: parseUnits(buySlippageLimit.toString(), 8),
+            isMaker: false,
+            slippageLimit: slippagePctToEngine(buySlippageLimit),
             deadline: 0,
           }],
           value: amount,
@@ -548,10 +703,10 @@ export const TradePageProvider = ({
                 base: base.id,
                 quote: quote.id,
                 amount: parseUnits(quoteAmount.toString(), quote.decimals),
-                isMaker: true,
+                isMaker: false,
                 n: matchN,
                 recipient: recipient ?? address,
-                slippageLimit: parseUnits(buySlippageLimit.toString(), 8),
+                slippageLimit: slippagePctToEngine(buySlippageLimit),
               },
           ],
         };
@@ -576,8 +731,8 @@ export const TradePageProvider = ({
             amount,
             n: matchN,
             recipient: recipient ?? address,
-            isMaker: true,
-            slippageLimit: parseUnits(sellSlippageLimit.toString(), 8),
+            isMaker: false,
+            slippageLimit: slippagePctToEngine(sellSlippageLimit),
             deadline: 0,
           }],
           value: amount,
@@ -593,16 +748,16 @@ export const TradePageProvider = ({
                 base: base.id,
                 quote: quote.id,
                 amount: parseUnits(baseAmount.toString(), base.decimals),
-                isMaker: true,
+                isMaker: false,
                 n: matchN,
                 recipient: recipient ?? address,
-                slippageLimit: parseUnits(sellSlippageLimit.toString(), 8),
+                slippageLimit: slippagePctToEngine(sellSlippageLimit),
               },
           ],
         };
       }
     }
-  }, [pair, isBid, base, quote, recipient, address, matchN, quoteAmount, baseAmount, weth]);
+  }, [pair, isBid, base, quote, recipient, address, matchN, quoteAmount, baseAmount, weth, ladderRoute, ladderBuyer, ladder.takerFeeNum, ladderBuyQuote, buySlippageLimit, sellSlippageLimit, connectedChainId]);
 
   // Create refs to persist contract args for gas estimation
   const limitOrderContractArgsForGasEstimation = useRef(limitOrderContractArgs);
@@ -642,6 +797,8 @@ export const TradePageProvider = ({
           isConnected,
           isLimit,
           setIsLimit,
+          ladderBuyQuote,
+          ladderMarket: ladderRoute,
           buySlippageLimit,
           nativeBalance: Number(nativeBalance?.formatted ?? 0),
           nativeBalanceStatus,

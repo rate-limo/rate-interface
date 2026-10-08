@@ -300,3 +300,98 @@ export function priceAxisDecimals(price: number, pricescaleDecimals: number): nu
   const magnitude = Math.abs(price) >= 1 ? Math.floor(Math.log10(Math.abs(price))) + 1 : 1;
   return Math.min(pricescaleDecimals, Math.max(2, 6 - magnitude));
 }
+
+/**
+ * A chart axis label: compact, no currency symbol, and precise enough to tell
+ * this axis's own ticks apart.
+ *
+ * ## Why not `formatUsd`
+ *
+ * Two reasons, and the second is the interesting one.
+ *
+ * A price axis is quote-denominated — `1 TITER = 1.02 USDC` — so a `$` would be
+ * wrong on it, and the same axis renders market cap, which is USD. One symbol
+ * cannot be right for both, and the toggle above the chart already says which
+ * is on screen.
+ *
+ * More importantly, `formatUsd` fixes its compacted precision at one decimal.
+ * That is right for a figure read on its own and wrong for an axis, where the
+ * labels have to DISTINGUISH the ticks beside them. Measured on the token
+ * profile: a market cap near 1e9 drew ticks 25,000 apart, which at one decimal
+ * is `1.0B` seven times down the scale — strictly worse than the raw
+ * `1000050000.00` it replaced, because at least those were distinct.
+ *
+ * So `decimals` comes from the axis's own SPAN, not from the magnitude of any
+ * one value. The caller measures the range it is about to draw; this only
+ * formats.
+ */
+export function formatAxisValue(value: number, decimals = 1, unitFrom?: number): string {
+  if (!Number.isFinite(value)) return "—";
+  if (value === 0) return "0";
+
+  const sign = value < 0 ? "−" : "";
+  const abs = Math.abs(value);
+  const dp = Math.min(Math.max(Math.trunc(decimals), 0), 8);
+
+  // Below a dollar the venue's subscript notation already carries the precision,
+  // and compaction has nothing to compact.
+  if (abs < 1) {
+    const subscript = formatSubscriptDecimal(abs);
+    return `${sign}${subscript ?? trimZeros(abs.toFixed(Math.max(dp, 2)))}`;
+  }
+
+  /*
+   * ONE UNIT FOR THE WHOLE AXIS, chosen by the caller.
+   *
+   * Picking it per value makes an axis straddling a power of a thousand switch
+   * units mid-scale: 1,000,050,000 rendered `1B` while 999,975,000 — the tick
+   * directly below it — rendered `1000M`. Two units for one column reads as two
+   * different quantities, and the reader has to do the conversion the axis was
+   * supposed to do for them. `unitFrom` is the axis's own magnitude, so every
+   * tick compacts the same way.
+   */
+  const scaleBy = Number.isFinite(unitFrom as number) ? Math.abs(unitFrom as number) : abs;
+  const [unit, suffix] =
+    scaleBy < 1_000
+      ? [1, ""]
+      : scaleBy < 1_000_000
+        ? [1_000, "K"]
+        : scaleBy < 1_000_000_000
+          ? [1_000_000, "M"]
+          : [1_000_000_000, "B"];
+  /*
+   * Trailing zeros are TRIMMED at one decimal and KEPT past it.
+   *
+   * `1K` reads better than `1.0K`, which is why the default trims. But once the
+   * caller has asked for more places — because the ticks are close enough to
+   * need them — trimming breaks the column: 1.00005B beside a bare 1B beside
+   * 0.99998B, three different widths for three neighbouring ticks. An axis is
+   * read down, so the places have to line up.
+   */
+  const scaled = (abs / unit).toFixed(dp);
+  return `${sign}${dp <= 1 ? trimZeros(scaled) : scaled}${suffix}`;
+}
+
+/**
+ * How many decimals an axis spanning `span` needs, at the scale it is drawn in.
+ *
+ * A tick step is roughly a tenth of the span, so a label has to resolve about
+ * that much. `span / unit` is the step in the COMPACTED unit, and the decimals
+ * needed are however many places it takes for that step to be non-zero, plus
+ * one so two adjacent ticks cannot round together.
+ *
+ * A flat series (span 0) falls back to 1: nothing needs distinguishing, and a
+ * pile of decimals on a single repeated value is noise.
+ */
+export function axisDecimals(span: number, magnitude: number): number {
+  if (!Number.isFinite(span) || span <= 0) return 1;
+  const abs = Math.abs(magnitude);
+  if (abs < 1) return 2;
+  const unit = abs < 1_000 ? 1 : abs < 1_000_000 ? 1_000 : abs < 1_000_000_000 ? 1_000_000 : 1_000_000_000;
+  const step = span / 10 / unit;
+  if (step <= 0) return 1;
+  // `ceil(-log10(step))` is exactly the places it takes to write `step` — a step
+  // of 0.05 needs 2, a step of 0.1 needs 1. An extra place "to be safe" is not
+  // safe, it is a column of noise on every tick.
+  return Math.min(6, Math.max(1, Math.ceil(-Math.log10(step))));
+}

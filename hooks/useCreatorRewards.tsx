@@ -1,15 +1,10 @@
 "use client";
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { getPublicClient } from "@wagmi/core";
 import { formatUnits } from "viem";
-import { BandPositionManagerABI } from "@iter/abis";
-import { wagmiConfig } from "@/lib/providers";
-import { chainIds } from "@/consts";
-import { wagmiChains } from "@/lib/customChains";
-import { positionManagerAddress } from "@/lib/deployments";
 import { useCrossChainNetworks } from "@/hooks/useCrossChainPositions";
-import { getAccountLpPositions, getCreatorAuctions } from "@/queries/server/profile";
+import { getCreatorAuctions } from "@/queries/server/profile";
+import { fetchLpPositions } from "@/hooks/useLpPositions";
 
 /**
  * What a wallet's LP positions have earned it in fees.
@@ -23,8 +18,8 @@ import { getAccountLpPositions, getCreatorAuctions } from "@/queries/server/prof
  * answered `[]` while `/leaderboard/lps` reported four open positions across four
  * pools with $400,000 of open cost. The tab rendered empty.
  *
- * The list now comes from `broker.bandPositions` (`getAccountLpPositions`), the
- * ledger the LP board itself ranks on, so a plain launch's position appears the
+ * The list now comes from the per-token LP ledger (`lpPositions`, via
+ * `fetchLpPositions`), the ledger the LP board itself ranks on, so a plain launch's position appears the
  * same way an auction's does. Auctions are still read — they are the only source
  * for `liquidityUnlockAt`, which the ledger does not carry — and merged in by
  * `tokenId`.
@@ -85,15 +80,6 @@ export interface CreatorReward {
   unlockAt: number | null;
 }
 
-/** `vestedNum` is a uint32 numerator over 1e6, the scale PoolFeeMath uses. */
-const VESTED_DENOM = 1_000_000;
-
-function pct(vestedNum: number | bigint): number {
-  const n = Number(vestedNum);
-  if (!Number.isFinite(n)) return 0;
-  return Math.min(100, Math.max(0, (n / VESTED_DENOM) * 100));
-}
-
 /** One chain's rewards, kept whole so a failed chain is absent rather than zero. */
 interface ChainRewards {
   networkName: string;
@@ -110,32 +96,15 @@ interface ChainRewards {
  * which is the truth rather than a gap.
  */
 async function fetchChainRewards(networkName: string, address: string): Promise<ChainRewards> {
-  const [lp, auctionsRaw] = await Promise.all([
-    getAccountLpPositions(networkName, address),
+  // One source with /pool: the gateway's per-token list joined with ONE
+  // `portfolio(tokenIds)` read, so the two surfaces cannot disagree about what a
+  // token can collect. Claimable is owed + every band's vested part (v2).
+  const [tokens, auctionsRaw] = await Promise.all([
+    fetchLpPositions(networkName, address),
     getCreatorAuctions(networkName, address, 50, 1),
   ]);
 
-  const rows = Array.isArray(lp?.positions) ? (lp.positions as Record<string, unknown>[]) : [];
-  // A position with no `tokenId` has no manager-side half yet — a pool event
-  // whose ERC-1155 mint has not been indexed. It cannot be claimed against, so
-  // it cannot be listed as claimable.
-  const withIds = rows.filter((r) => r.tokenId !== null && r.tokenId !== undefined);
-  if (withIds.length === 0) return { networkName, rewards: [] };
-
-  const manager = positionManagerAddress(networkName);
-  // Narrowed through `wagmiChains` rather than cast: the config is built from a
-  // const tuple, so its actions accept only the literal union of ids it was
-  // given, and a chain the wallet config does not know must be skipped rather
-  // than forced through. Same narrowing `lib/launch/execution.ts` documents.
-  const chain = wagmiChains.find((c) => c.id === chainIds[networkName]);
-  if (!manager || !chain) return { networkName, rewards: [] };
-  // Per chain, not the connected wallet's chain: `usePublicClient()` follows the
-  // wallet, which is exactly how a cross-chain read ends up asking one network
-  // about another's positions.
-  const client = getPublicClient(wagmiConfig, { chainId: chain.id });
-  if (!client) return { networkName, rewards: [] };
-
-  /** `liquidityUnlockAt` by position id — the one thing only an auction knows. */
+  /** `liquidityUnlockAt` by position id -- the one thing only an auction knows. */
   const unlockByTokenId = new Map<string, number>();
   const auctions = Array.isArray(auctionsRaw?.auctions)
     ? (auctionsRaw.auctions as Record<string, unknown>[])
@@ -148,51 +117,25 @@ async function fetchChainRewards(networkName: string, address: string): Promise<
     }
   }
 
-  const tokenIds = withIds.map((r) => BigInt(String(r.tokenId)));
-
-  const portfolio = (await client.readContract({
-    address: manager as `0x${string}`,
-    abi: BandPositionManagerABI,
-    functionName: "portfolio",
-    args: [tokenIds],
-  })) as readonly {
-    tokenId: bigint;
-    pool: `0x${string}`;
-    base: `0x${string}`;
-    quote: `0x${string}`;
-    position: {
-      vestedBase: bigint;
-      vestedQuote: bigint;
-      vestedNum: number;
-    };
-  }[];
-
-  // Zipped by INDEX, which is safe only because `portfolio` returns one row per
-  // requested id in order — the contract builds its result by iterating
-  // `tokenIds`. Matching on tokenId instead would be defensive noise suggesting
-  // a reordering the ABI does not permit.
   return {
     networkName,
-    rewards: portfolio.map((entry, i) => {
-      const row = withIds[i]!;
-      const baseDecimals = Number(row.baseDecimals ?? 18);
-      const quoteDecimals = Number(row.quoteDecimals ?? 18);
-      const tokenId = entry.tokenId.toString();
-      return {
-        tokenId,
+    rewards: tokens
+      // Only tokens the chain answered for: a claim needs a real figure, not a guess.
+      .filter((t) => t.active && t.live)
+      .map((t) => ({
+        tokenId: t.tokenId,
         networkName,
-        pool: entry.pool,
-        coin: String(row.base ?? entry.base ?? ""),
-        symbol: String(row.baseSymbol ?? "?"),
-        quoteSymbol: String(row.quoteSymbol ?? "?"),
-        vestedBase: formatUnits(entry.position.vestedBase, baseDecimals),
-        vestedQuote: formatUnits(entry.position.vestedQuote, quoteDecimals),
-        vestedBaseRaw: entry.position.vestedBase,
-        vestedQuoteRaw: entry.position.vestedQuote,
-        vestedPct: pct(entry.position.vestedNum),
-        unlockAt: unlockByTokenId.get(tokenId) ?? null,
-      };
-    }),
+        pool: t.pool,
+        coin: t.base,
+        symbol: t.baseSymbol,
+        quoteSymbol: t.quoteSymbol,
+        vestedBase: formatUnits(t.claimableBase, t.baseDecimals),
+        vestedQuote: formatUnits(t.claimableQuote, t.quoteDecimals),
+        vestedBaseRaw: t.claimableBase,
+        vestedQuoteRaw: t.claimableQuote,
+        vestedPct: t.vestedPct ?? 0,
+        unlockAt: unlockByTokenId.get(t.tokenId) ?? null,
+      })),
   };
 }
 

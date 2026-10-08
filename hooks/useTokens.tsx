@@ -1,3 +1,5 @@
+import { applyFrame } from "@/lib/realtime/applyFrame";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import { PonderLinks } from "@/consts";
 import { SpotBarEvent, SpotToken } from "@/types";
 import { eventBus } from "@/utils/events";
@@ -20,6 +22,9 @@ export type TokenRanking =
     | "oldest"
     | "top-volume"
     | "top-marketcap"
+    | "last-trade"
+    | "trade-count"
+    | "price"
     | "trending";
 
 /** The axis that is NOT the ranking. Listed and launched are orthogonal — a launch that
@@ -42,7 +47,7 @@ export const useTokens = (
         // before they graduate; the gateway's `launched` source is unlisted-safe.
         const query = source === "listed" ? "" : `?source=${source}`;
         const url = `${PonderLinks[networkName]}/api/tokens/${segment}${pageSize}/${page}${query}`;
-        const response = await fetch(url as string);
+        const response = await gatewayFetch(url as string);
         const data = await response.json();
         return data as SpotTokenData;
     }
@@ -76,7 +81,7 @@ export const useTokens = (
         }
         const handleTradeUpdate = (event: SpotBarEvent) => {
             const [symbol, interval] = event.id.split("-");
-            queryClient.setQueryData(['tokens', options, networkName], (oldData: SpotTokenData) => {
+            void applyFrame(queryClient, ['tokens', options, networkName], (oldData: SpotTokenData) => {
                 // find the changed token and update it
                 let changedToken = oldData.tokens.find(token => token.symbol === symbol);
                 if (changedToken) {
@@ -134,16 +139,35 @@ export const useInfiniteTokens = (
     pageSize: number = 200,
     options: TokenRanking | string = "",
     source: TokenSource = "listed",
+    /**
+     * Extra list filters the gateway understands — `quote`, `status`.
+     *
+     * Kept out of `source` on purpose: these are orthogonal axes, the same way
+     * source is orthogonal to the ranking. A caller narrowing by quote has not
+     * changed which LIST it is asking for, so folding them together would make
+     * "launched coins quoted in USDC" inexpressible, which is exactly how
+     * `?source=all` came to be inert on these routes.
+     *
+     * Every entry lands in the query key, so two filters are two cache entries
+     * rather than one that silently serves the other's rows.
+     */
+    params: Readonly<Record<string, string>> = {},
 ) => {
     const segment = options === "" ? "" : `${options}/`;
-    const query = source === "listed" ? "" : `?source=${source}`;
+    const search = new URLSearchParams(
+        source === "listed" ? {} : { source },
+    );
+    for (const [key, value] of Object.entries(params)) {
+        if (value) search.set(key, value);
+    }
+    const query = search.size > 0 ? `?${search}` : "";
     return useInfiniteQuery<SpotTokenData>({
-        queryKey: ["tokens-infinite", networkName, pageSize, options, source],
+        queryKey: ["tokens-infinite", networkName, pageSize, options, source, params],
         enabled: !!networkName,
         initialPageParam: 1,
         queryFn: async ({ pageParam }) => {
             const url = `${PonderLinks[networkName]}/api/tokens/${segment}${pageSize}/${pageParam}${query}`;
-            const response = await fetch(url as string);
+            const response = await gatewayFetch(url as string);
             if (!response.ok) throw new Error(`Token request failed: ${response.status}`);
             return response.json() as Promise<SpotTokenData>;
         },

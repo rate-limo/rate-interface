@@ -59,6 +59,7 @@ export function useChainSwitch() {
           toNetworkName: networkName,
           toSlug,
           isListed,
+          from: { pathname: window.location.pathname, search: window.location.search },
         });
 
         market?.setDisplayNetworkName(networkName);

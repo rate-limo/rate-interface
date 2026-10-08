@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -62,7 +63,7 @@ export function usePairLiquidityRanges(
     refetchInterval: 15_000,
     queryFn: async (): Promise<LiquidityRangesResponse> => {
       const params = new URLSearchParams({ network: networkName, bins: String(bins) });
-      const response = await fetch(
+      const response = await gatewayFetch(
         `/api/gateway/liquidity/ranges/${encodeURIComponent(baseAddress)}/${encodeURIComponent(quoteAddress)}?${params}`,
       );
       // 404 is the gateway's "pool not found", which is a verdict rather than a

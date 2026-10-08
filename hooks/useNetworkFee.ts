@@ -1,8 +1,10 @@
 "use client";
 
-import { useGasPrice } from "wagmi";
+import { useAccount, useGasPrice } from "wagmi";
 import { formatUnits } from "viem";
 import { wagmiChains } from "@/lib/customChains";
+import { tip20GasToken } from "@/lib/chains/gasToken";
+import { useFeeToken } from "@/lib/wallet/feeToken";
 
 /**
  * What a transaction on this chain will cost in gas, in the chain's OWN asset.
@@ -48,6 +50,10 @@ export const GAS_LIMITS = {
 } as const;
 
 export function useNetworkFee(chainId: number | undefined, gasLimit: bigint): NetworkFee {
+  // Tempo: which stablecoin THIS account pays in (FeeManager choice, else PathUSD).
+  // The amount is dollars either way; only the name differs.
+  const { address } = useAccount();
+  const accountFeeToken = useFeeToken(chainId, address);
   const { data, isLoading, isError } = useGasPrice({
     chainId,
     query: { refetchInterval: 30_000, retry: 1, enabled: chainId !== undefined },
@@ -60,7 +66,10 @@ export function useNetworkFee(chainId: number | undefined, gasLimit: bigint): Ne
   if (!chain) return { state: "unavailable" };
 
   const wei = data * gasLimit;
-  const value = Number(formatUnits(wei, chain.nativeCurrency.decimals));
+  // Tempo: the fee is paid in a TIP-20 and `gas * price` is 1e-18 dollars, not the
+  // placeholder native coin's 6 decimals (which would overstate it 1e12 times).
+  const feeToken = tip20GasToken(chainId);
+  const value = Number(formatUnits(wei, feeToken?.feeDecimals ?? chain.nativeCurrency.decimals));
   if (!Number.isFinite(value) || value <= 0) return { state: "unavailable" };
 
   return {
@@ -68,7 +77,7 @@ export function useNetworkFee(chainId: number | undefined, gasLimit: bigint): Ne
     // Four significant figures, trailing zeros trimmed: Arc lands near 0.0017 and RISE
     // near 0.0000000000002, and one fixed precision cannot render both.
     amount: trimZeros(value < 0.0001 ? value.toExponential(2) : value.toPrecision(4)),
-    symbol: chain.nativeCurrency.symbol,
+    symbol: accountFeeToken?.symbol ?? feeToken?.symbol ?? chain.nativeCurrency.symbol,
   };
 }
 

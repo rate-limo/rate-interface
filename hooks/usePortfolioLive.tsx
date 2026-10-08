@@ -1,13 +1,21 @@
 "use client";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { eventBus } from "@/utils/events";
+import { useVisibleRefetchInterval } from "@/lib/portfolio/useVisiblePolling";
 import { getSpotAccountOrders } from "@/queries/server/orders";
 import { getSpotAccountOrderHistories } from "@/queries/server/orderhistories";
 import { getSpotAccountTradeHistories } from "@/queries/server/tradehistories";
 import { getLpPositions, getPoolLiquidity } from "@/queries/server/liquidity";
+import { lpFeesUsdByToken } from "@/lib/portfolio/bandFees";
+import { fetchLpPositions } from "@/hooks/useLpPositions";
 import { toCreatorTokens, toHistoryRows, toLpPositions, toOpenOrders, toStopOrders, toTradeRows } from "@/lib/portfolio/live";
 import { getStopOrderHistories, getStopOrders } from "@/queries/server/stoporders";
 import { getCreatorTokens } from "@/queries/server/tokens";
 import { getBasePairs } from "@/queries/server/pairs";
+import { readLaunchPool } from "@/lib/portfolio/launchPoolRead";
+import type { LaunchPoolRead } from "@/lib/portfolio/launchPool";
+import { crossChainNetworks } from "@/hooks/useCrossChainPositions";
 import { mergeActivity } from "@/lib/portfolio/activity";
 import { toSwapRows } from "@/lib/portfolio/swaps";
 import { getSpotAccountSwaps } from "@/queries/server/swaps";
@@ -74,8 +82,8 @@ export const EMPTY_LIVE: PortfolioLive = {
   history: [],
   trades: [],
   lps: [],
-  rewards: { summary: { earnedPts: 0, claimablePts: 0, epochPts: 0, epoch: 0 }, rows: [] },
-  referralSummary: { code: "", link: "", referred: 0, active: 0, earnedPts: 0, cutPct: 0, boostPct: 0, maxBoostPct: 0 },
+  rewards: { summary: { earnedPts: 0, claimablePts: 0, epochPts: 0, epoch: 0, referralPts: 0 }, rows: [] },
+  referralSummary: { code: "", link: "", referred: 0, active: 0, earnedPts: 0, cutPct: 0 },
   creator: [],
   partial: false,
 };
@@ -83,15 +91,49 @@ export const EMPTY_LIVE: PortfolioLive = {
 const PAGE_SIZE = 50;
 
 export function usePortfolioLive(networkName: string, address: string | undefined) {
+  /*
+   * POLL, because on-chain work lands AFTER the transaction does.
+   *
+   * This had no interval, so it fetched on mount and then sat. A deposit,
+   * order or swap confirms in the wallet and reaches these tables seconds
+   * later — indexer, then broker, then gateway — so the user who acts and
+   * immediately opens their portfolio is looking at the answer from BEFORE
+   * they acted, with nothing on screen to say more is coming. Reported as "LP
+   * positions do not update after providing liquidity"; the underlying deposit
+   * was a separate bug, but this is why a WORKING one would still have looked
+   * broken for a minute.
+   *
+   * Paused in a hidden tab: this is nine gateway reads per pass, and a tab
+   * nobody is looking at does not need them. Same helper the balances use.
+   *
+   * FOUR seconds, down from fifteen. The window this closes is the one a user
+   * actually experiences: place an order, switch to the portfolio, and find the
+   * answer from before they acted with nothing on screen to say more is coming.
+   * Fifteen seconds of that reads as a broken page, which is how it was
+   * reported.
+   *
+   * The cost is bounded and was checked rather than assumed. Nine reads per
+   * pass at 4 s is ~2.25 requests a second from one open tab, but they are nine
+   * DIFFERENT endpoint classes, so each sees roughly one request per 4 s —
+   * about 15 per minute against the gateway's 120-per-60 s class limit. The
+   * hidden-tab pause is what keeps that true for someone with the page parked
+   * in a background tab all day, and it matters roughly four times as much now.
+   */
+  const refetchInterval = useVisibleRefetchInterval(4_000);
+
   const { data, isLoading, error, refetch } = useQuery<PortfolioLive>({
     queryKey: ["portfolio-live", networkName, address],
     enabled: !!address && !!networkName,
+    refetchInterval,
+    // A poll must not blank the screen while it runs — the previous answer
+    // stays until the next one lands.
+    placeholderData: (previous) => previous,
     queryFn: async () => {
       // `enabled` already gates on this; the check is what lets TS see it, and
       // it keeps the fetchers' non-optional contract honest.
       if (!address) return EMPTY_LIVE;
 
-      const [orders, stopOrders, stopHistory, history, trades, swaps, lps, points, creator] = await Promise.allSettled([
+      const [orders, stopOrders, stopHistory, history, trades, swaps, lps, points, creator, lpTokens] = await Promise.allSettled([
         getSpotAccountOrders(networkName, address, PAGE_SIZE, 1),
         getStopOrders(networkName, address, PAGE_SIZE, 1),
         getStopOrderHistories(networkName, address, PAGE_SIZE, 1),
@@ -103,7 +145,13 @@ export function usePortfolioLive(networkName: string, address: string | undefine
         getSpotAccountSwaps(networkName, address, PAGE_SIZE, 1),
         getLpPositions(networkName, address),
         getPoints(address),
-        getCreatorTokens(networkName, address, PAGE_SIZE, 1),
+        // Every served chain, not the page's: a launch belongs to the chain it
+        // was made on and each row carries that network. Read from the page's
+        // chain alone, a coin launched on RISE was missing from a portfolio
+        // pinned to Arc (found by the ladder-launch e2e, 2026-10-02).
+        creatorTokensEverywhere(networkName, address),
+        // LP v2: one row per TOKEN, its bands inside -- the same read /pool uses.
+        fetchLpPositions(networkName, address),
       ]);
 
       let partial = false;
@@ -122,27 +170,56 @@ export function usePortfolioLive(networkName: string, address: string | undefine
       const sw = leg(swaps, "liquidity/swaps");
       // Both halves, or two empty lists — a failed leg must not make one of them
       // undefined and take the mapper down with it.
-      const l = leg(lps, "liquidity/positions") ?? { ranges: [], bands: [] };
+      const l = leg(lps, "liquidity/positions") ?? { ranges: [] };
+      const tokens = leg(lpTokens, "lp-positions") ?? [];
       // getPoints never rejects, so this leg cannot mark the result partial —
       // it degrades to zeros internally, which for points is a true reading.
       const pts = points.status === "fulfilled" ? points.value : EMPTY_POINTS;
-      const launched = leg(creator, "creator tokens")?.tokens ?? [];
+      const launchedByChain = leg(creator, "creator tokens") ?? [];
 
-      const pairsByBase = new Map<string, Record<string, unknown>>();
-      await Promise.all(
-        launched.map(async (token) => {
-          const symbol = String(token.symbol ?? "");
-          if (!symbol) return;
-          try {
-            const result = await getBasePairs(networkName, symbol);
-            const pair = result.pairs[0];
-            if (pair) {
-              pairsByBase.set(symbol.toUpperCase(), pair as unknown as Record<string, unknown>);
-            }
-          } catch (error) {
-            partial = true;
-            console.warn(`usePortfolioLive: creator pair failed for ${symbol}`, error);
-          }
+      const creatorRows = await Promise.all(
+        launchedByChain.map(async ({ network, tokens: launched }) => {
+          const pairsByBase = new Map<string, Record<string, unknown>>();
+          await Promise.all(
+            launched.map(async (token) => {
+              const symbol = String(token.symbol ?? "");
+              if (!symbol) return;
+              try {
+                const result = await getBasePairs(network, symbol);
+                const pair = result.pairs[0];
+                if (pair) {
+                  pairsByBase.set(symbol.toUpperCase(), pair as unknown as Record<string, unknown>);
+                }
+              } catch (error) {
+                partial = true;
+                console.warn(`usePortfolioLive: creator pair failed for ${symbol}`, error);
+              }
+            }),
+          );
+          // The coin's band pool and own fee, from chain. After graduation the
+          // order book is empty and everything the creator seeded is in the
+          // pool, which the gateway's pair snapshot does not report.
+          const launchPools = new Map<string, LaunchPoolRead>();
+          await Promise.all(
+            launched.map(async (token) => {
+              const coin = String(token.id ?? "");
+              const pair = pairsByBase.get(String(token.symbol ?? "").toUpperCase()) as
+                | { base?: { decimals?: number; priceUSD?: number }; quote?: { id?: string; decimals?: number; priceUSD?: number } }
+                | undefined;
+              const quote = pair?.quote?.id;
+              if (!coin.startsWith("0x") || !quote) return;
+              const read = await readLaunchPool(network, {
+                coin: coin as `0x${string}`,
+                quote: quote as `0x${string}`,
+                baseDecimals: Number(pair?.base?.decimals ?? 18),
+                quoteDecimals: Number(pair?.quote?.decimals ?? 18),
+                baseUsd: Number(pair?.base?.priceUSD),
+                quoteUsd: Number(pair?.quote?.priceUSD),
+              });
+              if (read) launchPools.set(coin.toLowerCase(), read);
+            }),
+          );
+          return toCreatorTokens(launched, network, pairsByBase, launchPools);
         }),
       );
 
@@ -156,14 +233,36 @@ export function usePortfolioLive(networkName: string, address: string | undefine
         if (!p.active || !p.base || !p.quote) continue;
         markets.set(p.pairSymbol ?? `${p.base}/${p.quote}`, { base: p.base, quote: p.quote });
       }
+      // LP tokens feed the SAME map, keyed identically, so a pool holding both
+      // generations costs one lookup.
+      for (const t of tokens) {
+        if (!t.active || !t.base || !t.quote) continue;
+        markets.set(`${t.baseSymbol}/${t.quoteSymbol}`, { base: t.base, quote: t.quote });
+      }
+      const priceByPair = new Map<string, number | null>();
       await Promise.all(
         [...markets].map(async ([key, m]) => {
           // getPoolLiquidity already swallows non-ok and returns null, so a
           // missing APR degrades to an em-dash rather than failing the tab.
           const pool = await getPoolLiquidity(networkName, m.base, m.quote);
           aprByPair.set(key, pool?.aprPct ?? null);
+          priceByPair.set(key, pool?.price ?? null);
         }),
       );
+
+      /*
+       * Lifetime fees per LP token -- the rest of the LP table. Never throws the tab
+       * away: an outright failure leaves the map empty, which renders em-dashes.
+       */
+      let feesByToken = new Map<string, number | null>();
+      if (tokens.length > 0) {
+        try {
+          feesByToken = await lpFeesUsdByToken(networkName, tokens, priceByPair);
+        } catch (error) {
+          partial = true;
+          console.warn("usePortfolioLive: LP fees failed", error);
+        }
+      }
 
       /*
        * The wallet's own code, minted on first ask.
@@ -199,19 +298,48 @@ export function usePortfolioLive(networkName: string, address: string | undefine
           toSwapRows(sw?.swaps ?? [], networkName),
           toTradeRows(t?.tradeHistories ?? [], networkName, address),
         ),
-        lps: toLpPositions(l.ranges, networkName, aprByPair, l.bands),
+        lps: toLpPositions(l.ranges, networkName, aprByPair, tokens, feesByToken),
         rewards: { summary: toRewardSummary(pts), rows: toRewardRows(pts) },
-        // Summary only. The referee ROWS stay on the mock deliberately: they
-        // want each referee's address, join date and volume, and /points
-        // withholds the referral graph on purpose while `theirVolumeUsd` has no
-        // source anywhere. Publishing other people's wallets is a product and
-        // privacy call, not a wiring one.
+        // Summary only. There are no live referee ROWS: they would want each
+        // referee's address, join date and volume, and /points withholds the
+        // referral graph on purpose while `theirVolumeUsd` has no source
+        // anywhere. Publishing other people's wallets is a product and privacy
+        // call, not a wiring one — so the table shows the count and says so.
         referralSummary: toReferralSummary(pts, code, origin),
-        creator: toCreatorTokens(launched, networkName, pairsByBase),
+        creator: creatorRows.flat(),
         partial,
       };
     },
   });
 
+  // A launch, band deposit or withdrawal, or presale commitment of THIS wallet
+  // arrives as one socket frame the instant the broker commits it; until
+  // 2026-09-19 those published nothing and this hook learned of them on its
+  // next 15 s poll. The frame carries no row, so the answer is a refetch.
+  useEffect(() => {
+    if (!address) return;
+    const onActivity = (e: { account: string }) => {
+      if (e.account.toLowerCase() === address.toLowerCase()) void refetch();
+    };
+    eventBus.on("spot-account-activity", onActivity);
+    return () => {
+      eventBus.off("spot-account-activity", onActivity);
+    };
+  }, [address, refetch]);
+
   return { data: data ?? EMPTY_LIVE, isLoading, error, refetch };
+}
+
+/**
+ * The wallet's launches on every served chain, the page's chain first.
+ * `getCreatorTokens` already degrades a failed chain to an empty list.
+ */
+async function creatorTokensEverywhere(pageNetwork: string, address: string) {
+  const networks = [pageNetwork, ...crossChainNetworks().filter((n) => n !== pageNetwork)];
+  return Promise.all(
+    networks.map(async (network) => ({
+      network,
+      tokens: (await getCreatorTokens(network, address, PAGE_SIZE, 1)).tokens ?? [],
+    })),
+  );
 }

@@ -98,7 +98,21 @@ export function useDepositAssets(): { assets: DepositCandidate[]; isLoading: boo
           }
 
           try {
-            const listed = (await getTokens(chain.name, 500, 1, "")) as {
+            /*
+             * UNGATED, because a deposit list is not a ranking.
+             *
+             * This read the listing-gated list, so a token showed up here only
+             * once its market had graduated. On a freshly deployed chain that
+             * is every token: measured on Arc, nine tokens existed and all nine
+             * were unverified, so this page offered nothing at all — including
+             * USDC, which is the asset the venue settles in.
+             *
+             * "Unlisted, not hidden" is the standing rule (see CLAUDE.md): a
+             * pre-graduation market never appears in a ranking, a default view
+             * or an aggregate, and is reachable everywhere else. Depositing an
+             * asset you already hold is reachability, not endorsement.
+             */
+            const listed = (await getTokens(chain.name, 500, 1, "", "all")) as {
               tokens?: SpotTokenWithBalance[];
             };
             for (const token of listed?.tokens ?? []) {

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { marketParam } from "@/lib/routing/proMarket";
 import { cn } from "@/lib/utils";
 import { SpotTradeEvent } from "@/types";
 import { eventBus } from "@/utils/events";
@@ -106,7 +107,7 @@ export default function PumpNotificationBanner() {
       >
         <a
           className="group flex items-center gap-1 px-2 py-1.5 text-sm transition-colors sm:rounded"
-          href={`/trade/pro?chain=${displayNetworkSlug}&base=${transactionData.baseSymbol}&quote=${transactionData.quoteSymbol}`}
+          href={`/trade/pro?chain=${displayNetworkSlug}&base=${encodeURIComponent(marketParam({ id: transactionData.base, symbol: transactionData.baseSymbol }))}&quote=${encodeURIComponent(marketParam({ id: transactionData.quote, symbol: transactionData.quoteSymbol }))}`}
         >
           <div className="inline-flex gap-1">
             <span className="inline-flex items-center gap-1 truncate">

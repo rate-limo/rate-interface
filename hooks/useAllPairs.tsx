@@ -1,3 +1,4 @@
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import { useEffect, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type { SpotPair } from "@/types";
@@ -58,7 +59,7 @@ export function useAllPairs(networkName: string, query = "", pageSize = 50, page
     queryFn: async (): Promise<SpotPairData & { degraded?: boolean }> => {
       const params = new URLSearchParams({ network: networkName });
       if (debounced) params.set("q", debounced);
-      const response = await fetch(`/api/gateway/pairs/all/${pageSize}/${page}?${params}`);
+      const response = await gatewayFetch(`/api/gateway/pairs/all/${pageSize}/${page}?${params}`);
 
       // A gateway that predates `/pairs/all` answers 404. Falling back to the
       // gated route keeps the two deployable in either order — the same rule
@@ -71,7 +72,7 @@ export function useAllPairs(networkName: string, query = "", pageSize = 50, page
       // page, narrowed in the browser. It stops being used the moment the
       // gateway deploys, with no second release needed.
       if (response.status === 404) {
-        const gated = await fetch(`/api/gateway/pairs/${pageSize}/${page}?network=${encodeURIComponent(networkName)}`);
+        const gated = await gatewayFetch(`/api/gateway/pairs/${pageSize}/${page}?network=${encodeURIComponent(networkName)}`);
         if (!gated.ok) throw new Error(`Could not load markets (${gated.status})`);
         const data = (await gated.json()) as SpotPairData;
         const needle = debounced.toLowerCase();

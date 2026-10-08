@@ -1,5 +1,6 @@
 "use client";
 
+import { chartTicker } from "@/lib/chart/ticker";
 import { useState } from "react";
 import { buildMarketCapSymbol } from "@iter/types";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,8 @@ export type ChartMetric = "price" | "marketCap";
 /** What the toggle needs to know about the token it is charting. */
 type MetricToken = {
   symbol: string;
+  /** The token's contract address. Qualifies the chart ticker, since two launches may share a symbol. */
+  id?: string | null;
   totalSupply?: number | null;
   /** Empty/absent for tokens the broker learned about via PairAdded alone. */
   creator?: string | null;
@@ -56,7 +59,7 @@ export function useChartMetric(token: MetricToken) {
     /** True when the chart is actually showing market cap. */
     active,
     /** The UDF ticker to hand the chart. */
-    chartSymbol: active ? buildMarketCapSymbol(token.symbol) : token.symbol,
+    chartSymbol: active ? buildMarketCapSymbol(chartTicker(token)) : chartTicker(token),
     /** Human label for the "no market data" message — never the raw `:MCAP`. */
     metricLabel: active ? `${token.symbol} market cap` : token.symbol,
   };

@@ -53,6 +53,7 @@ export function useProfile(networkName: string, address: string | undefined) {
      * header updates on the same tick the modal closes rather than after a
      * round trip that can visibly lag behind the "Profile saved" toast.
      */
+    // not-a-frame: the user's own edit, confirmed by the server that saved it.
     setProfile: (profile: ProfileData) => queryClient.setQueryData(key, profile),
   };
 }

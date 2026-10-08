@@ -1,3 +1,4 @@
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import { SpotPair } from "@/types";
 import { useQuery } from "@tanstack/react-query";
 
@@ -35,7 +36,7 @@ export const usePairs = (
         }
         if (!path) throw new Error(`Unsupported pair query: ${options}`);
         const network = encodeURIComponent(networkName);
-        const response = await fetch(`/api/gateway/${path}?network=${network}`);
+        const response = await gatewayFetch(`/api/gateway/${path}?network=${network}`);
         if (!response.ok) throw new Error(`Could not load pairs (${response.status})`);
         return await response.json();
     }

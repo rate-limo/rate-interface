@@ -27,7 +27,7 @@ interface SearchBarProps {
  * language.
  */
 /**
- * Marks a hit that Iter has not listed.
+ * Marks a hit that Rate has not listed.
  *
  * `/api/search` is an identity lookup and stays ungated on purpose, so unlisted
  * tokens and markets have always been reachable here. Without this chip they
@@ -37,7 +37,7 @@ interface SearchBarProps {
 function UnlistedChip() {
     return (
         <span
-            title="Not listed by Iter — anyone can deploy a token and open a market"
+            title="Not listed by Rate — anyone can deploy a token and open a market"
             className="shrink-0 rounded-[5px] border border-[color:var(--m-text-secondary-2)] px-1 py-px font-dm-mono text-[9px] uppercase text-[color:var(--m-text-secondary-2)]"
         >
             unlisted

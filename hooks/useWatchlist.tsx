@@ -48,6 +48,7 @@ export function useWatchlist(option: Option, address?: string) {
       await addToTokenWatchlistClient(id, symbol);
     }
 
+    // not-a-frame: a local watchlist edit; no server read races it.
     queryClient.setQueryData<string[]>(queryKey, (prev = []) => {
       if (prev.includes(id)) return prev;
       return [...prev, id];
@@ -61,6 +62,7 @@ export function useWatchlist(option: Option, address?: string) {
       await removeFromTokenWatchlistClient(id);
     }
 
+    // not-a-frame: a local watchlist edit; no server read races it.
     queryClient.setQueryData<string[]>(queryKey, (prev = []) => prev.filter((item) => item !== id));
   };
 

@@ -86,13 +86,16 @@ export function StarButton({
         e.stopPropagation();
       }}
       className={cn('focus:outline-none ', isFavoriteResult ? 'cursor-grabbing' : 'cursor-grab')}
-      aria-label="Toggle favorite"
+      aria-label={isFavoriteResult ? `Remove ${symbol} from favorites` : `Add ${symbol} to favorites`}
+      aria-pressed={isFavoriteResult}
     >
       <Star
         size={size}
         className={cn(
-          'text-dark-grey-1',
-          isFavoriteResult ? 'text-yellow-500 hover:text-dark-grey-1' : 'hover:text-yellow-500',
+          'transition-colors duration-[120ms]',
+          isFavoriteResult
+            ? 'text-[color:var(--m-accent)]'
+            : 'text-[color:var(--m-text-secondary-2)] hover:text-[color:var(--m-accent)]',
         )}
         fill={isFavoriteResult ? 'currentColor' : 'none'}
       />

@@ -1,4 +1,5 @@
 "use client";
+import { chainKeyForUrl, noteFrameWatermark } from "@/lib/realtime/watermark";
 import {
   createContext,
   useContext,
@@ -7,7 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useSwitchChain } from "wagmi";
+import { MERA_CONNECTOR_ID } from "@/lib/wallet/meraConnector";
 import defaultTokenList from "@iter/token-list";
 import { matchingEngineAddress } from "@/lib/deployments";
 import {
@@ -34,6 +36,7 @@ import {
 import { Chain } from "viem";
 import { useRouter } from "next/navigation";
 import { setSourceChainOnUrl, siblingChainUrls } from "@/lib/routing/chainParams";
+import { scopeFromUrl, scopeUrl } from "@/lib/explore/scopeUrl";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useTokenlistBalances } from "@/hooks/useTokenlistBalances";
 import { QueryStatus } from "@tanstack/react-query";
@@ -120,7 +123,8 @@ export const MarketPageProvider = ({
   children: React.ReactNode;
   networkSlugInput?: string;
 }) => {
-  const { address, isConnected, chain } = useAccount();
+  const { address, isConnected, chain, connector } = useAccount();
+  const { switchChain } = useSwitchChain();
 
   const supportedNetworks = supportedChains;
 
@@ -218,6 +222,46 @@ export const MarketPageProvider = ({
    * every candidate.
    */
   const [chainFilter, setChainFilter] = useState<string | null>(null);
+
+  /**
+   * The scope is also a URL, in both directions — see `lib/explore/scopeUrl`.
+   *
+   * It was client state alone, which is why the token breadcrumb's network
+   * crumb is a plain label: there was no address meaning "Explore, narrowed to
+   * this chain", so the link it used to carry went to the page it was already
+   * on. Reading `?chains=` is what lets that crumb navigate somewhere real.
+   *
+   * Read ONCE, in an effect rather than an initialiser: the server cannot know
+   * the URL's params at render time and a lazy `useState` would hydrate
+   * mismatched — the rule the consent banner and the OG Pass countdown follow.
+   * After that first read the control owns the value, so a later widening is
+   * never undone by the param it is in the middle of clearing.
+   *
+   * Validated against `supportedChains`, statically: an unknown name would
+   * reach `resolveAggregatorChains`, which treats any non-empty list as
+   * authoritative, and fan out to a chain nobody serves — an Explore with no
+   * rows and no explanation.
+   */
+  const readScope = useRef(false);
+  useEffect(() => {
+    if (readScope.current) return;
+    readScope.current = true;
+    const asked = scopeFromUrl(window.location.href, supportedChains);
+    if (asked) setChainFilter(asked);
+  }, []);
+
+  /**
+   * And written back, so the address never claims a scope the page is not under
+   * — the same contract `flowUrl` holds for the liquidity flow. `replaceState`,
+   * not the router: this is the page describing itself, not a navigation, and a
+   * history entry per scope change would make Back walk the filter.
+   */
+  useEffect(() => {
+    if (!readScope.current) return;
+    const next = scopeUrl(window.location.href, chainFilter);
+    if (next) window.history.replaceState(null, "", next);
+  }, [chainFilter]);
+
   const filterChains = useMemo(
     () => (chainFilter ? [chainFilter] : undefined),
     [chainFilter],
@@ -321,12 +365,14 @@ export const MarketPageProvider = ({
   // Set on unmount (or before a dep-change reconnect) so a torn-down
   // provider never schedules a reconnect for a socket nobody is using.
   const disposedRef = useRef(false);
-  // Function to handle WebSocket connection
-  const connectWebSocket = useRef((address: `0x${string}` | undefined) => {
+  // The feed is public (every pair's trades, every token's price), so it takes the
+  // chain's gateway URL, not a wallet: keyed on the wallet, a visitor who had not
+  // connected one never opened it, and the status bar read Offline for everyone.
+  const connectWebSocket = useRef((wsUrl: string | undefined) => {
     if (
       socketRef.current?.readyState === WebSocket.OPEN ||
       isConnectingRef.current ||
-      address === undefined
+      !wsUrl
     ) {
       return;
     }
@@ -335,7 +381,7 @@ export const MarketPageProvider = ({
     setMarketWebSocketStatus(
       reconnectAttemptsRef.current > 0 ? "reconnecting" : "connecting",
     );
-    const socket = new WebSocket(PonderWssLinks[displayNetworkName]);
+    const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
 
     const MAX_RECONNECT_ATTEMPTS = 5;
@@ -404,7 +450,7 @@ export const MarketPageProvider = ({
         reconnectTimerRef.current = setTimeout(() => {
           reconnectTimerRef.current = null;
           if (disposedRef.current) return;
-          connectWebSocket(address);
+          connectWebSocket(wsUrl);
         }, RECONNECT_DELAY);
         setMarketWebSocketStatus("reconnecting");
       } else {
@@ -443,6 +489,9 @@ export const MarketPageProvider = ({
         console.log(`Spot recent overall trades for Iter is subscribed`);
         return;
       }
+
+      // Record the batch's commit watermark before anything reacts to it.
+      noteFrameWatermark(chainKeyForUrl(wsUrl), data?.w);
 
       /*
        * Unwrap `WsBatch` before decoding. The gateway's coalescer is the ONLY
@@ -490,18 +539,23 @@ export const MarketPageProvider = ({
     };
   }).current;
 
-  // Only connect if we don't have a connection && address is defined from market page provider
+  // Keyed on the displayed chain: the connect function is frozen at first render,
+  // so it must be handed the URL, or a chain switch keeps streaming the old chain.
+  const marketWsUrl = PonderWssLinks[displayNetworkName];
   useEffect(() => {
     disposedRef.current = false;
-    if (!socketRef.current && address) {
-      connectWebSocket(address);
+    if (!socketRef.current) {
+      connectWebSocket(marketWsUrl);
     }
 
-    // Tear down on unmount (and before this effect reconnects for a new
-    // address) so the socket, its handlers, and any pending reconnect
+    // Tear down on unmount (and before this effect reconnects for another
+    // chain) so the socket, its handlers, and any pending reconnect
     // timer never outlive this provider instance.
     return () => {
       disposedRef.current = true;
+      // A socket torn down mid-handshake never reaches onopen/onclose to clear
+      // this, and a set flag makes the next chain's connect return early.
+      isConnectingRef.current = false;
       setMarketWebSocketStatus("disconnected");
       reconnectAttemptsRef.current = 0;
       if (reconnectTimerRef.current) {
@@ -517,7 +571,7 @@ export const MarketPageProvider = ({
         socketRef.current = null;
       }
     };
-  }, [address]);
+  }, [marketWsUrl]);
 
   const connectedChainIdRef = useRef<number | undefined>(undefined);
 
@@ -539,13 +593,34 @@ export const MarketPageProvider = ({
   const handleNetworkChangeRef = useRef(handleNetworkChange);
   handleNetworkChangeRef.current = handleNetworkChange;
 
+  const alignedForRef = useRef<string | undefined>(undefined);
   // wagmi's `chain` (from useAccount above) is already reactive to wallet
   // network switches -- this replaces Dynamic's dynamicEvents listener with
   // plain React reactivity on the connected chain id.
   useEffect(() => {
     if (chain?.id === undefined) return;
+    // The passkey wallet follows the PAGE. Its `switchChain` is a local
+    // assignment that cannot prompt or fail, and it resumes on the first
+    // configured chain on every load — so letting it drive the URL sent every
+    // reload or bookmark of a RISE page to Arc (found by the ladder-launch e2e,
+    // 2026-10-02: a RISE market link landed on Arc's TITER/USDC). An injected
+    // wallet really is on one chain, and keeps moving the page as before.
+    //
+    // Only when the PAGE or the connector changes, though. A passkey wallet that
+    // moves while both stay put was moved by a transaction choosing its chain —
+    // the Creator tab arming a RISE coin from a portfolio on Arc — and pulling it
+    // back cancelled that send every time.
+    if (connector?.id === MERA_CONNECTOR_ID) {
+      const key = `${connector.id}:${displayChainId}`;
+      if (alignedForRef.current === key) return;
+      alignedForRef.current = key;
+      if (displayChainId !== undefined && chain.id !== displayChainId) switchChain({ chainId: displayChainId });
+      return;
+    }
+    alignedForRef.current = undefined;
     handleNetworkChangeRef.current(chain.id);
-  }, [chain?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chain?.id, connector?.id, displayChainId]);
 
   // get trader data
   const {

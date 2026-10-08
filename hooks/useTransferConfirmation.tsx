@@ -36,20 +36,51 @@ export type TransferStatus = "idle" | "confirming" | "confirmed" | "reverted";
 
 export interface WatchedTransfer extends ReportedTransfer {}
 
+/**
+ * What the receipt said, for the result screen.
+ *
+ * Already fetched and previously discarded. A receipt with no block and no fee
+ * is a claim rather than a receipt — and on Arc the fee matters more than
+ * usual, because gas IS the asset being withdrawn, so 1 USDC out costs slightly
+ * more than 1 USDC of balance and the arithmetic only closes if we say so.
+ *
+ * `feeWei` is in the chain's NATIVE decimals, which is not the asset's: on Arc
+ * that is 18 against the USDC contract's 6. Format it with
+ * `nativeCurrency.decimals`, never the token's. On Tempo there is no native coin:
+ * the fee is 1e-18 dollars of the TIP-20 in `feeToken`, which Tempo's receipts
+ * carry (read back on Moderato 2026-10-08). Format with `feeUnits`.
+ */
+export interface TransferReceipt {
+  blockNumber: bigint;
+  feeWei: bigint;
+  /** Tempo only: the TIP-20 the fee was charged in. */
+  feeToken?: string;
+}
+
 export function useTransferConfirmation() {
   const [watched, setWatched] = useState<WatchedTransfer | null>(null);
   const [status, setStatus] = useState<TransferStatus>("idle");
+  const [receipt, setReceipt] = useState<TransferReceipt | null>(null);
   const client = usePublicClient({ chainId: watched?.chainId });
 
   useEffect(() => {
     if (!watched || !client) return;
     let live = true;
     setStatus("confirming");
+    setReceipt(null);
 
     void client
       .waitForTransactionReceipt({ hash: watched.hash as `0x${string}` })
       .then((receipt) => {
         if (!live) return;
+        // Kept for BOTH outcomes: a reverted transfer still mined in a block and
+        // still charged a fee, and hiding that makes the balance look wrong.
+        setReceipt({
+          blockNumber: receipt.blockNumber,
+          feeWei: receipt.gasUsed * receipt.effectiveGasPrice,
+          // viem passes unknown receipt fields through; only Tempo sends this one.
+          feeToken: (receipt as { feeToken?: string }).feeToken,
+        });
         if (receipt.status !== "success") {
           setStatus("reverted");
           return;
@@ -81,7 +112,8 @@ export function useTransferConfirmation() {
   const reset = useCallback(() => {
     setWatched(null);
     setStatus("idle");
+    setReceipt(null);
   }, []);
 
-  return { status, transfer: watched, watch, reset };
+  return { status, transfer: watched, receipt, watch, reset };
 }

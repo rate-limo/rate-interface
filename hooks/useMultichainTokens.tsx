@@ -54,6 +54,8 @@ export function useMultichainTokens(
    * twenty and looks like the chain has almost nothing on it.
    */
   chains?: readonly string[],
+  /** Launch status filter: `ladder` | `graduated` | `listed` (gateway `?status=`). */
+  status?: "ladder" | "graduated" | "listed",
 ): {
   tokens: MultichainToken[];
   isLoading: boolean;
@@ -69,13 +71,14 @@ export function useMultichainTokens(
   const restrictKey = resolved.join(",");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["aggregated-tokens", pageSize, page, ranking, source, restrictKey] as const,
+    queryKey: ["aggregated-tokens", pageSize, page, ranking, source, restrictKey, status ?? ""] as const,
     staleTime: 30_000,
     queryFn: async () => {
       const segment = ranking === "" ? "" : `${ranking}/`;
       const params = new URLSearchParams();
       if (source !== "listed") params.set("source", source);
       if (restrictKey) params.set("chains", restrictKey);
+      if (status) params.set("status", status);
       const query = params.toString();
       const response = await fetch(
         `${AggregatorLink}/api/tokens/${segment}${pageSize}/${page}${query ? `?${query}` : ""}`,

@@ -1,5 +1,7 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
+import { parseTradingViewSymbol } from "@iter/types";
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { getApiUrl } from "@/lib/realtime/ws-url";
@@ -93,7 +95,7 @@ export function TokenProfileChart({
     const now = Math.floor(Date.now() / 1000);
     const url = `${apiUrl}/api/tradingview/history?symbol=${encodeURIComponent(symbol)}&resolution=D&from=0&to=${now}`;
 
-    fetch(url)
+    gatewayFetch(url)
       .then(async (res) => {
         if (cancelled) return;
         // 404 ("Symbol not found") means no `spotTokens` row at all — rare here,
@@ -137,7 +139,7 @@ export function TokenProfileChart({
   if (availability === "unavailable") {
     return (
       <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-[color:var(--m-text-secondary)]">
-        No market data for {metricLabel ?? symbol} yet.
+        No market data for {metricLabel ?? parseTradingViewSymbol(symbol).base} yet.
       </div>
     );
   }

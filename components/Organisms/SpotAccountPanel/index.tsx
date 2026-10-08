@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { BalancesTable } from "../Tables/BalancesTable";
-import { useMarketPageContext } from "@/contexts/MarketPageProvider";
+import { Holdings } from "./Holdings";
 import { OpenOrders } from "../Tables/OpenOrders";
 import { useWalletAccount, useWalletConnect } from "@/lib/wallet";
 import TradeHistory from "../Tables/TradeHistory";
 import OrderHistory from "../Tables/OrderHistory";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/animated-tabs";
 
 type Tab =
   | "Balances"
@@ -30,12 +30,11 @@ export default function AccountOverview() {
     // "Funding History",
     "Order History",
   ];
-  const { defaultTokenData, address } = useMarketPageContext();
 
-  const renderEmptyState = () => {
+  const renderEmptyState = (tab: Tab) => {
     return (
       <div className="py-8 px-6">
-        <span className="text-[color:var(--m-text-primary)]">No {activeTab} Yet</span>
+        <span className="text-[color:var(--m-text-primary)]">No {tab} Yet</span>
       </div>
     );
   };
@@ -58,21 +57,24 @@ export default function AccountOverview() {
     );
   };
 
-  const renderTable = () => {
+  // Each panel renders ITS OWN tab: the outgoing panel is still on screen while
+  // it slides out, and must not show the incoming tab's table.
+  const renderTable = (tab: Tab) => {
     if (!isLoggedIn) {
       return renderLoginButton();
     }
-    switch (activeTab) {
+    switch (tab) {
       case "Balances":
-        return <BalancesTable data={defaultTokenData.tokens} />;
+        // Holdings first: the token list is long and mostly zero for any one wallet.
+        return <Holdings />;
       case "Positions":
-        return renderEmptyState();
+        return renderEmptyState(tab);
       case "Open Orders":
         return <OpenOrders />;
       case "Trade History":
         return <TradeHistory />;
       case "Funding History":
-        return renderEmptyState();
+        return renderEmptyState(tab);
       case "Order History":
         return <OrderHistory />;
     }
@@ -92,25 +94,26 @@ export default function AccountOverview() {
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-[color:var(--m-background)] text-[12px] text-[color:var(--m-text-primary)]">
-      {/* Navigation Tabs */}
-      <div className="flex shrink-0 overflow-x-auto border-b border-[color:var(--m-border)]">
+    // The panels fill the panel's height, so they slide but do not morph it.
+    <Tabs
+      value={activeTab}
+      onValueChange={(next) => setActiveTab(next as Tab)}
+      morphHeight={false}
+      className="h-full w-full bg-[color:var(--m-background)] text-[12px] text-[color:var(--m-text-primary)]"
+    >
+      <TabsList aria-label="Account" className="border-b border-[color:var(--m-border)]">
         {tabs.map((tab) => (
-          <button
-            key={tab}
-            className={`px-[10px] py-[10px] whitespace-nowrap ${
-              activeTab === tab
-                ? "text-[color:var(--m-text-primary)] border-b-2 border-[color:var(--m-primary)]"
-                : "text-[color:var(--m-text-secondary)]"
-            }`}
-            onClick={() => setActiveTab(tab)}
-          >
+          <TabsTrigger key={tab} value={tab} className="px-[10px] py-[10px]">
             {tab}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
 
-      {renderTable()}
-    </div>
+      {tabs.map((tab) => (
+        <TabsContent key={tab} value={tab} className="flex min-h-0 flex-1 flex-col">
+          {renderTable(tab)}
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }

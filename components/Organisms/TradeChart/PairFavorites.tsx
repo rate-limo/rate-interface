@@ -1,5 +1,6 @@
 "use client";
 
+import { marketParam } from "@/lib/routing/proMarket";
 import { TokenPercentageChange } from "@/components/Atoms/TokenPercentageChange";
 import { StarButton } from "../StarButton";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
@@ -12,7 +13,10 @@ export default function PairFavorites() {
     <div className="flex w-full items-center justify-between p-1 rounded-full bg-black text-white border-[1px] border-neutral-light-white-12">
       <div className="flex items-center space-x-2 min-w-[400px] w-full overflow-x-scroll hide-scrollbar">
         {watchlistPairs?.map((pair) => {
-          const [favBase, favQuote] = pair.symbol.split("/");
+          const [symbolBase, symbolQuote] = pair.symbol.split("/");
+          // Addresses: a launchpad ticker can belong to two coins.
+          const favBase = encodeURIComponent(marketParam({ id: pair.base?.id, symbol: symbolBase }));
+          const favQuote = symbolQuote ? encodeURIComponent(marketParam({ id: pair.quote?.id, symbol: symbolQuote })) : "";
           // Quick-switch between markets stays inside the Pro gear.
           const favHref = favQuote
             ? `/trade/pro?chain=${displayNetworkSlug}&base=${favBase}&quote=${favQuote}`

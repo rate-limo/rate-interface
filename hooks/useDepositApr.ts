@@ -53,12 +53,23 @@ export function useDepositApr({
   const [loading, setLoading] = useState(false);
   const seq = useRef(0);
 
-  const ready = enabled && Boolean(base && quote) && amountBase + amountQuote > 0;
+  /*
+   * No amount is not "not ready".
+   *
+   * This required a positive total, so the card printed an em-dash until
+   * something was typed — under a caption blaming the POOL for having no fills
+   * to measure, which on a pool that has them is simply false. The pool's own
+   * realised rate needs no deposit; only the dilution does. `getProspectiveApr`
+   * answers the undiluted figure in that case, so the gate is just "we know
+   * which pool".
+   */
+  const ready = enabled && Boolean(base && quote);
 
   useEffect(() => {
     if (!ready) {
       // Clear rather than keep: a stale APR beside an emptied field is a claim
-      // about a deposit that no longer exists.
+      // about a deposit that no longer exists. Reached now only when the pair
+      // itself is unknown, not merely when the amount is empty.
       seq.current += 1;
       setData(null);
       setLoading(false);

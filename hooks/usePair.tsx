@@ -41,7 +41,7 @@ export const usePair = (networkName: string, pair: SpotPair | null) => {
         const formattedPrice = new Decimal(bar.price)
           .toFixed(4)
           .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-        document.title = `${formattedPrice} | ${dataRef.current?.base.symbol}/${dataRef.current?.quote.symbol} | Iter ${networkName}`;
+        document.title = `${formattedPrice} | ${dataRef.current?.base.symbol}/${dataRef.current?.quote.symbol} | Rate ${networkName}`;
       }
     };
 

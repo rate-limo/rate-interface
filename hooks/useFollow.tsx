@@ -84,7 +84,7 @@ export function useFollow({
   const toggle = async () => {
     if (pending || isSelf) return;
     if (!viewer) {
-      requestWalletConnect("Connect a wallet to follow people on Iter.");
+      requestWalletConnect("Connect a wallet to follow people on Rate.");
       return;
     }
     setPending(true);

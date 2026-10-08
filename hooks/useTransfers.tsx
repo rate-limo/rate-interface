@@ -40,6 +40,21 @@ export function useTransfers(address: string | undefined) {
     enabled: !!address,
     staleTime: 30_000,
     queryFn: async (): Promise<TransferRecord[] | null> => {
+      /*
+       * `enabled` DOES NOT GATE `refetch()`.
+       *
+       * In react-query v5 an explicit `refetch()` runs even on a disabled
+       * query, and `TransferHistory` calls one from an effect. With no wallet
+       * connected that reached `GET /transfers/undefined`, which
+       * identity-service answers 400 — a request the client should never have
+       * made, reported as a client error in the console on every visit by a
+       * disconnected visitor.
+       *
+       * Null, not an empty array: "we could not ask" is exactly what this hook
+       * distinguishes, and a disconnected wallet has no record to be empty.
+       * The caller falls back to the local log, which is the right answer.
+       */
+      if (!address) return null;
       const response = await fetch(`/transfers/${address}`);
       if (!response.ok) return null;
       const body = (await response.json()) as { transfers?: ServerTransfer[] };

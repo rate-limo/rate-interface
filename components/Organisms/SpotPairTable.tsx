@@ -159,6 +159,8 @@ export function SpotPairTable({
             id={pair.id}
             name={pair.symbol}
             symbol={pair.symbol}
+            baseAddress={pair.base?.id}
+            quoteAddress={pair.quote?.id}
             logoURI={pair.base.logoURI}
             iconColor={""}
             price={pair.price}

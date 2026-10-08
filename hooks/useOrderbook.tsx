@@ -81,6 +81,19 @@ export const useOrderbook = (
       getSpotOrderbook(networkName, baseRef.current, quoteRef.current, step, depth, isSingleSide)
         .then((book) => {
           if (disposed) return;
+          /*
+           * A null book is a REFUSED read, not an empty one. `getSpotOrderbook`
+           * returns null on a non-2xx or a network failure, and applying that as
+           * a snapshot would clear the ladder the user is reading and then
+           * replay the buffered deltas onto nothing. Take the error path, which
+           * drops the buffer and lets the socket's own snapshot correct us.
+           */
+          if (!book) {
+            pending = null;
+            setError(new Error("orderbook snapshot unavailable"));
+            setStatus("error");
+            return;
+          }
           store.applySnapshot(book);
           // Replay AFTER the snapshot, in arrival order, then stop buffering.
           const queued = pending ?? [];

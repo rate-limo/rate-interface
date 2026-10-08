@@ -1,3 +1,5 @@
+import { applyFrame } from "@/lib/realtime/applyFrame";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import { PonderLinks } from "@/consts";
 import { SpotBarEvent, SpotToken } from "@/types";
 import { eventBus } from "@/utils/events";
@@ -18,7 +20,7 @@ export const useToken = (
         // than 500 for the mistake; this stops making it.)
         const url = `${PonderLinks[networkName]}/api/token/symbol/${encodeURIComponent(symbol)}`;
         
-        const response = await fetch(url as string);
+        const response = await gatewayFetch(url as string);
         const data = await response.json();
         return data;
     }
@@ -44,7 +46,7 @@ export const useToken = (
         }
         const handleTradeUpdate = (event: SpotBarEvent) => {
             const [symbol, interval] = event.id.split("-");
-            queryClient.setQueryData(['token', networkName, symbol], (oldData: SpotToken) => {
+            void applyFrame(queryClient, ['token', networkName, symbol], (oldData: SpotToken) => {
                 let changedToken = handleTokenUpdate(oldData, event);
                 return changedToken;
             })

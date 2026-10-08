@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Icon } from "@/components/Atoms/Icon";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { useVisibleChains } from "@/lib/chains/useVisibleChains";
+import { chooseMenuPlacement, type MenuPlacement } from "@/lib/chains/menuPlacement";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
 import { useChainSwitch } from "@/hooks/useChainSwitch";
 import { chainIconFrom, useChainBrand } from "@/lib/chains/useChainBrand";
@@ -67,6 +68,12 @@ export function ChainSwitcher({
     const { switchTo } = useChainSwitch();
     const [isOpen, setIsOpen] = useState(false);
     const [query, setQuery] = useState("");
+    /**
+     * Which corner the menu grows from — see `lib/chains/menuPlacement`, which
+     * holds the rule and the reason. Down-and-right until measured otherwise,
+     * so the first paint matches what every trigger in a bar will settle on.
+     */
+    const [placement, setPlacement] = useState<MenuPlacement>({ up: false, left: true });
     // The build's chain list, minus anything an operator has switched off.
     const visibleChains = useVisibleChains();
     // An operator's uploaded chain logo, preferred over the build-time icon.
@@ -146,7 +153,18 @@ export function ChainSwitcher({
         <div ref={containerRef} className={cn("relative", className)}>
             <button
                 type="button"
-                onClick={() => setIsOpen((open) => !open)}
+                onClick={(event) => {
+                    // Measured on the way open, never on a resize: the menu
+                    // closes on an outside click anyway, so a placement can
+                    // only be stale for a window resized while it is open.
+                    setPlacement(
+                        chooseMenuPlacement(event.currentTarget.getBoundingClientRect(), {
+                            width: window.innerWidth,
+                            height: window.innerHeight,
+                        }),
+                    );
+                    setIsOpen((open) => !open);
+                }}
                 onKeyDown={handleTriggerKeyDown}
                 aria-haspopup="listbox"
                 aria-expanded={isOpen}
@@ -183,7 +201,11 @@ export function ChainSwitcher({
                 <div
                     role="listbox"
                     aria-label="Select chain"
-                    className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[340px] rounded-3xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-2.5 text-[color:var(--m-text-primary)] shadow-[0_18px_48px_rgba(0,0,0,.28)]"
+                    className={cn(
+                        "absolute z-50 w-[340px] rounded-3xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-2.5 text-[color:var(--m-text-primary)] shadow-[0_18px_48px_rgba(0,0,0,.28)]",
+                        placement.up ? "bottom-[calc(100%+0.75rem)]" : "top-[calc(100%+0.75rem)]",
+                        placement.left ? "right-0" : "left-0",
+                    )}
                 >
                     <label className="mb-2 flex h-12 items-center gap-3 rounded-2xl bg-[color:var(--m-surface-2)] px-4 text-[color:var(--m-text-secondary)] focus-within:ring-2 focus-within:ring-[color:var(--m-primary)]/30">
                         <Search aria-hidden className="h-5 w-5 shrink-0" />
@@ -234,6 +256,9 @@ export function ChainSwitcher({
                                 type="button"
                                 role="option"
                                 aria-selected={isActive}
+                                // Switching chain changes the whole interface under
+                                // you; re-picking the current one changes nothing.
+                                data-sound={isActive ? "none" : "notification"}
                                 onClick={() => handleSelect(networkName)}
                                 className={cn(
                                     "flex w-full items-center gap-4 rounded-2xl px-3 py-3 text-left text-base transition-colors",

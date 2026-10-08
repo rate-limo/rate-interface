@@ -19,6 +19,10 @@ import { decodeOrderSubmitError } from "@/utils/orderErrors";
 import { FIX_LABELS, toastContractError } from "@/lib/errors/toastContractError";
 import type { ErrorFixIntent } from "@/utils/orderErrors";
 import { bufferedGasFor } from "@/lib/tx/gasBuffer";
+import { decodeOrderResult, describeOrderResult, unspent } from "@/lib/orders/orderResult";
+import { wethAddress } from "@/lib/deployments";
+import { isNative } from "@/utils/order";
+import { formatUnits } from "viem";
 import { gasLevelsFor } from "@/lib/tx/bookGas";
 import { needsNetworkSwitch } from "@/utils/networkGuard";
 import type { SpotToken } from "@/types";
@@ -45,6 +49,22 @@ type PendingTx = {
   token: SpotToken;
   /** Balance to publish once the order is known to have landed. */
   balance?: number;
+  /**
+   * What the receipt decoder needs, captured at the click: by the time the
+   * receipt lands the user may have switched pair or side.
+   */
+  result?: {
+    engine: `0x${string}`;
+    /** LadderBuyer when the order was routed through it. */
+    via?: `0x${string}`;
+    /** The `recipient` the order was sent with — who every leg belongs to. */
+    account: `0x${string}`;
+    /** The ERC-20 spent on chain (WETH on a native leg, never the sentinel). */
+    spendToken: `0x${string}`;
+    isBid: boolean;
+    base: { symbol: string; decimals: number };
+    quote: { symbol: string; decimals: number };
+  };
 };
 
 export default function PlaceOrderButton({
@@ -76,6 +96,8 @@ export default function PlaceOrderButton({
     connectedChainId,
     switchToConnectedNetwork,
     router,
+    address,
+    matchingEngine,
   } = useMarketPageContext();
 
   const {
@@ -107,12 +129,18 @@ export default function PlaceOrderButton({
     // user then has to translate back into which field to touch.
     setIsLimit,
     setLimitPrice,
+    recipient,
   } = useTradePageContext();
-  const { data: limitOrderData, error: limitOrderError } = useSimulateContract(
-    limitOrderContractArgs
-  );
-  const { data: marketOrderData, error: marketOrderError } =
-    useSimulateContract(marketOrderContractArgs);
+  const {
+    data: limitOrderData,
+    error: limitOrderError,
+    refetch: refetchLimitOrder,
+  } = useSimulateContract(limitOrderContractArgs);
+  const {
+    data: marketOrderData,
+    error: marketOrderError,
+    refetch: refetchMarketOrder,
+  } = useSimulateContract(marketOrderContractArgs);
   const { data: approvalData, error: approvalError } =
     useSimulateContract(approvalContractArgs);
 
@@ -224,24 +252,75 @@ export default function PlaceOrderButton({
         allowance: 10000000000000000000000000000000000000,
       });
       setApprovalNeeded(false);
+      // The order simulations re-run on ARG changes, not allowance changes, so
+      // the "no allowance" revert from before this approval stayed cached and
+      // the click handler refused to send — a Buy that did nothing after a
+      // successful approval (ladder-launch e2e). Re-simulate against the new
+      // allowance.
+      void refetchMarketOrder();
+      void refetchLimitOrder();
       return;
     }
 
-    toast.success(`${label} confirmed`, {
-      description: "Fills will appear as the exchange matches it.",
-      duration: 4000,
-      id: `order-tx-${settled.hash}`,
-    });
+    // Say what the order DID, not that the transaction mined. A market order that
+    // rested or came back refunded used to read "confirmed — fills will appear",
+    // and nothing ever appeared. See lib/orders/orderResult.
+    let refundedHuman = 0;
+    if (settled.result) {
+      const meta = settled.result;
+      let copy;
+      try {
+        const decoded = decodeOrderResult({
+          logs: receipt.logs,
+          engine: meta.engine,
+          via: meta.via,
+          account: meta.account,
+          spendToken: meta.spendToken,
+          isBid: meta.isBid,
+        });
+        copy = describeOrderResult(decoded, {
+          kind: settled.kind === "limit" ? "limit" : "market",
+          isBid: meta.isBid,
+          base: meta.base,
+          quote: meta.quote,
+        });
+        refundedHuman = Number(
+          formatUnits(unspent(decoded), meta.isBid ? meta.quote.decimals : meta.base.decimals),
+        );
+      } catch {
+        copy = {
+          tone: "info" as const,
+          title: `${label} confirmed`,
+          description: "The transaction succeeded, but its result could not be read here. Check Open orders and Trade history.",
+        };
+      }
+      // Same id as the "submitted" card, so it is replaced in place; sonner's
+      // typed variants (not `loading`) all honour `duration`.
+      const show =
+        copy.tone === "success" ? toast.success : copy.tone === "warning" ? toast.warning : toast.info;
+      show(copy.title, {
+        description: copy.description,
+        duration: copy.tone === "warning" ? 8000 : 5000,
+        id: `order-tx-${settled.hash}`,
+      });
+    } else {
+      toast.success(`${label} confirmed`, {
+        description: "Fills will appear as the exchange matches it.",
+        duration: 4000,
+        id: `order-tx-${settled.hash}`,
+      });
+    }
     // Moved here from the write's onSuccess: this is the first moment the spend
     // is known to have happened. It is still ahead of the indexer, not ahead of
-    // the chain.
+    // the chain. A taker order hands back what it could not fill, so the refund
+    // is added back rather than publishing a balance short by the whole order.
     if (settled.balance !== undefined) {
       eventBus.emit("spot-balance-update", {
         token: settled.token,
-        balance: settled.balance,
+        balance: settled.balance + refundedHuman,
       });
     }
-  }, [receipt, isTxError, txError, hash, pendingTx, setApprovalNeeded]);
+  }, [receipt, isTxError, txError, hash, pendingTx, setApprovalNeeded, refetchMarketOrder, refetchLimitOrder]);
 
   // Simulated (pre-submit) result for whichever order type is currently active.
   // useSimulateContract already runs this against the RPC on every arg change --
@@ -313,11 +392,21 @@ export default function PlaceOrderButton({
       );
       return;
     }
-    if (simulatedOrderError) {
+    // A cached simulation can predate the allowance it needed (or come from a
+    // lagging node). Re-simulate once before refusing on it; only a failure that
+    // survives the fresh run blocks the order.
+    // Before the approval exists the order simulation always fails for want of
+    // an allowance, so it says nothing about the order yet: approve first.
+    let refusal = approvalNeeded ? null : simulatedOrderError;
+    if (refusal) {
+      const fresh = await (isLimit ? refetchLimitOrder() : refetchMarketOrder());
+      refusal = fresh.error ? decodeOrderSubmitError(fresh.error) : null;
+    }
+    if (refusal) {
       // Simulation catches these BEFORE a wallet is touched, which makes it the
       // best place to offer the fix — the same intent the submit-time toast
       // would carry, minus a signature the user never had to spend.
-      toastFix(simulatedOrderError.title, simulatedOrderError.description, simulatedOrderError.fix);
+      toastFix(refusal.title, refusal.description, refusal.fix);
       return;
     }
     if (approvalNeeded && approvalContractArgs.address) {
@@ -386,6 +475,26 @@ export default function PlaceOrderButton({
       ? trueQuoteBalance - quoteAmount
       : trueBaseBalance - baseAmount;
 
+    // For the receipt decoder (see PendingTx.result). Captured now, not at the
+    // receipt: the pair and side can change while the block is mined.
+    const orderTarget = isLimit ? limitOrderContractArgs.address : marketOrderContractArgs.address;
+    const weth = wethAddress(connectedNetworkName);
+    const onChain = (t: SpotToken) => (isNative(t) ? weth : (t.id as `0x${string}`));
+    const spendOnChain = onChain(spendToken);
+    const orderAccount = (recipient ?? address) as `0x${string}` | undefined;
+    const resultMeta: PendingTx["result"] =
+      matchingEngine && orderTarget && orderAccount && spendOnChain
+        ? {
+            engine: matchingEngine,
+            via: orderTarget.toLowerCase() !== matchingEngine.toLowerCase() ? orderTarget : undefined,
+            account: orderAccount,
+            spendToken: spendOnChain,
+            isBid,
+            base: { symbol: pair.base.symbol, decimals: pair.base.decimals },
+            quote: { symbol: pair.quote.symbol, decimals: pair.quote.decimals },
+          }
+        : undefined;
+
     if (isLimit && limitOrderContractArgs.address) {
       // Declared BEFORE the write it accompanies. It used to sit after the call
       // and worked only because the callbacks are async -- a `const` read from
@@ -398,19 +507,21 @@ export default function PlaceOrderButton({
         // safe, because falling short now rests the remainder instead of
         // reverting. `gasLevelsFor` still caps at `matchN` — the engine cannot
         // cross more than that however deep the book is.
-        const limitGas = await bufferedGasFor(
-          publicClient,
-          limitOrderContractArgs,
-          gasLevelsFor(orderbook, isBid, limitPrice, matchN),
-        );
+        // `account` is the SENDER: without it the node estimates from the zero
+        // address, which has no allowance, so the estimate reverted and the
+        // order used to go out with the wallet's bare estimate — under the
+        // engine's match reserve. It now always carries at least the floor.
+        const limitGas = await bufferedGasFor(publicClient, limitOrderContractArgs, {
+          account: address,
+          maxMatches: gasLevelsFor(orderbook, isBid, limitPrice, matchN),
+        });
         await writeContractAsync(
           {
             ...limitOrderContractArgs,
             address: limitOrderContractArgs.address,
-            // Omitted entirely when it could not be estimated, so wagmi falls
-            // back to its own estimate rather than this being able to block a
-            // write. Unused gas is refunded.
-            ...(limitGas ? { gas: limitGas } : {}),
+            // Never below `orderGasFloor`, even when estimation fails.
+            // Unused gas is refunded.
+            gas: limitGas,
           },
           {
             onSuccess: (data) => {
@@ -428,6 +539,7 @@ export default function PlaceOrderButton({
                 kind: "limit",
                 token: spendToken,
                 balance: balanceAfterSpend,
+                result: resultMeta,
               });
             },
             onError: (error) => {
@@ -453,18 +565,20 @@ export default function PlaceOrderButton({
       try {
         // A market order carries no limit price, so `gasLevelsFor` treats it as
         // crossing the whole far side — which is what it does.
-        const marketGas = await bufferedGasFor(
-          publicClient,
-          marketOrderContractArgs,
-          gasLevelsFor(orderbook, isBid, null, matchN),
-        );
+        // A market order is a TAKER (`isMaker: false`), so its remainder may
+        // take the pool leg — budgeted with `poolLeg`.
+        const marketGas = await bufferedGasFor(publicClient, marketOrderContractArgs, {
+          account: address,
+          maxMatches: gasLevelsFor(orderbook, isBid, null, matchN),
+          poolLeg: true,
+        });
         await writeContractAsync(
           {
             ...marketOrderContractArgs,
             address: marketOrderContractArgs.address,
             // A market order exists to cross the book, so it is the MOST exposed
             // to depth arriving after the estimate.
-            ...(marketGas ? { gas: marketGas } : {}),
+            gas: marketGas,
           },
           {
             onSuccess: (data) => {
@@ -479,6 +593,7 @@ export default function PlaceOrderButton({
                 kind: "market",
                 token: spendToken,
                 balance: balanceAfterSpend,
+                result: resultMeta,
               });
             },
             onError: (error) => {
@@ -616,6 +731,11 @@ export default function PlaceOrderButton({
   };
   // console.log(isLoggedIn, "isLoggedIn")
 
+  // A simulation run before the approval exists always fails — there is no
+  // allowance to spend — so it must not hide the Approve step. It blocks only
+  // once nothing is left to approve. Found by the ladder-launch e2e: a first
+  // ladder buy showed "The exchange rejected the order" and never offered the
+  // approval it needed.
   useEffect(() => {
     if (isLoggedIn) {
       if (pendingTx) {
@@ -625,7 +745,7 @@ export default function PlaceOrderButton({
       } else if (isBid) {
         if (trueQuoteBalance < quoteAmount) {
           setButtonContent(renderInsufficientBalance());
-        } else if (limitPriceEncodesToZero || orderAmountIsDust || simulatedOrderError) {
+        } else if (limitPriceEncodesToZero || orderAmountIsDust || (simulatedOrderError && !approvalNeeded)) {
           setButtonContent(renderOrderTooSmall());
         } else {
           setButtonContent(renderPlaceOrderButton(approvalNeeded));
@@ -633,7 +753,7 @@ export default function PlaceOrderButton({
       } else {
         if (trueBaseBalance < baseAmount) {
           setButtonContent(renderInsufficientBalance());
-        } else if (limitPriceEncodesToZero || orderAmountIsDust || simulatedOrderError) {
+        } else if (limitPriceEncodesToZero || orderAmountIsDust || (simulatedOrderError && !approvalNeeded)) {
           setButtonContent(renderOrderTooSmall());
         } else {
           setButtonContent(renderPlaceOrderButton(approvalNeeded));

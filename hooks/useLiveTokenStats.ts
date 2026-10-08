@@ -1,5 +1,7 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import { useQuery } from "@tanstack/react-query";
+import { useTradePulse } from "@/hooks/useTradePulse";
 import { PonderLinks } from "@/consts";
 import type { SpotToken } from "@/types";
 
@@ -44,19 +46,42 @@ export interface LiveTokenStats {
 export function useLiveTokenStats({
   networkName,
   address,
+  pairs = [],
   initial,
   intervalMs = 15_000,
 }: {
   networkName: string;
-  address: string;
+  /**
+   * May be undefined. The page resolves a token from a URL segment, and a
+   * symbol it cannot resolve leaves this empty — the type said `string` and the
+   * caller passed undefined anyway, which is how it reached the query key.
+   */
+  address: string | undefined;
+  /**
+   * The token's own markets, `BASE/QUOTE`. Used ONLY to pick the trade topics
+   * this page subscribes to — the figures still come from the REST row.
+   *
+   * Empty means no subscription: the poll alone keeps working, which is what a
+   * token with no market needs and all it needs.
+   */
+  pairs?: readonly string[];
   initial: SpotToken;
   /** How often to re-ask. 15s by default — see the note in the component. */
   intervalMs?: number;
-}): { stats: LiveTokenStats; updatedAt: number | null } {
+}): { stats: LiveTokenStats; updatedAt: number | null; stale: boolean } {
   const seed = statsOf(initial);
 
-  const { data, dataUpdatedAt } = useQuery({
-    queryKey: ["token-stats-live", networkName, address.toLowerCase()],
+  const { data, dataUpdatedAt, isError, refetch } = useQuery({
+    /*
+     * The key is built EAGERLY, before `enabled` is consulted.
+     *
+     * So `address.toLowerCase()` on an unresolved token threw right here —
+     * "Cannot read properties of undefined (reading 'toLowerCase')" — and took
+     * the whole token page down with a runtime overlay. `enabled` gates the
+     * FETCH and nothing else; anything evaluated to build the key has to stand
+     * on its own.
+     */
+    queryKey: ["token-stats-live", networkName, address?.toLowerCase() ?? ""],
     enabled: !!networkName && !!address,
     // Kept polling in a background tab is wasted: the row is re-fetched on
     // focus anyway, and a tab nobody is looking at does not need fresh numbers.
@@ -64,20 +89,69 @@ export function useLiveTokenStats({
     refetchIntervalInBackground: false,
     queryFn: async (): Promise<LiveTokenStats | null> => {
       const root = PonderLinks[networkName];
-      if (!root) return null;
-      try {
-        const res = await fetch(`${root}/api/token/address/${encodeURIComponent(address)}`);
-        if (!res.ok) return null;
-        return statsOf((await res.json()) as SpotToken);
-      } catch {
-        // Null keeps the seed on screen. A header that empties itself because a
-        // poll missed is worse than one showing figures a few seconds old.
-        return null;
-      }
+      // `enabled` already refuses both of these; re-checking here is what makes
+      // the function total, since a manual `refetch()` ignores `enabled`. This
+      // is the one null that is NOT a failure — there is nothing to ask.
+      if (!root || !address) return null;
+      /*
+       * THROWS on a bad response, and lets a network error propagate.
+       *
+       * Both used to `return null`, which fell through to `data ?? seed` below
+       * and pinned the header to its server-rendered figures FOREVER, with
+       * nothing to say so: no error, no stale mark, and `LiveStat`'s change
+       * flash never fires because the rendered string never changes. A dead
+       * poll was indistinguishable from a quiet market.
+       *
+       * Throwing changes none of what is on screen — `data` stays undefined and
+       * the seed still shows, which is right, since a header that empties
+       * itself over a missed poll is worse than one a few seconds old. What it
+       * adds is `isError`, which react-query also retries on, and which the
+       * caller renders as the `stale` mark this hook now returns.
+       */
+      /*
+       * `no-store`, because this is now socket-triggered.
+       *
+       * The route answers `cache-control: public, max-age=10`, which was
+       * harmless while the only caller was a 15s timer — the entry had always
+       * expired by the time it asked again. A trade-driven refetch lands within
+       * a second of the fill, so the browser would serve the pre-trade row
+       * straight back out of cache and the header would flash a value that had
+       * not changed. The socket is only worth listening to if the read it
+       * triggers actually reaches the gateway.
+       */
+      const res = await gatewayFetch(`${root}/api/token/address/${encodeURIComponent(address)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`token stats: ${res.status} from ${root}`);
+      return statsOf((await res.json()) as SpotToken);
     },
   });
 
-  return { stats: data ?? seed, updatedAt: data ? dataUpdatedAt : null };
+  /*
+   * The socket says WHEN, the poll still says WHAT.
+   *
+   * At 15s, with the gateway caching this route for ten more, a trade took up
+   * to ~25 seconds to reach the header and several trades inside one window
+   * collapsed into a single change — which is why the figures only flashed
+   * "occasionally" while the market was in fact moving. A trade touching this
+   * token now re-asks immediately. Nothing is DERIVED from the frame: these are
+   * rolling aggregates the broker maintains, and recomputing them here is the
+   * mistake the note above exists to prevent.
+   */
+  useTradePulse({
+    networkName,
+    pairs,
+    enabled: !!networkName && !!address,
+    onTrade: () => void refetch(),
+  });
+
+  return {
+    stats: data ?? seed,
+    updatedAt: data ? dataUpdatedAt : null,
+    // Only after react-query has exhausted its retries, so a single dropped
+    // poll on a flaky connection does not flicker a warning at the reader.
+    stale: isError,
+  };
 }
 
 /**

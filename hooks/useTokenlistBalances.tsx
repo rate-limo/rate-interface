@@ -5,8 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { multicall, getBalance } from "@wagmi/core";
 import { erc20Abi, formatUnits } from "viem";
 import { getTokens } from "@/queries/server/tokens";
+import { chainIds } from "@/consts";
 import { SpotTokenWithBalance, SpotToken } from "@/types/tables/tokens";
 import { eventBus, SpotBalanceUpdateEvent } from "@/utils/events";
+import { applyFrame } from "@/lib/realtime/applyFrame";
 import { SpotTradeEvent } from "@/types";
 
 interface AccountTokenlistBalances {
@@ -29,7 +31,24 @@ export const useTokenlistBalances = (
     if (cached) {
       return cached;
     }
-    const tokens = await getTokens(networkName, 1000, 1, "");
+    /*
+     * UNGATED. A balance is a fact about the wallet, not a curation decision.
+     *
+     * `/api/tokens/*` serves VERIFIED markets only, which is right for every
+     * ranking on the venue and wrong here. This hook feeds every balance the
+     * app shows, and it built that set from the gated list — so on a freshly
+     * redeployed chain, where nothing has graduated and every row is
+     * `verified: false`, the list answered zero, no `balanceOf` was ever issued,
+     * and a wallet holding 30 USDC rendered 0 with nothing failing anywhere.
+     *
+     * Measured on Arc while chasing exactly that: the gated list returned 0
+     * tokens at every page size, `?source=all` returned USDC and ITRA, and the
+     * chain had the money the whole time. `getTokens` already carries this flag
+     * for the deposit page, which hit the same wall for the same reason — see
+     * its note. Balances are the second caller that is not a ranking.
+     */
+    const tokens = await getTokens(networkName, 1000, 1, "", "all");
+    // not-a-frame: seeds the cache from this query's own fetch.
     queryClient.setQueryData(tokenlistQueryKey, tokens);
     return tokens;
   };
@@ -56,12 +75,42 @@ export const useTokenlistBalances = (
           args: [address],
         };
       });
-    const balances = await multicall(config, {
+    /*
+     * PINNED to the network being displayed, never to the connected one.
+     *
+     * Both reads used to take the ambient chain, which is whatever the wallet
+     * happens to be standing on. This app shows one chain's page while the
+     * wallet sits on another all the time — that is the whole point of the
+     * chain switcher — and these token addresses mean nothing on a different
+     * chain: `balanceOf` hits an address with no code, the call reverts, and
+     * with `allowFailure: false` ONE revert rejects the entire multicall. The
+     * catch upstream then renders every balance as zero, which is how a wallet
+     * holding 30 USDC on Arc showed 0 while the explorer showed the money.
+     *
+     * `useBalances` in lib/portfolio already documents the rule this restores —
+     * wagmi takes `chainId` per read, so a page never has to hope the wallet is
+     * on the right network to display a balance.
+     */
+    const chainId = chainIds[networkName];
+    if (!chainId) return [];
+    /*
+     * `allowFailure: true`, so one bad row costs its own balance and nothing
+     * else. A token list is operator-supplied and outlives deployments: an
+     * entry pointing at a self-destructed or never-deployed address is an
+     * ordinary occurrence, and under the old setting it zeroed every OTHER
+     * token's balance along with its own.
+     */
+    const results = await multicall(config, {
       contracts: totalTokenContractData,
-      allowFailure: false,
+      allowFailure: true,
+      chainId,
     });
+    const balances = results.map((r) =>
+      r.status === "success" ? (r.result as bigint) : BigInt(0),
+    );
     const nativeBalance = await getBalance(config, {
       address: address as `0x${string}`,
+      chainId,
     });
     const totalTokenContractDataBalance = tokens.map((token, index) => {
       // `nativeToken?` — a chain may legitimately have NO iter_native entry. On Arc the
@@ -92,6 +141,7 @@ export const useTokenlistBalances = (
 
   const fetchTokenlistBalances = async () => {
     const tokenlist = await queryTokenlist();
+    // not-a-frame: seeds the cache from this query's own fetch.
     queryClient.setQueryData(tokenlistQueryKey, tokenlist);
     const tokenlistBalances: SpotTokenWithBalance[] = await fetchBalances(
       tokenlist.tokens
@@ -100,6 +150,7 @@ export const useTokenlistBalances = (
       (acc, token) => acc + token.valueUSD,
       0
     );
+    // not-a-frame: part of this query's own fetch.
     queryClient.setQueryData(queryKey, (old: SpotTokenWithBalance[]) => {
       return {
         tokenlistBalances,
@@ -128,7 +179,7 @@ export const useTokenlistBalances = (
 
   useEffect(() => {
     const handleBalanceUpdate = (data: SpotBalanceUpdateEvent) => {
-      queryClient.setQueryData(queryKey, (old: AccountTokenlistBalances) => {
+      void applyFrame(queryClient, queryKey, (old: AccountTokenlistBalances) => {
         const newData = old.tokenlistBalances.map((token) => {
           if (token.id === data.token.id) {
             const newValueUSD = data.balance * token.priceUSD;
@@ -147,7 +198,7 @@ export const useTokenlistBalances = (
     const handleTradeUpdate = (data: SpotTradeEvent) => {
       if (data.account === address) {
         if (data.isBid) {
-          queryClient.setQueryData(queryKey, (old: AccountTokenlistBalances) => {
+          void applyFrame(queryClient, queryKey, (old: AccountTokenlistBalances) => {
             const newData = old.tokenlistBalances.map((token) => {
               if (token.id === data.quote) {
                 const newBalance = token.balance - data.quoteAmount;
@@ -167,7 +218,7 @@ export const useTokenlistBalances = (
             return { tokenlistBalances: newData, accountValueUSD };
           });
         } else {
-          queryClient.setQueryData(queryKey, (old: AccountTokenlistBalances) => {
+          void applyFrame(queryClient, queryKey, (old: AccountTokenlistBalances) => {
             const newData = old.tokenlistBalances.map((token) => {
               if (token.id === data.base) {
                 const newBalance = token.balance - data.baseAmount;
@@ -190,11 +241,20 @@ export const useTokenlistBalances = (
       }
     };
 
+    // A swap reports that it landed, not what it landed on — see the event's
+    // declaration. `refetch` is referentially stable, so this listener does not
+    // need to be re-subscribed when the component re-renders.
+    const handleBalanceRefetch = () => {
+      void refetch();
+    };
+
     eventBus.on("spot-balance-update", handleBalanceUpdate);
+    eventBus.on("spot-balance-refetch", handleBalanceRefetch);
     eventBus.on("spot-trade-update", handleTradeUpdate);
 
     return () => {
       eventBus.off("spot-balance-update", handleBalanceUpdate);
+      eventBus.off("spot-balance-refetch", handleBalanceRefetch);
       eventBus.off("spot-trade-update", handleTradeUpdate);
     };
   }, [address, JSON.stringify(queryKey)]);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { getBalance } from "@wagmi/core";
+import { readGasBalance } from "@/lib/wallet/feeToken";
 import { useAccount } from "wagmi";
 import { wagmiConfig } from "@/lib/providers";
 import {
@@ -56,15 +56,11 @@ export function useChainOnboarding(
       const entries = await Promise.all(
         profiles.map(async (profile): Promise<[number, boolean | null]> => {
           try {
-            const balance = await getBalance(wagmiConfig, {
-              address: address as `0x${string}`,
-              // wagmi narrows this to the union of CONFIGURED chain ids, and a
-              // profile's id is a plain number off the registry. The two agree
-              // by construction — the stack only builds profiles for chains in
-              // `wagmiChains` — so the cast asserts what the caller guarantees.
-              chainId: profile.chainId as (typeof wagmiConfig)["chains"][number]["id"],
-            });
-            return [profile.chainId, balance.value > BigInt(0)];
+            // The GAS balance, not the native one: on Tempo the native balance is a
+            // fixed placeholder (~4.2e75), so a wallet holding no PathUSD read as
+            // funded and skipped "add funds". readGasBalance reads the fee token there.
+            const balance = await readGasBalance(wagmiConfig, profile.chainId, address as `0x${string}`);
+            return [profile.chainId, balance > BigInt(0)];
           } catch {
             // Null is "unknown", which the caller renders as pending rather than
             // as empty — see the docstring.

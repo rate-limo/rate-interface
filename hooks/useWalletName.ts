@@ -3,30 +3,41 @@
 import { useAccount } from "wagmi";
 import { wagmiChains } from "@/lib/customChains";
 import { useProfile } from "@/hooks/useProfile";
-import { useIdentities } from "@/hooks/useIdentities";
+import { useAccountProfile } from "@/hooks/useAccountProfile";
+import { pickWalletName } from "@/lib/profile/walletName";
 
 /**
- * What to call a connected wallet — its name, or null when nobody has claimed it.
+ * What to call a connected wallet — its name, or null when nobody has named it.
  *
  * ## Why a hook and not two inline lookups
  *
  * There are TWO profile tables and neither is a superset. `admin.profiles` holds
- * `username` and `bio`; `broker.accountProfiles` holds `handle`. A wallet
- * routinely has a row in one and not the other, which is why `useProfile` alone
- * left the wallet menu showing a bare address for an account the traders table
- * and the trade tape were already naming. `/api/identities` merges both
- * server-side under one precedence.
+ * `username` and the authored `displayName`; `broker.accountProfiles` holds the
+ * generated `handle`. A wallet routinely has a row in one and not the other,
+ * which is why `useProfile` alone left the wallet menu showing a bare address
+ * for an account the traders table was already naming. The precedence lives in
+ * `pickWalletName` so the two call sites here cannot drift apart.
  *
- * That precedence is the part worth centralising. The wallet's OWN authored name
- * wins and the lazily generated row only ever fills a blank — never the reverse,
- * which is the bug migration 0002 removed, where a derived value permanently
- * outranked something the user had typed. Two call sites writing that chain by
- * hand is how the button and the menu it opens end up disagreeing about the same
- * wallet, on the same screen, one pixel apart.
+ * ## `/api/account/:address`, not `/api/identities`, and that is the fix
  *
- * Returns null rather than a shortened address: the caller decides how to render
- * an unnamed wallet, and the button and the menu render it differently — mono
- * and truncated in one, full and wrapped in the other.
+ * This read `useIdentities`, which is the right call for a TABLE of wallets and
+ * the wrong one for this: identities only READS, while the generated row is
+ * written lazily on first lookup of `/api/account/:address`. So a wallet that
+ * had never been looked up had no handle for identities to return, and the one
+ * wallet guaranteed to be in that state is the one that has just connected for
+ * the first time. Measured against the gateway, on an address nobody had asked
+ * about: `identities` answered `name: null`, `account` answered
+ * `handle: "CalmKindredHeron"` and CREATED it, and `identities` answered with
+ * that same handle afterwards.
+ *
+ * The chip therefore showed a truncated address for every new wallet, except
+ * where something else on the page happened to call the account route first —
+ * `/home` does, through `useChainOnboarding`, which is why the name appeared
+ * there sometimes and never on `/deposit`. That was a race, not a rule.
+ *
+ * One request either way: this replaces the identities call rather than joining
+ * it, and react-query keys it per (network, address) so the shell's several
+ * mounts share one.
  */
 export function useWalletName(address: `0x${string}` | undefined): string | null {
   const { chainId } = useAccount();
@@ -36,8 +47,8 @@ export function useWalletName(address: `0x${string}` | undefined): string | null
   // costs the NAME and nothing else. Everything these surfaces exist to do —
   // copy, send, receive, disconnect — works without one.
   const { data: profile } = useProfile(networkName, address);
-  const identities = useIdentities(networkName, address ? [address] : []);
+  const account = useAccountProfile(networkName, address);
 
   if (!address) return null;
-  return profile?.displayName ?? profile?.username ?? identities.nameOf(address);
+  return pickWalletName(profile, account.data.profile.handle);
 }

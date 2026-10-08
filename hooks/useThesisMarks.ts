@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/realtime/ws-url";
 import type { ThesisMark } from "@/lib/chart/marks";
@@ -9,6 +10,21 @@ export interface MarkFilters {
   friendsOnly: boolean;
   /** Hide callouts anchored to a trade smaller than this, in USD. 0 is off. */
   minUsd: number;
+}
+
+/**
+ * The `to` for a chart's marks that covers everything up to now: the end of the
+ * current hour, plus a day of slack.
+ *
+ * Rounded because `to` is in the query key. `now + 1 day` recomputed on every
+ * render changed the key every second on the coin page, whose stat tickers
+ * re-render it that often, so the page fetched its marks once a second for as
+ * long as it was open. Rounded to the hour, the key moves once an hour. The day
+ * of slack keeps a callout posted a moment ago inside the range until then.
+ */
+export function marksHorizon(nowSeconds: number): number {
+  const HOUR = 3_600;
+  return Math.ceil(nowSeconds / HOUR) * HOUR + 24 * HOUR;
 }
 
 /**
@@ -76,7 +92,7 @@ export function useThesisMarks({
         params.set("viewer", viewer);
       }
       try {
-        const res = await fetch(`${api}/api/tradingview/marks?${params}`);
+        const res = await gatewayFetch(`${api}/api/tradingview/marks?${params}`);
         if (!res.ok) return [];
         const body = (await res.json()) as { marks?: ThesisMark[] };
         return Array.isArray(body.marks) ? body.marks : [];

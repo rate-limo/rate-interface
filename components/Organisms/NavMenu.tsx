@@ -28,7 +28,7 @@ const LINKS: { kind: PageKind; label: string }[] = [
   { kind: "trade", label: "Trade" },
   { kind: "pool", label: "Pool" },
   { kind: "portfolio", label: "Portfolio" },
-  { kind: "iter", label: "Iter" },
+  { kind: "iter", label: "Rate" },
 ];
 
 // Profile pages highlight their parent family: /token/[token] lives under

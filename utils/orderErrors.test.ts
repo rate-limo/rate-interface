@@ -1,3 +1,4 @@
+import { AssetGeneratorABI, LadderBuyerABI } from "@iter/abis";
 import { describe, expect, it } from "vitest";
 import { decodeOrderSubmitError } from "./orderErrors";
 import { exchangeAbi } from "@/components/abis/exchange";
@@ -47,6 +48,22 @@ describe("decodeOrderSubmitError", () => {
       },
     };
     expect(decodeOrderSubmitError(deeplyNested)?.title).toBe("Order is too small");
+  });
+
+  /**
+   * The state a user meets on a coin nobody has made a market in: a market order
+   * reverts `InsufficientLiquidity` from OrderPlacementLib. It is declared on
+   * MatchingEngine too and carried in ExchangeErrors.json, because viem matches a
+   * 4-byte selector against the ABI the call was made with and will not guess -- a
+   * message here without that fragment decodes nothing.
+   */
+  it("recognizes InsufficientLiquidity and points at a limit order rather than a smaller size", () => {
+    const decoded = decodeOrderSubmitError(mockRevertError("InsufficientLiquidity"));
+    expect(decoded).not.toBeNull();
+    expect(decoded?.title).toBe("Nothing to trade against");
+    expect(decoded?.description).not.toMatch(/InsufficientLiquidity/);
+    // size is not the problem, so the fix must not be "try a smaller amount"
+    expect(decoded?.fix).toBe("switch-to-limit");
   });
 
   it("returns null for an unrecognized custom error (falls back to raw message elsewhere)", () => {
@@ -113,6 +130,7 @@ describe("exchangeAbi", () => {
       "InvalidPair",
       "PairDoesNotExist",
       "TooManyMatches",
+      "InsufficientGasToMatch",
       "PriceIsZero",
       "ZeroPrice",
       "NoMatchPrice",
@@ -197,5 +215,73 @@ describe("TransferHelper's short require strings", () => {
   it("still prefers a decoded custom error over a string match", () => {
     const err = { data: { errorName: "OrderSizeTooSmall", args: [] }, message: "TFF" };
     expect(decodeOrderSubmitError(err)?.title).toBe("Order is too small");
+  });
+});
+
+describe("AssetGenerator reverts", () => {
+  const names = [
+    "DevBuyTooSmall",
+    "DevBuyTooLarge",
+    "ListingPriceTooLow",
+    "NoBandPool",
+    "InsufficientFee",
+    "QuoteNotEnabled",
+    "PairAlreadyListed",
+    "InvalidVolatility",
+    "FeeOutsidePairRange",
+    "FeeAboveCreatorCap",
+    "LadderNotFilled",
+    "GraduationNotReady",
+    "AlreadyGraduated",
+    "NotGraduated",
+    "NothingToRelease",
+    "NotVesting",
+    "NotTheCreator",
+    "NotTheLister",
+    "BandCallNotAllowed",
+    "CreatorFeeControlLocked",
+    "EmptyMetadata",
+    "SupplyIsZero",
+    "CoinNotLaunched",
+    "RefundFailed",
+    "InvalidRecipient",
+  ];
+  it("decodes every one to a sentence", () => {
+    for (const name of names) expect(decodeOrderSubmitError(mockRevertError(name)), name).not.toBeNull();
+  });
+  it("has a fragment in the ABI the launch and listPair calls use", () => {
+    const declared = new Set(
+      (AssetGeneratorABI as readonly { type?: string; name?: string }[])
+        .filter((f) => f.type === "error")
+        .map((f) => f.name),
+    );
+    for (const name of names) expect(declared.has(name), `${name} missing from AssetGeneratorABI`).toBe(true);
+  });
+});
+
+describe("LadderBuyer reverts", () => {
+  // Every error LadderBuyer declares, each with its own sentence -- an unknown name
+  // decodes to null, which is what makes a caller print the raw revert at the user.
+  const names = [
+    "DeadlinePassed",
+    "InsufficientOutput",
+    "ZeroAmount",
+    "NativeLegUnsupported",
+    "InvalidRecipient",
+    "NoMarket",
+    "NoWrappedNative",
+    "NotCanonicalWrapper",
+    "UnexpectedNative",
+    "NativeTransferFailed",
+  ];
+  it("decodes every one to a sentence", () => {
+    for (const name of names) expect(decodeOrderSubmitError(mockRevertError(name)), name).not.toBeNull();
+  });
+  it("covers every error LadderBuyer declares, each with a fragment", () => {
+    const declared = (LadderBuyerABI as readonly { type?: string; name?: string }[])
+      .filter((f) => f.type === "error")
+      .map((f) => f.name);
+    // ReentrancyGuard's own error is a contract fault, not something a user can act on.
+    expect(declared.filter((n) => n !== "ReentrancyGuardReentrantCall" && !n?.startsWith("SafeERC20")).sort()).toEqual([...names].sort());
   });
 });

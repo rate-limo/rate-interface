@@ -1,12 +1,15 @@
 "use client";
+import { chainKeyForUrl, noteFrameWatermark } from "@/lib/realtime/watermark";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Row } from "@tanstack/react-table";
 import { PonderWssLinks } from "@/consts";
-import { SpotOrder, SpotOrderEvent, SpotOrderHistoryEvent, SpotToken, SpotTradeEvent, streamToEvent } from "@/types";
+import { SpotOrder, SpotOrderEvent, SpotOrderHistoryEvent, SpotToken, SpotTradeEvent, type SpotOrderCloseSummaryEvent, expandOrderCloseSummary, streamToEvent } from "@/types";
 import { exchangeAbi } from "@/components/abis/exchange";
 import { useMarketPageContext } from "./MarketPageProvider";
 import { eventBus } from "@/utils/events";
 import { createFrameBuffer } from "@/lib/realtime/frameBuffer";
+import { onReturnFromAway, resyncAccountQueries } from "@/lib/realtime/accountResync";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTradeHistory } from "@/hooks/useTradeHistory";
 import type { OrderHistoryRow } from "@/hooks/useOrderHistory";
 import { useOrderHistory } from "@/hooks/useOrderHistory";
@@ -80,6 +83,13 @@ export const OrderPageProvider = ({
   const disposedRef = useRef(false);
   const addressRef = useRef(address);
   const networkRef = useRef(displayNetworkName);
+  // The address the socket has already been open for once. A second `onopen` for
+  // the same address is a REconnect, and whatever was sent while it was down is
+  // gone -- see lib/realtime/accountResync.
+  const openedForRef = useRef<string | undefined>(undefined);
+  const queryClient = useQueryClient();
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
   addressRef.current = address;
   networkRef.current = displayNetworkName;
 
@@ -105,6 +115,17 @@ export const OrderPageProvider = ({
           case "deleteSpotOrderHistory":
             eventBus.emit("spot-order-history-delete", parsedEvent);
             break;
+          // One transaction's closures as one frame — a sweep that consumed
+          // several of this account's orders, or a cancel-all. Sent INSTEAD of
+          // the per-order frames, so it is expanded into exactly those: both
+          // listeners (useOrders' removal, useOrderHistory's status and its
+          // transaction-keyed toast) see the same events either way, which is
+          // what keeps the envelope and the per-order path on one toast id.
+          case "spotOrderCloseSummary":
+            for (const closed of expandOrderCloseSummary(parsedEvent as SpotOrderCloseSummaryEvent)) {
+              eventBus.emit("spot-order-history-delete", closed);
+            }
+            break;
           case "spotTrade":
             eventBus.emit("spot-trade-history-update", parsedEvent);
             break;
@@ -113,6 +134,9 @@ export const OrderPageProvider = ({
           // expands it rather than treating it as a summary to display.
           case "spotFillSummary":
             eventBus.emit("spot-fill-summary", parsedEvent);
+            break;
+          case "spotAccountActivity":
+            eventBus.emit("spot-account-activity", parsedEvent);
             break;
           default:
             break;
@@ -150,6 +174,10 @@ export const OrderPageProvider = ({
       console.log("Spot Account WebSocket connected");
       isConnectingRef.current = false;
       reconnectAttemptsRef.current = 0;
+      if (openedForRef.current === targetAddress) {
+        resyncAccountQueries(queryClientRef.current, networkRef.current, targetAddress);
+      }
+      openedForRef.current = targetAddress;
       console.log(targetAddress, "address");
       socket.send(
         JSON.stringify({
@@ -168,7 +196,9 @@ export const OrderPageProvider = ({
       cleanup(false);
       if (disposedRef.current || addressRef.current !== targetAddress) return;
       const attempt = reconnectAttemptsRef.current;
-      if (attempt >= 5 || reconnectTimerRef.current) return;
+      // No give-up: past the backoff it keeps trying every 30 s. Stopping left a
+      // visible tab offline for good, with every later fill and closure lost.
+      if (reconnectTimerRef.current) return;
       reconnectAttemptsRef.current = attempt + 1;
       const delay = Math.min(30_000, 1_000 * 2 ** attempt);
       reconnectTimerRef.current = setTimeout(() => {
@@ -204,6 +234,9 @@ export const OrderPageProvider = ({
         console.log(`Spot account for ${targetAddress} is subscribed`);
         return;
       }
+
+      // Record the batch's commit watermark before anything reacts to it.
+      noteFrameWatermark(chainKeyForUrl(PonderWssLinks[networkRef.current]), data?.w);
 
       // The gateway coalescer wraps frames in a WsBatch -- `{ t, ps, s, d }` where
       // `d` holds the frames -- and every topic goes through it, `spotAccount:*`
@@ -252,7 +285,19 @@ export const OrderPageProvider = ({
     if (!socketRef.current && address) {
       connectWebSocket(address);
     }
+    // Back from a hidden tab or an offline spell: the socket may have died
+    // without anyone noticing (or be waiting out a 30 s backoff), and frames
+    // were certainly not delivered to a suspended tab. Reconnect now if needed
+    // and re-read what the frames would have changed.
+    const stopWatching = onReturnFromAway(() => {
+      if (!address || disposedRef.current) return;
+      reconnectAttemptsRef.current = 0;
+      if (!socketRef.current) connectWebSocket(address);
+      resyncAccountQueries(queryClientRef.current, displayNetworkName, address);
+    });
     return () => {
+      stopWatching();
+      openedForRef.current = undefined;
       disposedRef.current = true;
       reconnectAttemptsRef.current = 0;
       if (reconnectTimerRef.current) {

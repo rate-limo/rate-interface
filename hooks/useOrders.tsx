@@ -1,17 +1,34 @@
+import { applyFrame } from "@/lib/realtime/applyFrame";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SpotOrder, SpotOrderEvent, SpotOrderMatchedEvent } from "@/types";
+import {
+  SpotDeleteOrderItemEvent,
+  SpotOrder,
+  SpotOrderEvent,
+  SpotOrderMatchedEvent,
+} from "@/types";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { eventBus } from "@/utils/events";
 import { getSpotAccountOrders } from "@/queries/server/orders";
 import { toast } from "sonner";
+import { playSound } from "@/lib/sound";
 import defaultTokenList from "@iter/token-list";
-import { adjustDecimalLength } from "@/utils/number";
+import { formatPrice } from "@/lib/format/price";
 import {
   createFillAggregator,
   describeFill,
+  filledFraction,
+  type FillAggregate,
   type FillAggregator,
 } from "@/lib/toast/fillAggregator";
+
+/** An order's identity is (pair, side, orderId) — the broker's own row key. */
+function sameOrder(
+  a: Pick<SpotOrderEvent, "pair" | "isBid" | "orderId">,
+  b: Pick<SpotOrderEvent, "pair" | "isBid" | "orderId">,
+): boolean {
+  return a.orderId === b.orderId && a.isBid === b.isBid && a.pair.toLowerCase() === b.pair.toLowerCase();
+}
 
 export const useOrders = (
   networkName: string,
@@ -44,13 +61,16 @@ export const useOrders = (
     error,
   } = useQuery({
     queryKey: queryKey,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const data = await getSpotAccountOrders(
         networkName,
         address,
         pageLimit,
         page
       );
+      // Cancelled by a frame while the server action ran (applyFrame): its result
+      // is discarded, so its counts must not land either.
+      if (signal.aborted) throw new DOMException("superseded by a live update", "AbortError");
 
       if (data.noAddress) {
         return [];
@@ -89,8 +109,12 @@ export const useOrders = (
         }
       );
       setPrevOrders(orderEvents);
-      queryClient.setQueryData(queryKey, orderEvents);
-      console.log("queryKey in useQuery", queryKey);
+      // Returned, never also written with setQueryData. A frame that lands while
+      // this read is in flight makes applyFrame cancel it, and react-query then
+      // discards what a cancelled queryFn returns -- but not what it already
+      // wrote. The server action cannot be aborted, so a write here landed the
+      // pre-frame rows after the frame and brought back an order the frame had
+      // just removed, for good: staleTime is Infinity.
       return orderEvents;
     },
     staleTime: Infinity,
@@ -102,37 +126,36 @@ export const useOrders = (
     const currentQueryKey = ["orders", networkName, address, pageLimit, page]; // Capture the queryKey in closure
     console.log("currentQueryKey in event handler", currentQueryKey);
 
-    const handleOrderMatched = (orderMatchedEvent: SpotOrderMatchedEvent) => {
-      console.log("orderMatchedEvent", orderMatchedEvent);
+    const toOrderEvent = (orderMatchedEvent: SpotOrderMatchedEvent): SpotOrderEvent => ({
+      eventId: "spotOrder",
+      // Carried through from the matched event rather than defaulted: this is the
+      // number an amount is divided by, so guessing it would misprice the row.
+      assetDecimals: orderMatchedEvent.assetDecimals,
+      isBid: orderMatchedEvent.isBid,
+      orderId: orderMatchedEvent.orderId,
+      base: orderMatchedEvent.base,
+      baseSymbol: orderMatchedEvent.baseSymbol,
+      baseLogoURI: orderMatchedEvent.baseLogoURI,
+      quote: orderMatchedEvent.quote,
+      quoteSymbol: orderMatchedEvent.quoteSymbol,
+      pairSymbol: orderMatchedEvent.pairSymbol,
+      quoteLogoURI: orderMatchedEvent.quoteLogoURI,
+      pair: orderMatchedEvent.pair,
+      price: orderMatchedEvent.price,
+      asset: orderMatchedEvent.asset,
+      assetSymbol: orderMatchedEvent.assetSymbol,
+      amount: orderMatchedEvent.amount,
+      placed: orderMatchedEvent.placed,
+      amountBN: orderMatchedEvent.amountBN,
+      placedBN: orderMatchedEvent.placedBN,
+      timestamp: orderMatchedEvent.timestamp,
+      account: orderMatchedEvent.account,
+      txHash: orderMatchedEvent.txHash,
+      updatedAt: orderMatchedEvent.updatedAt,
+    });
 
-      const updatedOrder: SpotOrderEvent = {
-        eventId: "spotOrder",
-        // Carried through from the matched event rather than defaulted: this is the
-        // number an amount is divided by, so guessing it would misprice the row.
-        assetDecimals: orderMatchedEvent.assetDecimals,
-        isBid: orderMatchedEvent.isBid,
-        orderId: orderMatchedEvent.orderId,
-        base: orderMatchedEvent.base,
-        baseSymbol: orderMatchedEvent.baseSymbol,
-        baseLogoURI: orderMatchedEvent.baseLogoURI,
-        quote: orderMatchedEvent.quote,
-        quoteSymbol: orderMatchedEvent.quoteSymbol,
-        pairSymbol: orderMatchedEvent.pairSymbol,
-        quoteLogoURI: orderMatchedEvent.quoteLogoURI,
-        pair: orderMatchedEvent.pair,
-        price: orderMatchedEvent.price,
-        asset: orderMatchedEvent.asset,
-        assetSymbol: orderMatchedEvent.assetSymbol,
-        amount: orderMatchedEvent.amount,
-        placed: orderMatchedEvent.placed,
-        amountBN: orderMatchedEvent.amountBN,
-        placedBN: orderMatchedEvent.placedBN,
-        timestamp: orderMatchedEvent.timestamp,
-        account: orderMatchedEvent.account,
-        txHash: orderMatchedEvent.txHash,
-        updatedAt: orderMatchedEvent.updatedAt
-      };
-      queryClient.setQueryData(currentQueryKey, (prev: SpotOrderEvent[]) => {
+    const applyMatches = (matches: SpotOrderMatchedEvent[]) => {
+      void applyFrame(queryClient, currentQueryKey, (prev: SpotOrderEvent[]) => {
         if (!prev) return prev;
         setPrevOrders(prev);
 
@@ -140,36 +163,37 @@ export const useOrders = (
         // orderId alone is only unique WITHIN a pair and side, and this list holds one
         // account's orders across every pair, so matching on it alone would overwrite an
         // unrelated market's row with this one's symbols and price.
-        const updatedOrders = prev.map((order) =>
-          order.orderId === orderMatchedEvent.orderId &&
-          order.pair === orderMatchedEvent.pair &&
-          order.isBid === orderMatchedEvent.isBid &&
-          order.updatedAt !== orderMatchedEvent.updatedAt
-            ? updatedOrder
-            : order,
-        );
+        //
         // No unshift-and-pop, and no count bump: a match never CREATES an order, it
         // shrinks one that already exists. This handler was copied from the spotOrder
         // one, where prepending a new row is right — here it invented a phantom order
         // and dropped a real one off the end whenever the filled order was not on the
-        // current page. (Dead code until the spotOrderMatched wire gap was closed, so
-        // this never actually ran.)
-        return updatedOrders;
+        // current page. Applied in arrival order, so an order shrunk twice in one
+        // transaction ends at its later size.
+        let next = prev;
+        for (const m of matches) {
+          next = next.map((order) =>
+            sameOrder(order, m) && order.updatedAt !== m.updatedAt ? toOrderEvent(m) : order,
+          );
+        }
+        return next;
       });
       setUpdated(true);
+    };
 
-      // Coalesced by transaction, not by order id. One market order can consume up
-      // to `maxMatches` resting orders (20 by default, uncapped by the setter), and
-      // each consumed order used to raise its own toast because the id was keyed on
-      // the maker's order id -- which differs per fill, so sonner's own id-dedup
-      // never fired. Keyed on the transaction, those N fills update ONE toast in
-      // place, and the aggregate is what keeps that toast truthful: without it the
-      // survivor would report whichever fill happened to land last.
-      //
-      // `isBid` here is the RESTING order's side, and the existing wording treats a
-      // resting ask as the maker "buying" quote -- preserved by resolving the side
-      // at this boundary rather than inside the aggregator.
-      const fill = fillsRef.current!.add({
+    // Coalesced by transaction, not by order id. One market order can consume up
+    // to `maxMatches` resting orders (20 by default, uncapped by the setter), and
+    // each consumed order used to raise its own toast because the id was keyed on
+    // the maker's order id -- which differs per fill, so sonner's own id-dedup
+    // never fired. Keyed on the transaction, those N fills update ONE toast in
+    // place, and the aggregate is what keeps that toast truthful: without it the
+    // survivor would report whichever fill happened to land last.
+    //
+    // `isBid` here is the RESTING order's side, and the existing wording treats a
+    // resting ask as the maker "buying" quote -- preserved by resolving the side
+    // at this boundary rather than inside the aggregator.
+    const foldFill = (orderMatchedEvent: SpotOrderMatchedEvent): FillAggregate =>
+      fillsRef.current!.add({
         txHash: orderMatchedEvent.txHash,
         pair: orderMatchedEvent.pair,
         side: orderMatchedEvent.isBid ? "sell" : "buy",
@@ -181,15 +205,17 @@ export const useOrders = (
         placed: orderMatchedEvent.placed,
         orderSize: orderMatchedEvent.amount,
       });
+
+    const raiseFillToast = (fill: FillAggregate, baseLogoURI: string) => {
       const { title, description } = describeFill(fill, (value) =>
-        adjustDecimalLength(value, 4)
+        formatPrice(value)
       );
 
       toast.success(
         <div className="flex items-center gap-2">
           <img
             alt=""
-            src={orderMatchedEvent.baseLogoURI}
+            src={baseLogoURI}
             loading="lazy"
             width="20"
             height="20"
@@ -218,16 +244,29 @@ export const useOrders = (
       );
     };
 
+    const handleOrderMatched = (orderMatchedEvent: SpotOrderMatchedEvent) => {
+      applyMatches([orderMatchedEvent]);
+      const fill = foldFill(orderMatchedEvent);
+      // Someone traded against your resting order. Once per transaction (the
+      // aggregate's key), pitched up the more of the order is now filled.
+      const pct = filledFraction(fill);
+      playSound("fill", { key: `fill:${fill.key}`, pitch: 0.85 + (pct ?? 0) * 0.35 });
+      raiseFillToast(fill, orderMatchedEvent.baseLogoURI);
+    };
+
     const handleOrderUpdate = (orderEvent: SpotOrderEvent) => {
       console.log("orderEvent", orderEvent);
-      queryClient.setQueryData(currentQueryKey, (prev: SpotOrderEvent[]) => {
+      void applyFrame(queryClient, currentQueryKey, (prev: SpotOrderEvent[]) => {
         console.log("updatedOrders prev", prev, prevOrders);
         if (!prev) return prev;
         setPrevOrders(prev);
 
         let orderUpdated = false;
+        // (pair, side, orderId), as everywhere else in this file. Order ids
+        // restart at 1 for every pair and side, so matching on the id alone made
+        // a new order on one market overwrite an unrelated market's row.
         const updatedOrders = prev.map((order) => {
-          if (order.orderId === orderEvent.orderId) {
+          if (sameOrder(order, orderEvent)) {
             orderUpdated = true;
             return orderEvent;
           }
@@ -253,13 +292,16 @@ export const useOrders = (
       });
       setUpdated(true);
 
+      // The order now sits on the book at your price. Keyed by the order's
+      // identity so a later update to the same row does not settle it again.
+      playSound("rest", { key: `rest:${orderEvent.pair}:${orderEvent.isBid}:${orderEvent.orderId}` });
       toast.success(
         <div>
           <strong style={{ color: orderEvent.isBid ? "#4CAF50" : "#FF0000" }}>
             {orderEvent.isBid ? "Buy" : "Sell"}
           </strong>{" "}
           order placed at{" "}
-          <span>{adjustDecimalLength(orderEvent.price, 4)}</span>
+          <span>{formatPrice(orderEvent.price)}</span>
           <br />
           <a
             href={`${scannerLink}/tx/${orderEvent.txHash}`}
@@ -281,24 +323,33 @@ export const useOrders = (
       );
     };
 
-    const handleOrderDelete = (orderEvent: SpotOrderEvent) => {
-      console.log("delete orderEvent", orderEvent);
-      queryClient.setQueryData(currentQueryKey, (prev: SpotOrderEvent[]) => {
+    // A cancel arrives as `deleteSpotOrder` AND `deleteSpotOrderHistory`; a match
+    // that CLEARS an order arrives as `deleteSpotOrderHistory` (status "filled")
+    // alone — OrderMatched/AccountOrder publishes no `deleteSpotOrder`. Listening
+    // to the first only left a fully filled maker order on Open orders, at 0.00%
+    // filled, until a reload. Both remove the row; the second is a no-op.
+    const removeOrder = (closed: SpotDeleteOrderItemEvent) => {
+      void applyFrame(queryClient, currentQueryKey, (prev: SpotOrderEvent[]) => {
+        if (!prev) return prev;
+        const next = prev.filter((order) => !sameOrder(order, closed));
+        if (next.length === prev.length) return prev;
         setPrevOrders(prev);
         setTotalCount(prev.length - 1);
         setTotalPages(Math.ceil((prev.length - 1) / pageLimit));
-        return prev.filter((order) => order.orderId !== orderEvent.orderId);
+        return next;
       });
     };
 
     eventBus.on("spot-order-matched", handleOrderMatched);
     eventBus.on("spot-order-update", handleOrderUpdate);
-    eventBus.on("spot-order-delete", handleOrderDelete);
+    eventBus.on("spot-order-delete", removeOrder);
+    eventBus.on("spot-order-history-delete", removeOrder);
 
     return () => {
       eventBus.off("spot-order-matched", handleOrderMatched);
       eventBus.off("spot-order-update", handleOrderUpdate);
-      eventBus.off("spot-order-delete", handleOrderDelete);
+      eventBus.off("spot-order-delete", removeOrder);
+      eventBus.off("spot-order-history-delete", removeOrder);
     };
   }, [networkName, address, pageLimit, page]);
 

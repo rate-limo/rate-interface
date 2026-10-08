@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
 import { useOrderbook } from "@/hooks/useOrderbook";
 import { useRecentTrades } from "@/hooks/useRecentTrades";
+import { useLpPositions } from "@/hooks/useLpPositions";
 import { composePairSnapshot } from "@/lib/pair/snapshot";
-import { getLpPositions, getPoolLiquidity, type LpPosition, type PoolLiquidity } from "@/queries/server/liquidity";
+import { getPoolLiquidity } from "@/queries/server/liquidity";
 import type { PairSnapshot } from "@/lib/pair/types";
 import type { GroupedOrderbookResult } from "@/types/tables/orderbooks/orderbook";
 import type { SpotPair } from "@/types";
@@ -65,57 +67,47 @@ export function usePairSnapshot({
 
     const { data: trades } = useRecentTrades(displayNetworkName, pair.base, pair.quote);
 
-    const [pool, setPool] = useState<PoolLiquidity | null>(null);
-    const [positions, setPositions] = useState<LpPosition[] | null>(null);
-
     const baseId = pair.base?.id;
     const quoteId = pair.quote?.id;
 
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const result = await getPoolLiquidity(displayNetworkName, baseId, quoteId);
-                if (!cancelled) setPool(result);
-            } catch (error) {
-                // getPoolLiquidity is written not to throw; this is the backstop
-                // that keeps a surprise from reaching the page as a rejection.
-                if (!cancelled) {
-                    console.warn("usePairSnapshot: pool leg failed", error);
-                    setPool(null);
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [displayNetworkName, baseId, quoteId]);
+    /**
+     * The pool leg, on a live query rather than a one-shot effect.
+     *
+     * It WAS a `useEffect` keyed on `[network, baseId, quoteId]`. None of those
+     * change when somebody trades, so realised APR and 24h LP fees held whatever
+     * they were when the tab opened — reported by a user as "the page does not
+     * update after buying or selling".
+     *
+     * The interval follows `useLiveTokenStats`, which already solved this for the
+     * token profile and states the rule in its own comment: the socket says WHEN,
+     * the poll still says WHAT. These figures are derived from a trailing 24h
+     * window server-side, so a minute's granularity is the honest resolution —
+     * polling faster would redraw the same number.
+     */
+    const { data: pool = null } = useQuery({
+        queryKey: ["pair-pool-liquidity", displayNetworkName, baseId, quoteId],
+        enabled: Boolean(baseId && quoteId),
+        // getPoolLiquidity returns null rather than throwing (see its own note);
+        // `?? null` keeps react-query from treating undefined as "no data yet".
+        queryFn: async () => (await getPoolLiquidity(displayNetworkName, baseId as string, quoteId as string)) ?? null,
+        refetchInterval: 60_000,
+    });
 
-    useEffect(() => {
-        // No wallet, no position to show. Clearing rather than leaving the previous
-        // wallet's ranges on screen after a disconnect.
-        if (!address) {
-            setPositions(null);
-            return;
-        }
-        let cancelled = false;
-        (async () => {
-            try {
-                const result = await getLpPositions(displayNetworkName, address);
-                // The pair profile draws RANGES on its depth chart; a band has
-                // none, so only that half is relevant here.
-                if (!cancelled) setPositions(result?.ranges ?? null);
-            } catch (error) {
-                if (!cancelled) {
-                    console.warn("usePairSnapshot: positions leg failed", error);
-                    setPositions(null);
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [displayNetworkName, address]);
+    /**
+     * The wallet's BAND positions — the leg that was missing entirely.
+     *
+     * `useLpPositions` is the reader that already knows how to do this: it joins
+     * the gateway's per-token ledger with `BandPositionManager.portfolio()` in one
+     * call, so each band arrives with its tolerance, its USD value and its vesting
+     * ramp. The profile previously called `getLpPositions`, which returns only the
+     * Pool.sol RANGE half of the same response and drops `lpPositions` — so every
+     * band position, which is every position the deposit UI creates, reached this
+     * page as an empty list and rendered as the word "none".
+     *
+     * Reusing the hook rather than re-reading the route also means one cache entry
+     * for the portfolio, the pool page and this one.
+     */
+    const { data: bandTokens = null } = useLpPositions(displayNetworkName, address);
 
     return useMemo(
         () =>
@@ -128,8 +120,14 @@ export function usePairSnapshot({
                 book: book?.bids?.buckets?.length || book?.asks?.buckets?.length ? book : null,
                 trades: trades ?? null,
                 pool,
-                positions,
+                // The Pool.sol RANGE leg is gone from this page: the gateway
+                // returns [] for it on every chain Rate has opened since bands
+                // shipped, and `useLpPositions` covers the generation that
+                // actually has positions. Kept in the composer's signature so a
+                // chain with legacy ranges can be wired back without a type change.
+                positions: null,
+                bandTokens,
             }),
-        [pair, book, trades, pool, positions],
+        [pair, book, trades, pool, bandTokens],
     );
 }

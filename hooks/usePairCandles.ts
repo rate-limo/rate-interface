@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
 import { useQuery } from "@tanstack/react-query";
 import type { Candle } from "@/lib/liquidity/chart";
@@ -42,7 +43,7 @@ export function usePairCandles(networkName: string, symbol: string, period: Pair
         to: String(to),
         resolution: config.resolution,
       });
-      const response = await fetch(`/api/gateway/tradingview/history?${params}`);
+      const response = await gatewayFetch(`/api/gateway/tradingview/history?${params}`);
       if (!response.ok) throw new Error(`Could not load chart history (${response.status})`);
       const history = (await response.json()) as HistoryResponse;
       const size = Math.min(

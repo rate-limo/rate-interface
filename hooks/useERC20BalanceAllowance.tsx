@@ -114,12 +114,21 @@ export const useERC20BalanceAllowance = (
       }
     };
 
+    // A swap reports that it landed, not what it landed on — see the event's
+    // declaration. `refetch` is referentially stable, so this listener does not
+    // need to be re-subscribed when the component re-renders.
+    const handleBalanceRefetch = () => {
+      void refetch();
+    };
+
     eventBus.on("spot-balance-update", handleBalanceUpdate);
+    eventBus.on("spot-balance-refetch", handleBalanceRefetch);
     eventBus.on("spot-trade-update", handleTradeUpdate);
     eventBus.on("spot-allowance-update", handleAllowanceUpdate);
 
     return () => {
       eventBus.off("spot-balance-update", handleBalanceUpdate);
+      eventBus.off("spot-balance-refetch", handleBalanceRefetch);
       eventBus.off("spot-trade-update", handleTradeUpdate);
       eventBus.off("spot-allowance-update", handleAllowanceUpdate);
     };

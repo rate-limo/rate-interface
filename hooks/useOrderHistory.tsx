@@ -1,3 +1,4 @@
+import { applyFrame } from "@/lib/realtime/applyFrame";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   SpotDeleteOrderItemEvent,
@@ -6,7 +7,7 @@ import {
   SpotTrade,
   streamToEvent,
 } from "@/types";
-import { adjustDecimalLength } from "@/utils/number";
+import { formatPrice } from "@/lib/format/price";
 import {
   createOrderCloseAggregator,
   describeOrderClose,
@@ -17,6 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { eventBus } from "@/utils/events";
 import { getSpotAccountOrderHistories } from "@/queries/server/orderhistories";
 import { toast } from "sonner";
+import { claimOutcome, playSound } from "@/lib/sound";
 
 /**
  * What the REST order-history route actually returns.
@@ -28,12 +30,22 @@ import { toast } from "sonner";
  */
 export type OrderHistoryRow = Omit<
   SpotOrderHistoryEvent,
-  "assetDecimals" | "gasUsed" | "status"
+  "assetDecimals" | "gasUsed" | "status" | "orderId"
 > & {
+  /** The order's own id; null on a crossed row, which never rested. */
+  orderId: number | null;
+  /** false: the order crossed outright and has no id. Absent from gateways
+   *  older than the field — read it through `neverRested`. */
+  rested?: boolean;
   assetDecimals?: number;
   gasUsed?: number;
   status?: string;
-  matchHistories?: SpotTrade[];
+  /** Fills against this order; each carries its counterparty (`origin`). */
+  matchHistories?: (SpotTrade & { origin?: "pool" | "maker" })[];
+  amountBN?: string | null;
+  fills?: number;
+  /** A crossed order's fills by counterparty; `pool + maker === fills`. */
+  origins?: { pool: number; maker: number };
 };
 
 export const useOrderHistory = (
@@ -87,6 +99,9 @@ export const useOrderHistory = (
           eventId: "spotOrderHistory",
           isBid: order.isBid,
           orderId: order.orderId,
+          // Whether the order rested; absent from an older gateway. Carried so
+          // neverRested reads the field rather than inferring from orderId.
+          rested: order.rested,
           base: order.base.id,
           baseSymbol: order.baseSymbol,
           quote: order.quote.id,
@@ -102,9 +117,18 @@ export const useOrderHistory = (
           txHash: order.txHash,
           updatedAt: Date.now(),
           matchHistories: order.matchHistories,
+          // Passed through for the History tab: what became of the order, its
+          // exact size (a full cancel zeroes `amount` but not `amountBN`), and
+          // for an order that crossed outright, how many fills it took.
+          status: (order as { status?: string }).status,
+          amountBN: (order as { amountBN?: string | null }).amountBN ?? null,
+          assetDecimals: (order as { assetDecimals?: number }).assetDecimals,
+          fills: (order as { fills?: number }).fills,
+          origins: (order as { origins?: { pool: number; maker: number } }).origins,
         };
       });
       setPrevOrderHistories(orderHistoryEvents);
+      // not-a-frame: inside this query's own queryFn, writing its own result.
       queryClient.setQueryData(queryKey, orderHistoryEvents);
       return orderHistoryEvents;
     },
@@ -115,14 +139,16 @@ export const useOrderHistory = (
   useEffect(() => {
     const handleOrderHistoryUpdate = (orderHistoryEvent: SpotOrderHistoryEvent) => {
       console.log("orderHistoryEvent", orderHistoryEvent);
+      // "orderhistories", the key the query reads. This wrote to "orderhistory",
+      // which nothing reads, so a new order never reached History live.
       const updateQueryKey = [
-        "orderhistory",
+        "orderhistories",
         networkName,
         address,
         pageLimit,
         page,
       ];
-      queryClient.setQueryData(
+      void applyFrame(queryClient, 
         updateQueryKey,
         (prev: SpotOrderHistoryEvent[]) => {
           if (!prev) return prev;
@@ -130,8 +156,13 @@ export const useOrderHistory = (
           setPrevOrderHistories(prev);
           let orderUpdated = false;
           // update SpotOrderEvent to SpotOrder
+          // (pair, side, orderId): an orderId is only unique within one book side.
           const updatedOrders = prev.map((order) => {
-            if (order.orderId === orderHistoryEvent.orderId) {
+            if (
+              order.orderId === orderHistoryEvent.orderId &&
+              order.pair === orderHistoryEvent.pair &&
+              order.isBid === orderHistoryEvent.isBid
+            ) {
               orderUpdated = true;
               return orderHistoryEvent;
             }
@@ -140,8 +171,10 @@ export const useOrderHistory = (
           // if no update, add the order to the start if the page is 1
           if (!orderUpdated && page === 1) {
             updatedOrders.unshift(orderHistoryEvent);
-            // remove the last order if the page is 1
-            updatedOrders.pop();
+            // Trim only a FULL page. This popped unconditionally, so on a page with
+            // room — every new account's first order — the row it had just added
+            // was the one removed, and History stayed empty until a reload.
+            if (updatedOrders.length > pageLimit) updatedOrders.length = pageLimit;
           }
           setTotalCount(prev.length + 1);
           setTotalPages(Math.ceil((prev.length + 1) / pageLimit));
@@ -177,18 +210,28 @@ export const useOrderHistory = (
       // nine fields, not the full history row. The price comes off the row being
       // removed, which is still in the cache at this point.
       let closedPrice: number | undefined;
-      queryClient.setQueryData(queryKey, (prev: SpotOrderHistoryEvent[]) => {
+      void applyFrame(queryClient, queryKey, (prev: SpotOrderHistoryEvent[]) => {
         setPrevOrderHistories(prev);
-        setTotalCount(prev.length - 1);
-        setTotalPages(Math.ceil((prev.length - 1) / pageLimit));
         closedPrice = prev.find(
           (order) => order.orderId === orderHistoryEvent.orderId
         )?.price;
-        return prev.filter(
-          (order) => order.orderId !== orderHistoryEvent.orderId
+        // HISTORY keeps the row: the order did not vanish, it finished. It used
+        // to be filtered out, so a cancel or a fill removed the one record of it
+        // until a reload. Status is updated in place instead.
+        return prev.map((order) =>
+          order.orderId === orderHistoryEvent.orderId && order.pair === orderHistoryEvent.pair
+            ? { ...order, status: orderHistoryEvent.status }
+            : order
         );
       });
       setUpdated(true);
+      // A filled row's expand lists its fills from `matchHistories`, which only
+      // the REST row carries — the closure frame has nine fields and no fills. So
+      // a fill refetches the page: the broker commits before it publishes, and
+      // the read that follows includes the trades this frame announced.
+      if (orderHistoryEvent.status === "filled") {
+        void queryClient.invalidateQueries({ queryKey, exact: true });
+      }
 
       const closed = closesRef.current!.add({
         txHash: orderHistoryEvent.txHash,
@@ -198,9 +241,14 @@ export const useOrderHistory = (
         price: closedPrice,
       });
       const { title, description } = describeOrderClose(closed, (value) =>
-        adjustDecimalLength(value, 4)
+        formatPrice(value)
       );
 
+      // A fill is the signature cue — the order you left on the book met your
+      // rate — and one per transaction, however many orders it closed. A cancel
+      // was already sounded by the press that caused it, so its toast is quiet.
+      if (closed.status === "filled") playSound("rateHit", { key: `close:${closed.key}` });
+      else claimOutcome();
       toast.success(title, {
         description,
         duration: 4000,

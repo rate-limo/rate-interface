@@ -1,3 +1,4 @@
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import { PonderLinks } from "@/consts";
 import { useQuery } from "@tanstack/react-query";
 
@@ -57,7 +58,7 @@ export function useTokenSparklines(tokens: readonly { id: string; chain: string 
           const base = PonderLinks[token.chain];
           if (!base) return [mapKey, []];
           try {
-            const response = await fetch(`${base}/api/token/sparklines/${token.id}`);
+            const response = await gatewayFetch(`${base}/api/token/sparklines/${token.id}`);
             if (!response.ok) return [mapKey, []];
             const body = await response.json();
             const series = Array.isArray(body?.sparkline1D) ? body.sparkline1D : [];

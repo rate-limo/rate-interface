@@ -10,7 +10,11 @@ import { describe, expect, it, vi } from "vitest";
  */
 
 const gasPrice = vi.hoisted(() => ({ data: undefined as bigint | undefined, isLoading: false, isError: false }));
-vi.mock("wagmi", () => ({ useGasPrice: () => gasPrice }));
+vi.mock("wagmi", () => ({ useGasPrice: () => gasPrice, useAccount: () => ({ address: undefined }) }));
+vi.mock("@/lib/wallet/feeToken", async () => {
+  const { tip20GasToken } = await import("@/lib/chains/gasToken");
+  return { useFeeToken: (chainId: number | undefined) => tip20GasToken(chainId) };
+});
 
 const { useNetworkFee, GAS_LIMITS } = await import("./useNetworkFee");
 
@@ -68,5 +72,14 @@ describe("useNetworkFee", () => {
     gasPrice.data = undefined;
     gasPrice.isLoading = true;
     expect(useNetworkFee(ARC, GAS_LIMITS.order).state).toBe("loading");
+  });
+
+  it("prices Tempo's fee in PathUSD at 1e-18 dollars, not the placeholder native's 6 decimals", () => {
+    // Tempo has no gas coin; gas * price is in 1e-18 dollars (90M gas at 1.2 gwei was
+    // quoted as 0.108 TIP-20). Formatting with viem's placeholder 6 decimals would
+    // print 384,000,000 for an order that costs 0.000384.
+    gasPrice.data = BigInt(1_200_000_000);
+    const fee = read(42431, BigInt(320_000));
+    expect(fee).toEqual({ state: "ok", amount: "0.000384", symbol: "PathUSD" });
   });
 });

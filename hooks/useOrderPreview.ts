@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
 import { useEffect, useState } from "react";
 import { PonderLinks } from "@/consts";
@@ -117,7 +118,7 @@ export function useOrderPreview(input: {
       if (recipient) qs.set("recipient", recipient);
 
       qs.set("network", networkName);
-      void fetch(`${host}/order/preview?${qs.toString()}`)
+      void gatewayFetch(`${host}/order/preview?${qs.toString()}`)
         .then(async (r) => {
           // A 4xx here means THIS HOOK sent something malformed. It is not a
           // verdict and must not be rendered as one — an order the exchange

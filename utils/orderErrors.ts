@@ -84,6 +84,15 @@ const KNOWN_ERROR_MESSAGES: Record<string, DecodedOrderError> = {
       "This order would match against more price levels than a single transaction allows. Split it into smaller orders, or set a limit price closer to the current one.",
     fix: "use-market-price",
   },
+  // Reverted by MatchingLib when gas runs below the per-order reserve before the
+  // FIRST match while the book still crosses (contracts/CLAUDE.md,
+  // "InsufficientGasToMatch"). Nothing traded and nothing rested, and a retry is the
+  // fix: the wallet's estimate now has to pay for at least one match.
+  InsufficientGasToMatch: {
+    title: "Not enough gas to fill",
+    description:
+      "This order ran out of gas before it could match anything, so nothing was traded and your funds were not moved. Try again; your wallet will estimate a higher gas limit.",
+  },
 
   // --- Orderbook / ExchangeLinkedList ---------------------------------------
   // These are thrown BELOW the engine, so none of them could be decoded until
@@ -99,6 +108,24 @@ const KNOWN_ERROR_MESSAGES: Record<string, DecodedOrderError> = {
     description:
       "This price rounds to zero at the pair's on-chain precision. Increase the price and try again.",
     fix: "use-market-price",
+  },
+  /**
+   * The market-order counterpart to `NoMatchPrice`, and the likelier of the two on a
+   * coin nobody has made a market in: there IS a price, but nothing reachable to trade
+   * against — no resting order within the pair's spread, and no pool liquidity behind
+   * it. `OrderPlacementLib` reverts rather than refunding, because a market order that
+   * succeeds having spent nothing reads as a fill at a price that never happened.
+   *
+   * The fix is a limit order, which does not revert in this state: it rests and becomes
+   * the liquidity the next person trades against. That is worth saying, because the
+   * instinct on "insufficient liquidity" is to try a smaller size, and size is not the
+   * problem here — no amount would have filled.
+   */
+  InsufficientLiquidity: {
+    title: "Nothing to trade against",
+    description:
+      "There are no orders within range on this side of the book, and the pool has no liquidity to fill from, so a market order has nothing to match. A limit order will rest here instead of failing.",
+    fix: "switch-to-limit",
   },
   NoMatchPrice: {
     title: "No price to match at",
@@ -154,9 +181,10 @@ const KNOWN_ERROR_MESSAGES: Record<string, DecodedOrderError> = {
     title: "An ERC-721 trades one at a time",
     description: "This order asks for a quantity other than 1. Set it to 1 and try again.",
   },
+  // Shared by NFT orders and LadderBuyer: the decoder keys on the name.
   ZeroAmount: {
     title: "Pick an amount above zero",
-    description: "An ERC-1155 order has to move at least one item.",
+    description: "There is nothing to trade at zero. Enter an amount and try again.",
   },
   ZeroQuoteToken: {
     title: "Choose a token to price this in",
@@ -193,6 +221,232 @@ const KNOWN_ERROR_MESSAGES: Record<string, DecodedOrderError> = {
   NotExpired: {
     title: "This order has not expired yet",
     description: "It can only be swept once its expiry is in the past.",
+  },
+
+  // --- AssetGenerator: launching a coin, listing a pair ------------------------
+  // Decodable because the launch and the pool-launch both call the generator
+  // with `AssetGeneratorABI`, which declares every one of these.
+  DevBuyTooSmall: {
+    title: "Your dev buy is below the minimum",
+    description: "Every launch starts with a dev buy of at least the minimum shown. Raise it and try again.",
+  },
+  DevBuyTooLarge: {
+    title: "Your dev buy is over 10% of the supply",
+    description: "A creator can buy at most 10% of the supply at the starting price. Lower it and try again.",
+  },
+  ListingPriceTooLow: {
+    title: "That starting price is too small",
+    description:
+      "It is below the smallest price the market can list. For a coin launch, use a smaller supply; for a pool, raise the price or swap the pair's order.",
+  },
+  NoBandPool: {
+    title: "This market can't hold a pool",
+    description: "The launch needs a pool to lock the supply in, and none was created for this pair. Nothing was deployed.",
+  },
+  InsufficientFee: {
+    title: "The launch fee wasn't attached",
+    description: "The launch fee changed or was not sent with the transaction. Refresh and try again.",
+  },
+  QuoteNotEnabled: {
+    title: "That quote token isn't accepted",
+    description: "An operator has turned this quote off since the page loaded. Refresh and pick another.",
+    fix: "refresh",
+  },
+  PairAlreadyListed: {
+    title: "This market already exists",
+    description: "Someone listed this pair first. Add liquidity to it instead of launching it.",
+    fix: "refresh",
+  },
+  InvalidVolatility: {
+    title: "That volatility isn't allowed",
+    description: "It is outside the range Rate allows. Refresh and pick again.",
+    fix: "refresh",
+  },
+  FeeOutsidePairRange: {
+    title: "That fee isn't allowed",
+    description: "It is outside the range Rate allows for a market. Refresh and pick again.",
+    fix: "refresh",
+  },
+  FeeAboveCreatorCap: {
+    title: "That fee is above the ceiling",
+    description: "It is above the most a lister or creator may set. Pick a lower fee.",
+  },
+  LadderNotFilled: {
+    title: "Not every step has sold yet",
+    description: "Graduation can be armed once all five sell steps have sold. Nothing was changed.",
+  },
+  GraduationNotReady: {
+    title: "Graduation isn't ready yet",
+    description: "It is armed and finishes 5 minutes after arming. Try again when the countdown ends.",
+  },
+  AlreadyGraduated: {
+    title: "This coin has already graduated",
+    description: "Nothing was changed.",
+    fix: "refresh",
+  },
+  NotGraduated: {
+    title: "This coin hasn't graduated yet",
+    description: "There is no pool position until it does.",
+  },
+  NothingToRelease: {
+    title: "Nothing new has vested",
+    description: "Liquidity vests over 12 months from graduation. Try again later.",
+  },
+  NotVesting: {
+    title: "This liquidity never unlocks",
+    description: "The coin was launched to keep earning fees forever. You can collect fees, not withdraw.",
+  },
+  NotTheCreator: {
+    title: "Only the coin's creator can do that",
+    description: "Connect the wallet that launched this coin.",
+  },
+  NotTheLister: {
+    title: "Only the pool's lister can do that",
+    description: "Connect the wallet that listed this pair.",
+  },
+  BandCallNotAllowed: {
+    title: "That pool change isn't allowed",
+    description: "A lister can only configure the pool's bands, fees per band and which bands are open.",
+  },
+  // --- LadderBuyer: Buy and Sell on a launch coin before it graduates --------
+  InsufficientOutput: {
+    title: "The price moved while you were confirming",
+    description: "This trade would now deliver less than its minimum, so nothing was traded. Try again, or allow more slippage.",
+    fix: "refresh",
+  },
+  NativeLegUnsupported: {
+    title: "This market can't be traded this way",
+    description: "One side is the chain's wrapped native coin, which this trade can't handle. Use the order book instead.",
+  },
+  NoMarket: {
+    title: "Market not found",
+    description: "There is no market for this coin on this network yet, so nothing was traded.",
+    fix: "browse-markets",
+  },
+  NoWrappedNative: {
+    title: "Can't pay with the native coin here",
+    description: "This network has no wrapped native coin for this trade, so nothing was traded. Pay with the market's quote token instead.",
+  },
+  NotCanonicalWrapper: {
+    title: "This market can't be traded this way",
+    description: "The trade named a wrapped native coin this venue doesn't use, so nothing was traded. Pay with the market's quote token instead.",
+  },
+  UnexpectedNative: {
+    title: "Native coin sent to the wrong place",
+    description: "The trade contract only accepts the native coin from its own wrapper, so nothing was traded and the coin was not taken.",
+  },
+  EmptyMetadata: {
+    title: "The coin needs a name and a symbol",
+    description: "Fill both in and try again. Nothing was deployed.",
+  },
+  SupplyIsZero: {
+    title: "The supply can't be zero",
+    description: "Enter a supply and try again. Nothing was deployed.",
+  },
+  CoinNotLaunched: {
+    title: "That isn't a coin launched on Rate",
+    description: "Only coins launched here have a launch to manage.",
+  },
+  RefundFailed: {
+    title: "The leftover fee couldn't be refunded",
+    description: "Your wallet refused the refund of the unused launch fee, so nothing was deployed. Send exactly the fee shown.",
+  },
+  InvalidRecipient: {
+    title: "No wallet to send to",
+    description: "Connect a wallet and try again.",
+  },
+  CreatorFeeControlLocked: {
+    title: "Fee and volatility are locked",
+    description: "They unlock at graduation, unless an operator has locked them.",
+  },
+
+  // --- Band pool deposits (contracts/src/swap) -------------------------------
+  // Thrown BELOW the position manager, by `BandPool` or `BandSwapRouter`, so none
+  // of them could be decoded until their fragments were merged into the call's ABI
+  // (components/abis/bandDeposit). Wording is aimed at someone adding liquidity,
+  // not at someone reading the contract.
+  ZeroLiquidity: {
+    title: "That amount is too small for this band",
+    description:
+      "One of the bands you picked would receive so little that it rounds to nothing on chain, so the deposit was refused. Deposit more, or put your money into fewer bands.",
+  },
+  NoLiquidity: {
+    title: "This band has nothing to trade against",
+    description:
+      "Bringing one token means swapping half of it inside the band, and this band is empty, so there is nothing to swap with. Deposit both tokens, or pick a band that already holds liquidity.",
+  },
+  NothingFilled: {
+    title: "The swap inside the band did not go through",
+    description:
+      "Half your deposit has to be swapped in the band before it can be added, and that swap filled nothing. Try a larger amount, or deposit both tokens instead.",
+  },
+  SharesBelowMinimum: {
+    title: "The price moved while you were confirming",
+    description:
+      "This deposit would now buy less of the pool than it was quoted, so it was refused rather than filled at the worse price. Try again.",
+  },
+  SlippageExceeded: {
+    title: "The price moved while you were confirming",
+    description: "The pool moved past the limit set for this deposit. Try again.",
+  },
+  AmountBelowMinimum: {
+    title: "You would get back less than you asked for",
+    description:
+      "The amounts this withdrawal returns fell below the minimum set for it, so nothing was moved. Try again.",
+  },
+  BandClosed: {
+    title: "That band is closed",
+    description: "The pool's creator has closed this band, so it cannot take deposits. Pick another one.",
+  },
+  BadBand: {
+    title: "That band does not exist",
+    description: "This pool has fewer bands than the deposit named. Reload the page and pick again.",
+  },
+  BandsNotAscending: {
+    title: "The bands came through out of order",
+    description: "The deposit listed its bands in the wrong order. Reload the page and try again.",
+    fix: "refresh",
+  },
+  BandHoldsLiquidity: {
+    title: "This band still holds money",
+    description: "A band cannot be closed or reshaped while there is liquidity in it.",
+  },
+  NoAnchorPrice: {
+    title: "This market has no price yet",
+    description:
+      "The pool prices deposits against the pair's recent trades, and this pair has none. It needs a trade before liquidity can be added.",
+  },
+  // Shared by the band deposit and LadderBuyer: the decoder keys on the name.
+  DeadlinePassed: {
+    title: "This took too long to confirm",
+    description: "It sat unconfirmed past its time limit, so nothing was sent. Try again.",
+    fix: "refresh",
+  },
+  NotOwnerOrApproved: {
+    title: "This position belongs to another wallet",
+    description: "Connect the wallet that holds it, then try again.",
+  },
+  UnknownPool: {
+    title: "That pool is not recognised",
+    description: "This address is not a pool the factory created. If you reached this from the app, please report it.",
+  },
+  PositionNotEmpty: {
+    title: "This position still holds money",
+    description: "Withdraw everything from it first, then close it.",
+  },
+  BadBps: {
+    title: "That percentage is out of range",
+    description: "Pick an amount between 0% and 100%.",
+  },
+  LengthMismatch: {
+    title: "The deposit was built wrong",
+    description: "Its bands and amounts did not line up. Reload the page and try again.",
+    fix: "refresh",
+  },
+  OnlyPositionManager: {
+    title: "Not allowed",
+    description:
+      "This pool only accepts deposits through the position manager. If you reached this from the app, please report it.",
   },
 
   // --- Shared / OpenZeppelin -------------------------------------------------

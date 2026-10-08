@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { usePublicClient } from "wagmi";
 import { AssetGeneratorABI, ERC20ABI } from "@iter/abis";
-import { findChain } from "@iter/deployments";
+import { findChain, isTestQuoteToken } from "@iter/deployments";
 import { contractAddress } from "@/lib/deployments";
 
 /**
@@ -38,10 +38,12 @@ export interface QuoteOptionRow {
   symbol: string;
   decimals: number;
   enabled: boolean;
-  /** Engine-scaled (1e8) listing rate, as stored. Callers divide for display. */
-  listingPrice: bigint;
-  /** What the engine charges the listing cost in. Zero address => the coin itself. */
-  listingPayment: `0x${string}`;
+  /** What a coin's whole supply is worth at its starting price, raw quote units. */
+  startingMarketCap: bigint;
+  /** Smallest dev buy a launch against this quote accepts, raw quote units. */
+  minDevBuy: bigint;
+  /** The ladder's top step and graduation's market cap, raw quote units. */
+  graduationMarketCap: bigint;
   /** `FEE_DENOM`-scaled taker fee a coin launched against this quote starts on. */
   startingTakerFee: number;
 }
@@ -71,7 +73,11 @@ export function useQuoteOptions(networkName: string | number | undefined) {
           functionName: "enabledQuoteTokens",
         })) as `0x${string}`[];
 
-        if (enabled.length === 0) return [];
+        // The verify run's mock quote is a real, enabled option on chain while it
+        // launches its test coin; the registry marks it test-only so creators are
+        // never offered it. See ChainConfig.testQuoteTokens.
+        const offered = chainId ? enabled.filter((address) => !isTestQuoteToken(chainId, address)) : enabled;
+        if (offered.length === 0) return [];
 
         // Individual reads, deliberately NOT multicall.
         //
@@ -85,7 +91,7 @@ export function useQuoteOptions(networkName: string | number | undefined) {
         // These run in parallel, so the cost is one round trip either way for
         // the handful of quotes an operator configures.
         const results = await Promise.all(
-          enabled.flatMap((quote) => [
+          offered.flatMap((quote) => [
             client
               .readContract({ address: generator, abi: AssetGeneratorABI, functionName: "quoteOption", args: [quote] })
               .then((r) => ({ ok: true as const, r }))
@@ -101,7 +107,7 @@ export function useQuoteOptions(networkName: string | number | undefined) {
           ]),
         );
 
-        return enabled.flatMap((quote, i): QuoteOptionRow[] => {
+        return offered.flatMap((quote, i): QuoteOptionRow[] => {
           const option = results[i * 3];
           const symbol = results[i * 3 + 1];
           const decimals = results[i * 3 + 2];
@@ -112,8 +118,9 @@ export function useQuoteOptions(networkName: string | number | undefined) {
 
           const o = option.r as {
             enabled: boolean;
-            listingPrice: bigint;
-            listingPayment: `0x${string}`;
+            startingMarketCap: bigint;
+            minDevBuy: bigint;
+            graduationMarketCap: bigint;
             startingTakerFee: number | bigint;
           };
 
@@ -125,8 +132,9 @@ export function useQuoteOptions(networkName: string | number | undefined) {
               symbol: symbol?.ok ? String(symbol.r) : shortAddr(quote),
               decimals: decimals?.ok ? Number(decimals.r) : 18,
               enabled: Boolean(o.enabled),
-              listingPrice: BigInt(o.listingPrice ?? 0),
-              listingPayment: o.listingPayment,
+              startingMarketCap: BigInt(o.startingMarketCap ?? 0),
+              minDevBuy: BigInt(o.minDevBuy ?? 0),
+              graduationMarketCap: BigInt(o.graduationMarketCap ?? 0),
               startingTakerFee: Number(o.startingTakerFee ?? 0),
             },
           ];

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { SlideGroup, SlidingIndicator } from "@/components/ui/sliding-indicator";
 import {
   ContractArgs,
   useTradePageContext,
@@ -14,6 +15,8 @@ import {
   safeRoundDecimals,
 } from "@/utils/orderAmounts";
 import { isValidNonNegativeNumberInput } from "@/utils/numberInput";
+import { formatUnits } from "viem";
+import { REFUND_NOTE } from "@/lib/launch/ladderBuy";
 
 export default function TradingPanel() {
   const {
@@ -43,6 +46,8 @@ export default function TradingPanel() {
     approvalContractArgsForGasEstimation,
     amount,
     setAmount,
+    ladderBuyQuote,
+    ladderMarket,
   } = useTradePageContext();
 
   /*
@@ -154,59 +159,65 @@ export default function TradingPanel() {
   return (
     <div className="flex min-h-full w-full flex-col bg-[color:var(--m-surface)] p-3 text-[12px] text-[color:var(--m-text-primary)]">
       {/* Order Mode Tabs */}
+      <SlideGroup>
       <div className="mb-3 grid h-9 grid-cols-3 border-b border-[color:var(--m-border)]">
         <button
           data-testid="order-mode-market"
-          className={`px-3 py-2 text-[11px] font-medium ${
+          className={`relative px-3 py-2 text-[11px] font-medium transition-colors duration-150 ${
             orderMode === "Market"
-              ? "text-[color:var(--m-text-primary)] border-b-2 border-[color:var(--m-primary)]"
-              : "text-[color:var(--m-text-secondary)]"
+              ? "text-[color:var(--m-text-primary)]"
+              : "text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]"
           }`}
           onClick={() => {
             setOrderMode("Market");
             setIsLimit(false);
           }}
         >
-          Market
+          {orderMode === "Market" && <SlidingIndicator className="inset-x-0 -bottom-px h-0.5 rounded-full bg-[color:var(--m-primary)]" />}
+          <span className="relative">Market</span>
         </button>
         <button
           data-testid="order-mode-limit"
-          className={`px-3 py-2 text-[11px] font-medium ${
+          className={`relative px-3 py-2 text-[11px] font-medium transition-colors duration-150 ${
             orderMode === "Limit"
-              ? "text-[color:var(--m-text-primary)] border-b-2 border-[color:var(--m-primary)]"
-              : "text-[color:var(--m-text-secondary)]"
+              ? "text-[color:var(--m-text-primary)]"
+              : "text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]"
           }`}
           onClick={() => {
             setOrderMode("Limit");
             setIsLimit(true);
           }}
         >
-          Limit
+          {orderMode === "Limit" && <SlidingIndicator className="inset-x-0 -bottom-px h-0.5 rounded-full bg-[color:var(--m-primary)]" />}
+          <span className="relative">Limit</span>
         </button>
         <button
           data-testid="order-mode-stop-limit"
-          className={`px-3 py-2 text-[11px] font-medium ${
+          className={`relative px-3 py-2 text-[11px] font-medium transition-colors duration-150 ${
             orderMode === "Stop-limit"
-              ? "text-[color:var(--m-text-primary)] border-b-2 border-[color:var(--m-primary)]"
-              : "text-[color:var(--m-text-secondary)]"
+              ? "text-[color:var(--m-text-primary)]"
+              : "text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]"
           }`}
           onClick={() => {
             setOrderMode("Stop-limit");
             setIsLimit(true);
           }}
         >
-          Stop-limit
+          {orderMode === "Stop-limit" && <SlidingIndicator className="inset-x-0 -bottom-px h-0.5 rounded-full bg-[color:var(--m-primary)]" />}
+          <span className="relative">Stop-limit</span>
         </button>
       </div>
+      </SlideGroup>
 
       {/* Divider */}
       <div className="hidden"></div>
 
-      {/* Buy/Sell Toggle */}
+      {/* Buy/Sell Toggle — one highlight slides between the two and takes the side's colour. */}
+      <SlideGroup>
       <div className="mb-4 flex rounded-[4px] border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)] p-[3px]">
         <button
-          className={`flex-1 rounded-[3px] py-2.5 font-medium ${
-            isBid ? "bg-green-400 text-white" : "bg-transparent"
+          className={`relative flex-1 rounded-[3px] py-2.5 font-medium transition-colors duration-150 ${
+            isBid ? "text-white" : "text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]"
           }`}
           onClick={() => {
             setIsBid(true);
@@ -216,11 +227,12 @@ export default function TradingPanel() {
             setAmount("");
           }}
         >
-          Buy
+          {isBid && <SlidingIndicator className="inset-0 rounded-[3px] bg-green-400" />}
+          <span className="relative">Buy</span>
         </button>
         <button
-          className={`flex-1 rounded-[3px] py-2.5 font-medium ${
-            !isBid ? "bg-red-400 text-white" : "bg-transparent"
+          className={`relative flex-1 rounded-[3px] py-2.5 font-medium transition-colors duration-150 ${
+            !isBid ? "text-white" : "text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]"
           }`}
           onClick={() => {
             setIsBid(false);
@@ -230,9 +242,11 @@ export default function TradingPanel() {
             setAmount("");
           }}
         >
-          Sell
+          {!isBid && <SlidingIndicator className="inset-0 rounded-[3px] bg-red-400" />}
+          <span className="relative">Sell</span>
         </button>
       </div>
+      </SlideGroup>
 
       {/* Account Info */}
       <div className="flex justify-between mb-2">
@@ -452,6 +466,34 @@ export default function TradingPanel() {
         <PlaceOrderButton isConnectedInput={isConnected} />
       )}
 
+      {/* A launch coin still selling in steps: what this Buy is expected to
+          deliver, walked across the steps. Nothing rests; see lib/launch/ladderBuy. */}
+      {ladderBuyQuote && ladderBuyQuote.coinsOut > BigInt(0) && (
+        <div className="mb-2 flex flex-col gap-1" data-testid="ladder-buy-quote">
+          <div className="flex justify-between">
+            <span className="text-[color:var(--m-text-secondary)]">Expected</span>
+            <span>
+              {Number(formatUnits(ladderBuyQuote.coinsOut, pair.base.decimals)).toLocaleString("en-US", { maximumFractionDigits: 2 })}{" "}
+              {pair.base.symbol}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[color:var(--m-text-secondary)]">Average price</span>
+            <span>
+              1 {pair.base.symbol} ={" "}
+              {(
+                Number(formatUnits(ladderBuyQuote.quoteUsed, pair.quote.decimals)) /
+                Number(formatUnits(ladderBuyQuote.coinsOut, pair.base.decimals))
+              ).toPrecision(4)}{" "}
+              {pair.quote.symbol}
+            </span>
+          </div>
+        </div>
+      )}
+      {ladderMarket && !isLimit && (
+        <p className="mb-2 text-[color:var(--m-text-secondary)]">{REFUND_NOTE}</p>
+      )}
+
       {/* Order Info */}
       <div className="flex justify-between mb-2">
         <span className="text-[color:var(--m-text-secondary)] underline">
@@ -476,7 +518,7 @@ export default function TradingPanel() {
       </div>
       <div className="flex justify-between">
         <span className="text-[color:var(--m-text-secondary)]">Fees</span>
-        <span>0.1% / 0.1%</span>
+        <span>0.10% taker · 0% maker</span>
       </div>
     </div>
   );
