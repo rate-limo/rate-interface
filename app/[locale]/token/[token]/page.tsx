@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { AppShell } from "@/components/Shell/AppShell";
 import { MarketPageProvider } from "@/contexts/MarketPageProvider";
 import { LaunchTokenProfile } from "@/components/Pages/Launch/LaunchTokenProfile";
@@ -77,10 +78,10 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   // /price's title, kept verbatim in shape because it is the one search results
   // already show for these tokens, and this route is where that traffic now
   // lands. The launch wording is additive: "launch profile" is a claim about a
-  // launch on Iter, and this route also serves tokens that arrived any other
+  // launch on Rate, and this route also serves tokens that arrived any other
   // way, so it is gated on the same `creator` column the page's own gate uses.
   const launched = Boolean(meta?.creator);
-  const title = `${symbol} – ${name} Price, ${symbol} Price Chart & Marketcap in ${networkName} – Iter`;
+  const title = `${symbol} – ${name} Price, ${symbol} Price Chart & Marketcap in ${networkName} – Rate`;
 
   // Lead with the live numbers. A share card whose description is generic prose
   // reads as a brochure; the figures are the reason anyone opens a token link,
@@ -95,7 +96,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   ]
     .filter(Boolean)
     .join(" ");
-  const description = `${facts} Trade ${symbol} on ${networkName} via Iter.${
+  const description = `${facts} Trade ${symbol} on ${networkName} via Rate.${
     launched ? ` Track its launch progress and graduation.` : ""
   }`;
 
@@ -124,7 +125,28 @@ export default async function TokenPage({ params, searchParams }: PageProps) {
   const network = readDisplaySlug("token", await searchParams);
   const networkName = supportedNetworkName(network);
   const tokenKey = decodeURIComponent(token);
-  const tokenData = await resolveToken(networkName, tokenKey);
+
+  /*
+   * A token this chain cannot name is a 404, not a profile.
+   *
+   * `resolveToken` throws on a miss now (the symbol lookup used to hand back
+   * the gateway's `{"error":"Token not found"}` body as though it were a
+   * token). Rendering that produced a profile of nothing, and the failure
+   * surfaced four frames away in whichever atom touched a field first —
+   * `tokenColor` on `symbol.length`, `useLiveTokenStats` on
+   * `address.toLowerCase()` — naming neither the token nor the lookup.
+   *
+   * Worth the explicit branch rather than letting the throw become a 500: a
+   * redeploy turns every pre-redeploy token URL into an unknown symbol at once,
+   * so this is the ordinary case for an old link, not an exceptional one.
+   */
+  let tokenData: SpotToken;
+  try {
+    tokenData = await resolveToken(networkName, tokenKey);
+  } catch {
+    notFound();
+  }
+  if (!tokenData.symbol) notFound();
 
   const [{ pairs }, overview] = await Promise.all([
     getBasePairs(networkName, tokenData.symbol),

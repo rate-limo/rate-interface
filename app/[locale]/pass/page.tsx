@@ -1,5 +1,5 @@
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { Metadata } from "next";
-import { Toaster } from "sonner";
 import { AppShell } from "@/components/Shell/AppShell";
 import { MarketPageProvider } from "@/contexts/MarketPageProvider";
 import { OgPassView } from "@/components/OgPass/OgPassView";
@@ -13,18 +13,18 @@ interface PageProps {
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const network = readDisplaySlug("pass", await searchParams);
   const networkName = supportedNetworkName(network);
-  const title = `Iter | Iter ${networkName}`;
+  const title = `Rate | Rate ${networkName}`;
   const description =
-    "Iter is an onchain orderbook and liquidity venue with self-custodial trading, passkey access, sponsored gas, and transparent execution.";
+    "Rate is an onchain orderbook and liquidity venue with self-custodial trading, passkey access, sponsored gas, and transparent execution.";
 
   return {
     title,
     description,
     openGraph: {
-      siteName: "Iter",
+      siteName: "Rate",
       title,
       description,
-      images: [{ url: "/api/og", width: 1200, height: 630, type: "image/jpeg", alt: "Iter" }],
+      images: [{ url: "/api/og", width: 1200, height: 630, type: "image/jpeg", alt: "Rate" }],
     },
     twitter: { card: "summary_large_image", images: ["/api/og"] },
   };
@@ -48,17 +48,7 @@ export default async function PassPage({ searchParams }: PageProps) {
             <OgPassView networkSlug={network} />
           </motion.div>
         </div>
-        <Toaster
-          position="bottom-right"
-          closeButton
-          toastOptions={{
-            style: {
-              background: "var(--m-surface)",
-              border: "1px solid var(--m-border)",
-              color: "var(--m-text-primary)",
-            },
-          }}
-        />
+        <AppToaster />
       </AppShell>
     </MarketPageProvider>
   );

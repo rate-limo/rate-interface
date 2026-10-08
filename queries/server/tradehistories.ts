@@ -41,3 +41,44 @@ export const getSpotAccountTradeHistories = async (
 
   return { ...data, lastUpdated: Date.now() } as SpotAccountTradeHistory;
 };
+
+/** One fill behind a grouped trade, with its counterparty (`origin`). */
+export type SpotAccountTradeFill = {
+  tradeId: string;
+  txHash: string;
+  timestamp: number;
+  price: number;
+  baseAmount: number;
+  quoteAmount: number;
+  baseSymbol: string;
+  quoteSymbol: string;
+  maker: string;
+  /** `"pool"` when the maker is a pool, `"maker"` when it is another trader. */
+  origin: "pool" | "maker";
+  isBid: boolean;
+  taker: string;
+  baseFee: number | null;
+  quoteFee: number | null;
+  /** A band pool's fee, in the token received; null on a book fill. */
+  poolFee: number | null;
+  poolFeeEstimated: boolean | null;
+};
+
+/**
+ * The fills of ONE transaction in one market, for this wallet — the drill-down
+ * behind a grouped trade or a crossed order (`/api/tradehistory/:address/fills/:txHash/:pair`).
+ */
+export const getSpotAccountTradeFills = async (
+  networkName: string,
+  address: string,
+  txHash: string,
+  pair: string,
+): Promise<SpotAccountTradeFill[]> => {
+  const url = `${PonderLinks[networkName]}/api/tradehistory/${getAddress(address)}/fills/${txHash}/${getAddress(pair)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  const data = (await response.json()) as { fills?: SpotAccountTradeFill[] };
+  return data.fills ?? [];
+};

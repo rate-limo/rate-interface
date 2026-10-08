@@ -21,9 +21,9 @@ import { Emphasis, LegalPage, Section } from "@/components/Legal/LegalPage";
  * prominent as the button.
  */
 export const metadata: Metadata = {
-  title: "Delete your profile | Iter",
+  title: "Delete your profile | Rate",
   description:
-    "Delete the profile Iter generated for your wallet, and stop a new one being generated.",
+    "Delete the profile Rate generated for your wallet, and stop a new one being generated.",
 };
 
 export default function DeleteAccountPage() {
@@ -33,7 +33,7 @@ export default function DeleteAccountPage() {
       title="Delete your profile"
       lede={
         <>
-          Iter creates a profile — a generated name and handle — the first time a portfolio is
+          Rate creates a profile — a generated name and handle — the first time a portfolio is
           opened. You can delete it here, with no email and no waiting.
         </>
       }
@@ -86,7 +86,7 @@ export default function DeleteAccountPage() {
           </li>
           <li>
             <Emphasis>Anything on the blockchain.</Emphasis> Transactions you signed are public and
-            permanent. <Emphasis>Nobody can delete them</Emphasis> — not Iter, not you, and not any
+            permanent. <Emphasis>Nobody can delete them</Emphasis> — not Rate, not you, and not any
             request under any law.
           </li>
           <li>

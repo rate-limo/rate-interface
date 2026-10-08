@@ -26,7 +26,10 @@ export async function getPairs(networkName: string, pageSize: number, page: numb
 
 /** One `{pairs}` answer, degraded to an empty list on anything unexpected. */
 async function readBasePairs(url: string): Promise<SpotPair[]> {
-    const res = await fetch(url, { next: { revalidate: 60 } });
+    // Not cached: a pair row carries its price and 24h stats, and a page built
+    // from a copy up to 60 s old could show numbers from before a trade the
+    // websocket had already announced (2026-09-30).
+    const res = await fetch(url, { next: { revalidate: 0 } });
     // A 404 is the gated route's "no visible market" and, on a gateway deployed
     // before the unlisted companion existed, also "no such route" — both mean
     // "nothing from here", and neither may take down the other half.
@@ -107,6 +110,50 @@ export async function getPairBySymbol(networkName: string, baseSymbol: string, q
         return null;
     }
     return asPair(await res.json());
+}
+
+/**
+ * The market between two TOKENS, by contract address — the identity a symbol
+ * cannot be on a launchpad that allows duplicate tickers. `/pair/symbol/:b/:q`
+ * matches every pair whose symbols agree and takes the first, and joins token
+ * metadata by symbol too, so a second NOVA could be served under the first's
+ * name and logo. A base+quote token pair names exactly one book.
+ */
+export async function getPairByTokens(networkName: string, baseAddress: string, quoteAddress: string): Promise<SpotPair | null> {
+    const ponderLink = PonderLinks[networkName];
+    const url = `${ponderLink}/api/pair/${baseAddress}/${quoteAddress}`;
+    const res = await fetch(url, { next: { revalidate: 0 } })
+    if (!res.ok) {
+        console.warn(`getPairByTokens: ${res.status} for ${baseAddress}/${quoteAddress}`);
+        return null;
+    }
+    return asPair(await res.json());
+}
+
+/**
+ * The market for a base TOKEN ADDRESS against a quote named by symbol — the
+ * shape of a link whose caller knows its own coin's address but only the
+ * quote's ticker (the Creator tab). Reads the token's own markets and matches
+ * the quote symbol there, so the base can never be another coin's.
+ *
+ * More than one quote with that symbol (anyone can mint a "USDC") is refused
+ * rather than guessed, the same rule the chart lookup follows.
+ */
+export async function getPairByBaseAddress(networkName: string, baseAddress: string, quoteSymbol: string): Promise<SpotPair | null> {
+    const ponderLink = PonderLinks[networkName];
+    const res = await fetch(`${ponderLink}/api/token/${baseAddress}`, { next: { revalidate: 0 } });
+    if (!res.ok) return null;
+    const token = (await res.json()) as { basePairs?: { base?: unknown; quote?: unknown; quoteSymbol?: string }[] };
+    const want = quoteSymbol.toUpperCase();
+    const matches = (token.basePairs ?? []).filter(
+        (p) =>
+            typeof p.base === "string" &&
+            typeof p.quote === "string" &&
+            p.base.toLowerCase() === baseAddress.toLowerCase() &&
+            (p.quoteSymbol ?? "").toUpperCase() === want,
+    );
+    if (matches.length !== 1) return null;
+    return getPairByTokens(networkName, baseAddress, matches[0]!.quote as string);
 }
 
 export async function getDefaultPair(networkName: string): Promise<SpotPair | null> {

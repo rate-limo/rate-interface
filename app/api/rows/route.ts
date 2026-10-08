@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRowContent } from "@/lib/rows/content";
 import { getMarketTapeData } from "@/lib/rows/tape";
+import { getVisibleChains } from "@/lib/chains/visibleServer";
 import { ogPassConfig } from "@/lib/ogpass/mock";
 import {
   noticeHiddenReason,
@@ -69,7 +70,15 @@ export interface RowsStatus {
 
 export async function GET() {
   const content = await getRowContent();
-  const tapeData = getMarketTapeData();
+  /*
+   * The same chain list the page itself renders from.
+   *
+   * This route exists so admin reports what the row SHOWS rather than
+   * re-deriving it — the drift that killed `sparkline7D`. Reading the tape
+   * without the operator's chain filter would reintroduce exactly that: the
+   * panel counting markets on a chain the site has stopped scrolling past.
+   */
+  const tapeData = getMarketTapeData(await getVisibleChains());
   const { saleStartsInSec } = ogPassConfig();
 
   // The client's countdown target is `Date.now() + saleStartsInSec`, so this

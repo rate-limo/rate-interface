@@ -12,8 +12,8 @@ import { readDisplaySlug } from "@/lib/routing/chainParams";
  * anon" as an entry point for people who then see nothing.
  */
 export const metadata: Metadata = {
-  title: "Welcome | Iter",
-  description: "Getting started on Iter.",
+  title: "Welcome | Rate",
+  description: "Getting started on Rate.",
   robots: { index: false, follow: false },
 };
 

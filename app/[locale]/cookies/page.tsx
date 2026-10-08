@@ -11,8 +11,8 @@ import { Emphasis, LegalPage, Section } from "@/components/Legal/LegalPage";
  * claim, not just stale documentation.
  */
 export const metadata: Metadata = {
-  title: "Cookie policy | Iter",
-  description: "What Iter stores in your browser, why, and how to turn analytics on or off.",
+  title: "Cookie policy | Rate",
+  description: "What Rate stores in your browser, why, and how to turn analytics on or off.",
 };
 
 /** Keep in step with the code paths named in each row. */
@@ -56,6 +56,14 @@ const ESSENTIAL = [
     where: "lib/wallet/mera.ts",
   },
   {
+    name: "iter.mera-session",
+    kind: "Local storage + IndexedDB, on the wallet's own origin",
+    purpose:
+      "Keeps your wallet unlocked for a day, so refreshing a page does not sign you out. Your key is stored encrypted, and the thing that decrypts it is held by your browser in a form nothing can copy out — including us. It lives on a separate origin from the app pages (the wallet frame), so a script on this site cannot read it; the app can only ask that origin to sign. It expires on its own after 24 hours and is deleted the moment you disconnect. Never sent to us. On a shared computer, disconnect when you are done.",
+    life: "24 hours, or until you disconnect",
+    where: "lib/wallet/meraSession.ts, via lib/wallet/frame",
+  },
+  {
     name: "iter.address-book",
     kind: "Local storage",
     purpose:
@@ -72,12 +80,36 @@ const ESSENTIAL = [
     where: "lib/transfer/history.ts",
   },
   {
+    name: "iter.commit-watermark",
+    kind: "Session storage",
+    purpose:
+      "A few counters per network recording how recent the live updates this tab has already shown are, so that reloading data never puts older numbers back on screen. They hold no personal data and no addresses, stay in your browser, and we never receive them.",
+    life: "Until the tab is closed",
+    where: "lib/realtime/watermark.ts",
+  },
+  {
     name: "iter.search-recents",
     kind: "Local storage",
     purpose:
       "The last few things you opened from the search box, so they are one click away next time. Tokens, markets and any wallet address you looked up. It stays in your browser — we never receive it — and the Clear button in the search box empties it.",
     life: "Until you clear it",
     where: "lib/search/recents.ts",
+  },
+  {
+    name: "iter.recent-markets",
+    kind: "Local storage",
+    purpose:
+      "The last markets you opened on Trade · Pro, per network, so the market picker can list them under Recent. Only the market's contract address. It stays in your browser and we never receive it.",
+    life: "Until you clear it",
+    where: "lib/markets/recentMarkets.ts",
+  },
+  {
+    name: "rate.sound",
+    kind: "Local storage",
+    purpose:
+      "Whether the interface plays sounds, and how loud. Set by the speaker icon beside the theme toggle. It stays in your browser and we never receive it.",
+    life: "Until you clear it",
+    where: "lib/sound/settings.ts",
   },
   {
     name: "iter:auction:*",
@@ -147,7 +179,7 @@ export default function CookiePolicy() {
       updated="1 August 2026"
       lede={
         <>
-          Iter is a self-custodial application. We don&apos;t hold accounts, we don&apos;t use
+          Rate is a self-custodial application. We don&apos;t hold accounts, we don&apos;t use
           advertising or cross-site tracking, and we don&apos;t sell data. What follows is the
           complete list of what the app puts in your browser.
         </>

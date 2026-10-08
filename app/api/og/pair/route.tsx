@@ -13,7 +13,7 @@ import type { SpotPair } from "@/types";
  *
  * `/trade/pro` already built a per-market TITLE — price, pair and network — and
  * pointed `openGraph.images` at the static `/api/og`. So the tab said
- * `0.9925 | SKHY/USDC | Iter Arc Testnet` while the thing anyone actually saw
+ * `0.9925 | SKHY/USDC | Rate Arc Testnet` while the thing anyone actually saw
  * in a feed said nothing about the market at all.
  *
  * ## The listing chip is on the IMAGE, deliberately
@@ -22,7 +22,7 @@ import type { SpotPair } from "@/types";
  * one. This card can. Anyone can mint a coin and open a market here — the
  * codebase is blunt that "this venue lets anyone mint a coin called USDC" — and
  * from the moment this route exists, every such market gets an official-looking
- * Iter card carrying our branding, a real price and a real volume, rendered by
+ * Rate card carrying our branding, a real price and a real volume, rendered by
  * us and served from our domain.
  *
  * By the time a reader has taken in the card they have formed the impression,
@@ -50,7 +50,7 @@ const TEXT_2 = "#9BA2AA";
 const TEXT_3 = "#6D747C";
 const SUCCESS = "#6E9E7C";
 const ERROR = "#BE7168";
-const ACCENT = "#C4A96A"; // brass
+const ACCENT = "#E85D2A"; // Rate orange
 const LOGO = "#E85D2A"; // ember
 const ON_MEDIA = "#F7F9FC"; // identical in both themes
 const GRAPHIC_BID: readonly [number, number, number] = [63, 167, 106];
@@ -300,7 +300,7 @@ export async function GET(request: NextRequest) {
     // the query is still a better share than no image.
   }
 
-  const symbol = pair?.symbol ?? (baseSymbol && quoteSymbol ? `${baseSymbol}/${quoteSymbol}` : "Iter");
+  const symbol = pair?.symbol ?? (baseSymbol && quoteSymbol ? `${baseSymbol}/${quoteSymbol}` : "Rate");
   const base = pair?.base?.symbol ?? baseSymbol;
   const quote = pair?.quote?.symbol ?? quoteSymbol;
   const change = Number(pair?.dayPriceDifferencePercentage ?? 0);
@@ -348,7 +348,7 @@ export async function GET(request: NextRequest) {
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <LogoMark size={36} />
-            <div style={{ display: "flex", color: LOGO, fontSize: 22, fontWeight: 700, letterSpacing: 1.8 }}>Iter</div>
+            <div style={{ display: "flex", color: LOGO, fontSize: 22, fontWeight: 700, letterSpacing: 1.8 }}>Rate</div>
           </div>
 
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
@@ -380,7 +380,7 @@ export async function GET(request: NextRequest) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", color: LOGO, fontSize: 17, letterSpacing: 1.8 }}>ITER · ITER.CX</div>
+            <div style={{ display: "flex", color: LOGO, fontSize: 17, letterSpacing: 1.8 }}>RATE · ITER.CX</div>
             <div
               style={{
                 display: "flex",

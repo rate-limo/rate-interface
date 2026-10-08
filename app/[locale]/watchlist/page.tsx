@@ -35,7 +35,7 @@ type PageProps = {
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const network = supportedNetworkName(readDisplaySlug("explore", await searchParams));
   return {
-    title: "Watchlist | Iter",
+    title: "Watchlist | Rate",
     description: `Markets and tokens you have starred on ${network}.`,
     // No OG image: a watchlist is per-wallet, so a shared card would either be
     // empty or advertise one person's positions to everyone who sees the link.

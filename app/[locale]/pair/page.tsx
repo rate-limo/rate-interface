@@ -50,9 +50,9 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
 
   const image = `/api/og/explore?kind=pool&pair=${encodeURIComponent(`${base}_${quote}`)}&network=${encodeURIComponent(networkName)}`;
   return {
-    title: `${symbol} | Iter ${networkName}`,
-    description: `${symbol} on Iter ${networkName} — price, spread, depth, order book, recent trades and liquidity economics for the market.`,
-    openGraph: { title: `${symbol} | Iter ${networkName}`, description: `${symbol} on Iter ${networkName} — price, spread, depth, order book, recent trades and liquidity economics for the market.`, images: [image] },
+    title: `${symbol} | Rate ${networkName}`,
+    description: `${symbol} on Rate ${networkName} — price, spread, depth, order book, recent trades and liquidity economics for the market.`,
+    openGraph: { title: `${symbol} | Rate ${networkName}`, description: `${symbol} on Rate ${networkName} — price, spread, depth, order book, recent trades and liquidity economics for the market.`, images: [image] },
     twitter: { card: "summary_large_image", images: [image] },
   };
 }
@@ -98,10 +98,10 @@ export default async function Pair({ searchParams }: PageProps) {
    * starting snapshot and maintains it over the websocket from there — the same
    * arrangement `/trade/pro` uses.
    *
-   * Wrapped, unlike Pro's: `getSpotOrderbook` neither checks `res.ok` nor
-   * guards against malformed JSON, so a rate-limited gateway would throw here
-   * and cost the page everything — the book, the trades, the sidebar. A null
-   * seed is survivable; the hook fetches its own on mount.
+   * `getSpotOrderbook` now returns null on a refused or failed read rather than
+   * casting an error body into a book, so the guard below is belt and braces
+   * for anything it still throws. Either way a null seed is survivable; the
+   * hook fetches its own on mount.
    */
   let step: string | null = null;
   let seed: GroupedOrderbookResult | null = null;

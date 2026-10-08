@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PonderLinks } from "@/consts";
+import { WATERMARK_HEADER, formatWatermarkHeader, minWatermark, parseWatermark } from "@/lib/realtime/watermark";
 
 /**
  * Same-origin read proxy for browser calls to the gateway's protected live
@@ -39,7 +40,16 @@ export async function GET(
       if (base.priceUSD <= 0 || quote.priceUSD <= 0) continue;
       for (const token of [base, quote]) tokens.set(token.id.toLowerCase(), token);
     }
-    return NextResponse.json({ tokens: [...tokens.values()] }, { headers: { "cache-control": "no-store" } });
+    // Two gateway reads merged into one answer: it is only as fresh as the OLDER
+    // of the two, so forward the per-writer minimum (or nothing if either lacks it).
+    const merged = minWatermark(
+      parseWatermark(listedResponse.headers.get(WATERMARK_HEADER)),
+      parseWatermark(unlistedResponse.headers.get(WATERMARK_HEADER)),
+    );
+    return NextResponse.json(
+      { tokens: [...tokens.values()] },
+      { headers: { "cache-control": "no-store", ...(merged ? { [WATERMARK_HEADER]: formatWatermarkHeader(merged) } : {}) } },
+    );
   }
 
   const query = new URLSearchParams(request.nextUrl.searchParams);
@@ -54,6 +64,8 @@ export async function GET(
     headers: {
       "content-type": upstream.headers.get("content-type") ?? "application/json",
       "cache-control": "no-store",
+      // Forwarded so the browser's watermark check (lib/realtime/watermark) sees it.
+      ...(upstream.headers.get(WATERMARK_HEADER) ? { [WATERMARK_HEADER]: upstream.headers.get(WATERMARK_HEADER)! } : {}),
     },
   });
 }

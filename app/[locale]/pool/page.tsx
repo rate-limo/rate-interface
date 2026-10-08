@@ -12,7 +12,7 @@ import * as motion from "motion/react-client";
  * `/pool` was only the three-step provide flow, which now lives at `/pool/new`.
  * Same split as Trade's Basic/Pro.
  *
- * The Iter dashboard's "View pools" button points here; it had no destination at
+ * The Rate dashboard's "View pools" button points here; it had no destination at
  * all until this page existed.
  *
  * Market-wide only. Your own positions stay in /portfolio → LP positions, which
@@ -28,8 +28,8 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const network = readDisplaySlug("pool", await searchParams);
   const networkName = supportedNetworkName(network);
   return {
-    title: `Liquidity | Iter ${networkName}`,
-    description: `Manage your active and closed Iter liquidity positions on ${networkName}.`,
+    title: `Liquidity | Rate ${networkName}`,
+    description: `Manage your active and closed Rate liquidity positions on ${networkName}.`,
   };
 }
 

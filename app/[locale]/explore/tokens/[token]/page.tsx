@@ -9,7 +9,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const network = readDisplaySlug("token", await searchParams);
   const networkName = supportedNetworkName(network);
   const image = `/api/og/explore?kind=token&token=${encodeURIComponent(token)}&network=${encodeURIComponent(networkName)}`;
-  return { title: `${token} | Iter Explore`, description: `${token} on Iter ${networkName}.`, openGraph: { title: `${token} | Iter Explore`, description: `${token} on Iter ${networkName}.`, images: [image] }, twitter: { card: "summary_large_image", images: [image] } };
+  return { title: `${token} | Rate Explore`, description: `${token} on Rate ${networkName}.`, openGraph: { title: `${token} | Rate Explore`, description: `${token} on Rate ${networkName}.`, images: [image] }, twitter: { card: "summary_large_image", images: [image] } };
 }
 
 export default async function ExploreTokenItem({ params, searchParams }: PageProps) {

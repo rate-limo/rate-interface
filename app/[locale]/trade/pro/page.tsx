@@ -1,3 +1,4 @@
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { AppShell } from "@/components/Shell/AppShell";
 import { TradeDesktopPage } from "@/components/Pages/Trade/DesktopPage";
 import { TradeMobilePage } from "@/components/Pages/Trade/MobilePage";
@@ -6,13 +7,13 @@ import { TradePageProvider } from "@/contexts/TradePageProvider";
 import { MarketPageProvider } from "@/contexts/MarketPageProvider";
 import { OrderPageProvider } from "@/contexts/OrderPageProvider";
 import { readDisplaySlug, supportedNetworkName } from "@/lib/routing/chainParams";
-import { getSpotOrderbook, getDefaultPair, getPairBySymbol } from "@/queries/server";
+import { getSpotOrderbook, getDefaultPair, getPairBySymbol, getPairByTokens, getPairByBaseAddress } from "@/queries/server";
+import { isTokenAddress } from "@/lib/routing/proMarket";
 import { getDefaultScale } from "@/queries/client/orderbook";
 import { adjustDecimalLength } from "@/utils/number";
 import { Metadata } from "next";
 import type { SpotPair } from "@/types";
 import { Suspense } from "react";
-import { Toaster } from "sonner";
 import * as motion from "motion/react-client";
 import { redirect } from "next/navigation";
 
@@ -42,6 +43,11 @@ interface PageProps {
  * Resolve the pair from the query: base+quote -> exact pair; base only -> base
  * against the default quote; neither -> the network default pair.
  *
+ * `base`/`quote` are token ADDRESSES in every link the app builds now (see
+ * lib/routing/proMarket.ts): a symbol can name two launches, an address pair
+ * names one book. A symbol is still accepted so an old link keeps working while
+ * its ticker is unique.
+ *
  * Null means the market data source answered and has no such market. That is a
  * different condition from a throw, which means it did not answer at all, and
  * the two get different copy — telling someone the indexer is down while it is
@@ -52,10 +58,18 @@ async function resolvePair(
   base: string | undefined,
   quote: string | undefined,
 ): Promise<SpotPair | null> {
-  if (base && quote) return getPairBySymbol(networkName, base, quote);
+  if (base && quote) {
+    if (isTokenAddress(base) && isTokenAddress(quote)) return getPairByTokens(networkName, base, quote);
+    if (isTokenAddress(base)) return getPairByBaseAddress(networkName, base, quote);
+    return getPairBySymbol(networkName, base, quote);
+  }
   const defaultPair = await getDefaultPair(networkName);
   if (!defaultPair) return null;
-  if (base) return getPairBySymbol(networkName, base, defaultPair.quote.symbol);
+  if (base) {
+    return isTokenAddress(base) && isTokenAddress(defaultPair.quote.id)
+      ? getPairByTokens(networkName, base, defaultPair.quote.id)
+      : getPairBySymbol(networkName, base, defaultPair.quote.symbol);
+  }
   return defaultPair;
 }
 
@@ -127,7 +141,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     const pair = await resolvePair(networkName, sp.base, sp.quote);
     if (pair) {
       const formattedPrice = adjustDecimalLength(pair.price, 4);
-      pairTitle = `${formattedPrice} | ${pair.base.symbol}/${pair.quote.symbol} | Iter ${networkName}`;
+      pairTitle = `${formattedPrice} | ${pair.base.symbol}/${pair.quote.symbol} | Rate ${networkName}`;
       pairDescription = `Trade ${pair.base.symbol} to ${pair.quote.symbol} and other cryptocurrencies in the world's first cryptocurrency orderbook DEX on ${networkName}. Find real-time live price with technical indicators to help you analyze ${pair.base.symbol}/${pair.quote.symbol} changes.`;
       cardUrl =
         `/api/og/pair?chain=${encodeURIComponent(network)}` +
@@ -140,10 +154,10 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     // resolve.
   }
 
-  const title = pairTitle ?? `Trade | Iter ${networkName}`;
+  const title = pairTitle ?? `Trade | Rate ${networkName}`;
   const description =
     pairDescription ??
-    `Trade on the Iter on-chain order book on ${networkName} — full depth, live chart, and resting orders.`;
+    `Trade on the Rate on-chain order book on ${networkName} — full depth, live chart, and resting orders.`;
 
   return {
     title,
@@ -201,6 +215,18 @@ export default async function TradePro({ searchParams }: PageProps) {
       11,
       false,
     );
+    /*
+     * A refused book reaches the SAME screen a thrown one does. `getSpotOrderbook`
+     * used to cast an error body into a `GroupedOrderbookResult`, so this branch
+     * could not exist: the terminal mounted with a book whose `bids`/`asks` were
+     * undefined and rendered an empty ladder, which reads as a market with no
+     * depth rather than a market data source that did not answer.
+     */
+    if (!orderbook) {
+      return (
+        <TradeProUnavailable network={network} networkName={networkName} unreachable />
+      );
+    }
     return (
       <MarketPageProvider networkSlugInput={network}>
         <TradePageProvider
@@ -257,18 +283,7 @@ export default async function TradePro({ searchParams }: PageProps) {
                   <TradeMobilePage />
                 </motion.div>
               </div>
-              <Toaster
-                position="bottom-right"
-                closeButton
-                toastOptions={{
-                  style: {
-                    background: "var(--m-surface)",
-                    border: "1px solid var(--m-border)",
-                    borderRadius: "10px",
-                    color: "var(--m-text-primary)",
-                  },
-                }}
-              />
+              <AppToaster />
             </AppShell>
           </OrderPageProvider>
         </TradePageProvider>

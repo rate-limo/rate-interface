@@ -35,7 +35,7 @@ const MUTED = "#8b8b93";
 const INK = "#0b0b0f";
 const CARD = "#141419";
 /** `--m-accent` from globals.css. The frame and the footer are the brand. */
-const ACCENT = "#C4A96A";
+const ACCENT = "#E85D2A";
 
 /** How long a remote image may take before the card gives up on it. */
 const IMAGE_TIMEOUT_MS = 2500;
@@ -651,7 +651,7 @@ export async function GET(request: NextRequest) {
             }}
           >
             <div style={{ display: "flex", fontSize: 20, opacity: 0.72 }}>Start trading at</div>
-            <div style={{ display: "flex", fontSize: 26, fontWeight: 700 }}>iter.cx</div>
+            <div style={{ display: "flex", fontSize: 26, fontWeight: 700 }}>rate.limo</div>
           </div>
         </div>
       </div>

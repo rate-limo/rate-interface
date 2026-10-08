@@ -1,5 +1,5 @@
+import { AppToaster } from "@/components/Shell/AppToaster";
 import type { Metadata } from "next";
-import { Toaster } from "sonner";
 import { AppShell } from "@/components/Shell/AppShell";
 import { BackdropImage } from "@/components/Shell/BackdropImage";
 import { TradeModeSwitch } from "@/components/Trade/TradeModeSwitch";
@@ -44,7 +44,7 @@ const TRADE_BACKDROP_IMAGE = "/images/trade-backdrop.webp";
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const network = readDisplaySlug("trade", await searchParams);
   const networkName = supportedNetworkName(network);
-  const title = `Trade | Iter ${networkName}`;
+  const title = `Trade | Rate ${networkName}`;
   const description = `Swap any token to any token on ${networkName} — the router finds the path across the on-chain order book, fills what it can now, and lets you rest the remainder as a limit or provide it as single-sided liquidity. Self-custody, routed via Pool.sol.`;
 
   return {
@@ -59,7 +59,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
           width: 1200,
           height: 630,
           type: "image/jpeg",
-          alt: "Iter",
+          alt: "Rate",
         },
       ],
     },
@@ -101,17 +101,7 @@ export default async function TradeBasic({ searchParams }: PageProps) {
             </div>
           </motion.div>
         </div>
-        <Toaster
-          position="bottom-right"
-          closeButton
-          toastOptions={{
-            style: {
-              background: "var(--m-surface)",
-              border: "1px solid var(--m-border)",
-              color: "var(--m-text-primary)",
-            },
-          }}
-        />
+        <AppToaster />
       </AppShell>
     </MarketPageProvider>
   );

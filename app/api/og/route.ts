@@ -4,7 +4,7 @@ import path from "node:path";
 import { VARIANT_FILES, variantForTime } from "./variant";
 
 /**
- * Serves the Iter share card, picking the light or dark painting by
+ * Serves the Rate share card, picking the light or dark painting by
  * time of day.
  *
  * Link-preview crawlers send no `prefers-color-scheme`, so a share image

@@ -55,7 +55,7 @@ export async function generateMetadata({
   const sp = await searchParams;
   const chain = typeof sp.chain === "string" ? sp.chain : undefined;
 
-  if (!isAddress(raw)) return { title: "Profile | Iter" };
+  if (!isAddress(raw)) return { title: "Profile | Rate" };
   const address = getAddress(raw);
 
   const profile = (await getAccountProfileForViewer(
@@ -69,8 +69,8 @@ export async function generateMetadata({
     profile?.profile?.handle ??
     `${address.slice(0, 6)}…${address.slice(-4)}`;
 
-  const title = `${handle} on Iter`;
-  const description = "Portfolio, trades and launched coins on Iter.";
+  const title = `${handle} on Rate`;
+  const description = "Portfolio, trades and launched coins on Rate.";
   const image = `/api/og/profile?address=${address}${chain ? `&chain=${encodeURIComponent(chain)}` : ""}`;
 
   return {

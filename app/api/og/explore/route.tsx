@@ -43,7 +43,7 @@ function Shell({ eyebrow, title, subtitle, stats, logo }: { eyebrow: string; tit
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", color: "#71717a", fontSize: 20, letterSpacing: 1 }}>ITER · iter.cx</div>
+      <div style={{ display: "flex", color: "#71717a", fontSize: 20, letterSpacing: 1 }}>RATE · rate.limo</div>
     </div>
   );
 }
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
   const section = params.get("section") ?? "explore";
 
   if (kind === "section") {
-    return new ImageResponse(<Shell eyebrow="Iter Explore" title={`${section[0]?.toUpperCase() ?? "E"}${section.slice(1)}`} subtitle={`Discover ${section} on ${network}`} stats={[["Network", network], ["Live directory", "Onchain"], ["Shareable", "Yes"]]} />, { width: 1200, height: 630 });
+    return new ImageResponse(<Shell eyebrow="Rate Explore" title={`${section[0]?.toUpperCase() ?? "E"}${section.slice(1)}`} subtitle={`Discover ${section} on ${network}`} stats={[["Network", network], ["Live directory", "Onchain"], ["Shareable", "Yes"]]} />, { width: 1200, height: 630 });
   }
 
   try {
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       const addr = token.id ? `${token.id.slice(0, 6)}…${token.id.slice(-4)}` : "";
       const card = (withLogo: string | null) => (
         <Shell
-          eyebrow="Iter Token"
+          eyebrow="Rate Token"
           title={`${token.name || token.symbol} (${token.symbol})`}
           subtitle={`${network}${addr ? ` · ${addr}` : ""}`}
           stats={[["Price", money(token.priceUSD)], ["Market cap", money(token.marketCap)], ["24H volume", money(token.dayVolumeUSD)]]}
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
       const pair = await getPairBySymbol(network, base ?? "", quote ?? "");
       const tvl = Number(pair?.dayBaseTvlUSD ?? 0) + Number(pair?.dayQuoteTvlUSD ?? 0);
       const volume = Number(pair?.dayBaseVolumeUSD ?? 0) + Number(pair?.dayQuoteVolumeUSD ?? 0);
-      return new ImageResponse(<Shell eyebrow="Iter Pool" title={pair?.symbol || `${base}/${quote}`} subtitle={`${network} · CLOB liquidity`} stats={[["TVL", money(tvl)], ["24H volume", money(volume)], ["Fee tier", "0.10%"]]} />, { width: 1200, height: 630 });
+      return new ImageResponse(<Shell eyebrow="Rate Pool" title={pair?.symbol || `${base}/${quote}`} subtitle={`${network} · CLOB liquidity`} stats={[["TVL", money(tvl)], ["24H volume", money(volume)], ["Taker fee", "from 0.10%"]]} />, { width: 1200, height: 630 });
     }
     if (kind === "auction") {
       const response = await fetch(`${PonderLinks[network]}/api/auctions`, { cache: "no-store" });
@@ -99,11 +99,11 @@ export async function GET(request: NextRequest) {
       const title = String(auction?.name ?? auction?.symbol ?? `Auction ${params.get("id") ?? ""}`);
       const target = Number(auction?.targetRaise ?? 0) / 10 ** Number(auction?.quoteDecimals ?? 18);
       const committed = Number(auction?.totalCommitted ?? 0) / 10 ** Number(auction?.quoteDecimals ?? 18);
-      return new ImageResponse(<Shell eyebrow="Iter Auction" title={title} subtitle={`${network} · Auction launch`} stats={[["Target raise", money(target)], ["Committed", money(committed)], ["Status", String(auction?.status ?? "Live")]]} />, { width: 1200, height: 630 });
+      return new ImageResponse(<Shell eyebrow="Rate Auction" title={title} subtitle={`${network} · Auction launch`} stats={[["Target raise", money(target)], ["Committed", money(committed)], ["Status", String(auction?.status ?? "Live")]]} />, { width: 1200, height: 630 });
     }
   } catch {
     // Fall through to a useful generic card when an indexer is temporarily unavailable.
   }
 
-  return new ImageResponse(<Shell eyebrow="Iter Explore" title="Explore on Iter" subtitle={network} stats={[["Network", network], ["Data", "Refreshing"], ["Markets", "Onchain"]]} />, { width: 1200, height: 630 });
+  return new ImageResponse(<Shell eyebrow="Rate Explore" title="Explore on Rate" subtitle={network} stats={[["Network", network], ["Data", "Refreshing"], ["Markets", "Onchain"]]} />, { width: 1200, height: 630 });
 }

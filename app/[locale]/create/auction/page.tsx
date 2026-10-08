@@ -25,7 +25,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const network = readDisplaySlug("create", await searchParams);
   const networkName = supportedNetworkName(network);
   return {
-    title: `Create an auction | Iter ${networkName}`,
+    title: `Create an auction | Rate ${networkName}`,
     description: `Open a fair-price presale on ${networkName} — one price for every buyer, pro-rata settlement, and graduation liquidity committed before the market opens.`,
   };
 }

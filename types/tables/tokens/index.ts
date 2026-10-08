@@ -63,6 +63,48 @@ export const spotToken = z.object({
   dayPriceDifferencePercentage: z.number(),
   /// 24h trades count
   dayTradesCount: z.number(),
+  /**
+   * Trades over all time, and the contract's own graduation latch.
+   *
+   * Both are sent by the gateway on every `/api/token*` route and neither was
+   * declared, so a consumer had to cast to read them — the same gap `verified`
+   * sat in until it was added, and for the same reason: the schema predates the
+   * columns and is only ever used for type inference, so this is a pure type
+   * change with no parse to break.
+   *
+   * `graduatedAt` is NULL for every launch that has not crossed the contract's
+   * threshold, which is most of them; optional because an indexer older than
+   * the column omits it rather than sending null.
+   */
+  tradesCount: z.number().nullable().optional(),
+  graduatedAt: z.number().nullable().optional(),
+  /// When an armed ladder graduation may finish, unix seconds (AssetGenerator.
+  /// GraduationArmed). Null until armed; absent from a gateway that predates
+  /// broker migration 0027, which is why it is optional.
+  graduationReadyAt: z.number().nullable().optional(),
+  /// A ladder launch's progress (gateway `ladder`, 2026-10-03): null for coins
+  /// from the previous generator and for listed tokens; absent from an older
+  /// gateway. Only ever used for type inference, never parsed.
+  ladder: z
+    .object({
+      state: z.enum(["selling", "soldOut", "armed", "graduated"]),
+      stepsSold: z.number(),
+      stepsTotal: z.number(),
+      steps: z.array(z.object({ step: z.number(), marketCapQuote: z.number(), marketCapUsd: z.number().nullable(), sold: z.boolean() })),
+      marketCapQuote: z.number().nullable(),
+      marketCapUsd: z.number().nullable(),
+      graduationMarketCap: z.object({ quote: z.number(), usd: z.number().nullable() }),
+      toGraduateQuote: z.number().nullable(),
+      toGraduateUsd: z.number().nullable(),
+      progress: z.number(),
+      readyAt: z.number().nullable(),
+      graduatedAt: z.number().nullable(),
+      poolValueQuote: z.number().nullable(),
+      poolValueUsd: z.number().nullable(),
+      quote: z.object({ address: z.string(), symbol: z.string().nullable(), decimals: z.number().nullable(), priceUsd: z.number().nullable() }),
+    })
+    .nullable()
+    .optional(),
   /// day open price
   dayOpen: z.number(),
   /// day highest price

@@ -1,12 +1,16 @@
 import { Metadata } from "next";
 import { Nav } from "@components/Landing/Nav";
 import { Hero } from "@components/Landing/Hero";
-import { CoreIdeas } from "@components/Landing/CoreIdeas";
+import { ProductsSection } from "@components/Landing/ProductsSection";
 import { Receipts } from "@components/Landing/Receipts";
+import { ChainsSection } from "@components/Landing/ChainsSection";
 import { Primitives } from "@components/Landing/Primitives";
 import { AgentDeskSection } from "@components/Landing/AgentDeskSection";
-import { ParticipantFlywheel } from "@components/Landing/ParticipantFlywheel";
-import { Transparency } from "@components/Landing/Transparency";
+// Hidden from the landing on 2026-10-01 at the user's direction; restore both lines to bring it back.
+// import { ParticipantFlywheel } from "@components/Landing/ParticipantFlywheel";
+// Hidden 2026-10-01 at the user's direction ("Nothing to trust"); its "No token"
+// line was also no longer true. Restore both lines to bring it back.
+// import { Transparency } from "@components/Landing/Transparency";
 import { FinalCta } from "@components/Landing/FinalCta";
 import { Footer } from "@components/Landing/Footer";
 // `LoginRouter` was mounted here as well as in AppShell, and pushed any
@@ -25,15 +29,15 @@ import { Footer } from "@components/Landing/Footer";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const title = "Iter — the way to trade on-chain";
+  const title = "Rate — Don't trade. Let the market come to you.";
   const description =
-    "One open on-chain order book. Every fill at a price you chose — self-custody the whole way.";
+    "Make your money work and let traders pay you the fee. An open onchain order book where every fill is at your rate, self-custody the whole way.";
 
   return {
     title,
     description,
     openGraph: {
-      siteName: "Iter",
+      siteName: "Rate",
       title,
       description,
       images: [
@@ -42,7 +46,7 @@ export async function generateMetadata(): Promise<Metadata> {
           width: 1200,
           height: 630,
           type: "image/jpeg",
-          alt: "Iter",
+          alt: "Rate",
         },
       ],
     },
@@ -74,12 +78,13 @@ export default function Home() {
       */}
       <main>
         <Hero />
-        <CoreIdeas />
+        <ProductsSection />
         <Receipts />
+        <ChainsSection />
         <Primitives />
         <AgentDeskSection />
-        <ParticipantFlywheel />
-        <Transparency />
+        {/* <ParticipantFlywheel /> */}
+        {/* <Transparency /> */}
         <FinalCta />
       </main>
       <Footer />

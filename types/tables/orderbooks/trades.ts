@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { spotToken } from "../tokens";
 export const spotTrade = z.object({
-  // order id of the trade
+  // DEPRECATED: the resting order this trade consumed, 0 for the pool. Read
+  // `makerOrderId`; this stays while gateways that predate it are live.
   orderId: z.number(),
+  // the resting order this trade consumed; null when the pool filled it. Absent
+  // from gateways older than the field — read it through makerOrderIdOf.
+  makerOrderId: z.number().nullable().optional(),
   // base token address of the pair
   base: spotToken,
   // quote token address of the pair

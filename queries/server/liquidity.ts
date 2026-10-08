@@ -39,6 +39,12 @@ export type PoolLiquidity = {
     aprPct: number | null;
     /** Inputs used by the gateway to derive realised APR and 24h LP fees. */
     aprBasis?: {
+        /**
+         * How the figure was reached, or why it is absent — `realised-band-fee`
+         * when measured, one of the `band-no-*` reasons when not. Carried so the
+         * deposit card can name the reason instead of guessing at one.
+         */
+        method: string | null;
         poolDayQuoteVolume: number;
         inRangeLiquidityQuote: number;
         lpFeeRate: number;
@@ -72,11 +78,46 @@ export type ProspectiveApr = {
      * travels with the number.
      */
     aprPct: number | null;
+    /**
+     * False when this is the POOL's own rate rather than one diluted by a
+     * deposit — i.e. before any amount has been entered.
+     *
+     * The card used to show an em-dash until a number was typed, under the
+     * caption "it appears once this pool has indexed fills to measure", which on
+     * a pool with fills is a false statement about why. The pool's realised rate
+     * is knowable with no deposit at all; only the DILUTION needs a size. So the
+     * undiluted figure is shown first and refined once there is one, and the
+     * caption follows this flag rather than claiming data is missing.
+     */
+    diluted: boolean;
+    /**
+     * WHY there is no number, when there is no number — `basis.method` verbatim
+     * from the gateway.
+     *
+     * A bare em-dash reads as a broken row. The gateway already distinguishes
+     * "no indexed volume" from `unavailable-for-band-pool` (its estimator has no
+     * implementation for band pools, which is every pool Iter opens since
+     * 2026-09-05), and throwing that away meant the UI could only shrug. It is a
+     * REASON string for display, never something to branch value on.
+     */
+    method: string | null;
     /** Naive pro-rata share of pool fees, for comparison against `aprPct`. */
     proRataPct: number | null;
     /** False when the chosen band does not straddle the current price. */
     inRange: boolean;
     price: number | null;
+    /**
+     * The LP's cut of a fill, as a fraction (0.0005 = 0.05%), and the quote
+     * already in the band diluting a deposit.
+     *
+     * Both are MEASURED and both survive when `aprPct` is null, which is the
+     * case they exist for: a pool with liquidity and no fills in 24h can still
+     * say what it charges and how crowded it is, and the Earn card uses the two
+     * to state what a deposit earns at an assumed volume. Null when the gateway
+     * omits them, so a caller cannot mistake absence for zero.
+     */
+    lpFeeRate: number | null;
+    poolLiquidityQuote: number | null;
 };
 
 /**
@@ -101,9 +142,40 @@ export async function getProspectiveApr(
 
     const amountBase = Number.isFinite(deposit.amountBase) ? Math.max(0, deposit.amountBase!) : 0;
     const amountQuote = Number.isFinite(deposit.amountQuote) ? Math.max(0, deposit.amountQuote!) : 0;
-    // The route 400s on a non-positive total. Asking anyway would put a
-    // guaranteed-failing request behind every keystroke that clears the field.
-    if (amountBase + amountQuote <= 0) return null;
+    /*
+     * No amount yet — answer with the POOL's own rate instead of nothing.
+     *
+     * `/liquidity/apr` 400s on a non-positive total, and asking anyway would put
+     * a guaranteed-failing request behind every keystroke that clears the field.
+     * But "we cannot dilute a deposit that does not exist" is not the same as
+     * "there is no rate": `/liquidity/pool` computes the realised band APR from
+     * the pool's own fees and reserves, with no deposit in the question at all.
+     *
+     * Verified on Arc's ITRA/USDC: the deposit card printed an em-dash while
+     * that route returned `aprPct: 0.06`, `method: "realised-band-fee"`, over
+     * `poolDayQuoteVolume: 3.499999`. The number was one call away the whole
+     * time, and the card said the pool had no fills to measure.
+     */
+    if (amountBase + amountQuote <= 0) {
+        const pool = await getPoolLiquidity(networkName, base, quote);
+        if (!pool?.exists) return null;
+        return {
+            aprPct: typeof pool.aprPct === "number" ? pool.aprPct : null,
+            diluted: false,
+            method: pool.aprBasis?.method ?? null,
+            proRataPct: null,
+            // The same two measured fields, from this route's own basis: it
+            // names the in-range liquidity rather than the band total, which is
+            // the figure a deposit is actually diluted against.
+            lpFeeRate: pool.aprBasis?.lpFeeRate ?? null,
+            poolLiquidityQuote: pool.aprBasis?.inRangeLiquidityQuote ?? null,
+            // A band re-anchors to the market price on every swap, so a deposit
+            // into one is in range by construction. Nothing is out of range
+            // until a RANGE has been chosen, which is what the amount starts.
+            inRange: true,
+            price: typeof pool.price === "number" ? pool.price : null,
+        };
+    }
 
     const params = new URLSearchParams();
     if (amountBase > 0) params.set("amountBase", String(amountBase));
@@ -118,32 +190,23 @@ export async function getProspectiveApr(
     const data = (await readJson(url, "getProspectiveApr")) as Record<string, unknown> | null;
     if (!data) return null;
 
+    const basis = data.basis as
+        | { method?: unknown; lpFeeRate?: unknown; bandLiquidityQuote?: unknown }
+        | null
+        | undefined;
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
     return {
         aprPct: typeof data.aprEstimatePct === "number" ? data.aprEstimatePct : null,
+        diluted: true,
+        method: typeof basis?.method === "string" ? basis.method : null,
         proRataPct: typeof data.aprProRataPct === "number" ? data.aprProRataPct : null,
         inRange: data.inRange === true,
         price: typeof data.price === "number" ? data.price : null,
+        lpFeeRate: num(basis?.lpFeeRate),
+        poolLiquidityQuote: num(basis?.bandLiquidityQuote),
     };
 }
-
-/**
- * One band position owned by a wallet.
- *
- * Deliberately NOT an `LpPosition`: a band has no min/max price, so it carries a
- * share count and a band index instead of two amounts and a range. Folding the
- * two shapes would mean inventing bounds nothing on chain agrees with.
- */
-export type BandLpPosition = {
-    pool: string;
-    positionId: string | null;
-    tokenId: string | null;
-    band: number;
-    shares: number | null;
-    base: string | null;
-    quote: string | null;
-    pairSymbol: string | null;
-    price: number | null;
-};
 
 /** One LP range owned by a wallet, as the gateway returns it. */
 export type LpPosition = {
@@ -203,6 +266,10 @@ export async function getPoolLiquidity(
         aprBasis:
             data.aprBasis && typeof data.aprBasis === "object"
                 ? {
+                    method:
+                        typeof (data.aprBasis as Record<string, unknown>).method === "string"
+                            ? ((data.aprBasis as Record<string, unknown>).method as string)
+                            : null,
                     poolDayQuoteVolume: Number((data.aprBasis as Record<string, unknown>).poolDayQuoteVolume) || 0,
                     inRangeLiquidityQuote: Number((data.aprBasis as Record<string, unknown>).inRangeLiquidityQuote) || 0,
                     lpFeeRate: Number((data.aprBasis as Record<string, unknown>).lpFeeRate) || 0,
@@ -212,26 +279,16 @@ export async function getPoolLiquidity(
 }
 
 /**
- * Every LP range a wallet owns, across pools. The caller narrows to the pool it
- * cares about — the gateway has no per-pool variant, and one read the profile
- * can reuse beats a second round trip.
+ * Every Pool.sol-generation LP RANGE a wallet owns, across pools.
+ *
+ * Band LP positions are not here: one LP token holds a whole band ladder (v2), and
+ * those are read per token through `fetchLpPositions` (hooks/useLpPositions), which
+ * joins the gateway's per-token ledger with the chain's live view.
  */
-export async function getLpPositions(
-    networkName: string,
-    address: string,
-): Promise<{ ranges: LpPosition[]; bands: BandLpPosition[] } | null> {
+export async function getLpPositions(networkName: string, address: string): Promise<{ ranges: LpPosition[] } | null> {
     if (!address) return null;
     const url = `${getApiUrl(networkName)}/api/liquidity/positions/${address}`;
-    const data = (await readJson(url, "getLpPositions")) as {
-        positions?: unknown;
-        bandPositions?: unknown;
-    } | null;
-    if (!data || !Array.isArray(data.positions)) return null;
-    return {
-        ranges: data.positions as LpPosition[],
-        // Absent from a gateway that predates band indexing, which reads as an
-        // empty list rather than an error — the same degrade rule the rest of
-        // this module follows.
-        bands: Array.isArray(data.bandPositions) ? (data.bandPositions as BandLpPosition[]) : [],
-    };
+    const data = (await readJson(url, "getLpPositions")) as { positions?: unknown } | null;
+    if (!data) return null;
+    return { ranges: Array.isArray(data.positions) ? (data.positions as LpPosition[]) : [] };
 }

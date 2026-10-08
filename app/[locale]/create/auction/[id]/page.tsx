@@ -8,7 +8,7 @@ interface PageProps { params: Promise<{ id: string }>; searchParams: Promise<{ c
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  return { title: `Auction ${id.slice(0, 8)} | Iter`, description: "A fair-price presale that graduates into Iter's onchain orderbook." };
+  return { title: `Auction ${id.slice(0, 8)} | Rate`, description: "A fair-price presale that graduates into Rate's onchain orderbook." };
 }
 
 export default async function AuctionProfilePage({ params, searchParams }: PageProps) {

@@ -19,9 +19,9 @@ import {
  * both problems.
  */
 export const metadata: Metadata = {
-  title: "Terms of use | Iter",
+  title: "Terms of use | Rate",
   description:
-    "The terms for using the Iter interface: self-custodial, no advice, and the risks you accept when you sign a transaction.",
+    "The terms for using the Rate interface: self-custodial, no advice, and the risks you accept when you sign a transaction.",
   // Draft — see the note in app/privacy/page.tsx. Remove once signed off.
   robots: { index: false, follow: true },
 };
@@ -31,10 +31,10 @@ export default function Terms() {
     <LegalPage
       eyebrow="terms of use"
       title="An interface to smart contracts, not a broker"
-      updated="1 August 2026"
+      updated="2 October 2026"
       lede={
         <>
-          Iter is software that helps you talk to public smart contracts. It never takes custody of
+          Rate is software that helps you talk to public smart contracts. It never takes custody of
           your assets, never trades on your behalf, and cannot reverse anything you sign. Using it
           means accepting the terms below.
         </>
@@ -44,7 +44,7 @@ export default function Terms() {
 
       <Section title="1. Who you are agreeing with">
         <p>
-          These terms are between you and <TBD>legal entity name</TBD> (&ldquo;we&rdquo;). By using
+          These terms are between you and Digital Native Standard LTD, a company incorporated in the British Virgin Islands (&ldquo;we&rdquo;). By using
           the interface you accept them. If you do not, do not use it.
         </p>
       </Section>
@@ -68,6 +68,15 @@ export default function Terms() {
             <>
               <Emphasis>Availability is not promised.</Emphasis> The interface, indexers and price
               data can go down. The underlying contracts may remain usable without us.
+            </>,
+            <>
+              <Emphasis>Fees are charged by the contracts.</Emphasis> Takers pay a fee on each
+              fill, part of which goes to us and, for pool fills, part to liquidity providers.
+              Launching a token costs a flat fee. Makers, auctions, deposits and withdrawals pay
+              nothing. Every rate and
+              recipient is published at <Link href="/fees" className="underline underline-offset-2">rate.limo/fees</Link>.
+              We can change the rates; a change applies only to fills after it, and that page
+              changes with it.
             </>,
           ]}
         />
@@ -130,8 +139,20 @@ export default function Terms() {
               than the quote suggested.
             </>,
             <>
+              <Emphasis>Pool pricing can be pushed.</Emphasis> Liquidity pools on Rate price each
+              trade from the order book&apos;s recent average price. Orders placed on the book,
+              including orders later cancelled, move that price, and the per-order limit does not
+              cap the cumulative movement. Where one side of a pool holds little or nothing, a third
+              party may move the price and trade against the pool at it, which can cause you to lose
+              some or all of the liquidity you provided. This applies to every pool, including a
+              launched coin&apos;s pool after graduation. See rate.limo/fees#risks.
+            </>,
+            <>
               <Emphasis>Liquidity risk.</Emphasis> Providing liquidity can return less than you
-              deposited. A concentrated range earns nothing while the price sits outside it.
+              deposited. As the price moves through your bands, your deposit converts into the
+              other token, and that can be worth less than the fees you earned. Fees vest over
+              time: withdrawing before they have vested forfeits the unvested part in proportion
+              to what you withdraw.
             </>,
             <>
               <Emphasis>Data risk.</Emphasis> Oracles and indexers can be delayed, wrong, or
@@ -165,12 +186,11 @@ export default function Terms() {
             </>,
             <>
               <Emphasis>The listing price and fees are not yours to set.</Emphasis> Every coin lists
-              against an approved quote token at a rate we configure. Trading fees are set by the
-              contract, not by you: takers pay a higher rate until the coin&apos;s total value
-              reaches a set figure, and a lower rate after. That is a{" "}
-              <Emphasis>separate threshold</Emphasis> from the liquidity one described below, which
-              governs where a coin appears in this interface. Meeting one does not mean meeting the
-              other, and both figures are set by us and can change.
+              against an approved quote token at a rate we configure. Launching costs a flat fee, paid
+              in the chain&apos;s gas token; nothing is taken from the supply. Your coin&apos;s market charges the same
+              trading fees as every other market on Rate, listed at{" "}
+              <Link href="/fees" className="underline underline-offset-2">rate.limo/fees</Link>, and
+              you receive no share of them.
             </>,
             <>
               <Emphasis>You warrant your content.</Emphasis> The name, logo, description and links
@@ -209,59 +229,96 @@ export default function Terms() {
         />
       </Section>
 
-      <Section title="7. Withdrawal fee">
+      <Section title="7. Auctions">
         <p>
-          When you withdraw from an embedded (passkey) wallet, the interface takes{" "}
-          <Emphasis>0.01% of the amount</Emphasis> — one basis point, one ten-thousandth —
-          and sends it to a wallet we control. The rest goes to the address you gave.
-          Both transfers are sent as a single transaction, so they succeed or fail
-          together; you are never charged for a withdrawal that did not arrive.
+          A token can also launch through an auction. The creator sets the terms and the contract
+          enforces them; we do not review, run or guarantee any sale. If you take part:
         </p>
         <Points
           items={[
             <>
-              <Emphasis>You see it before you sign.</Emphasis> The review step shows what
-              the destination receives and what the fee is, in the asset being sent.
+              <Emphasis>One fixed price.</Emphasis> Every buyer pays the price the creator set. The
+              auction does not discover a price, and the market price after launch can be higher or
+              lower.
             </>,
             <>
-              <Emphasis>Small withdrawals pay nothing.</Emphasis> The fee is computed in
-              the asset&apos;s smallest unit and rounds down, so below ten thousand of
-              those units it is zero and the review step says so. We do not round it up.
+              <Emphasis>Commitments are locked until the sale ends.</Emphasis> Once you commit, you
+              cannot withdraw while the sale runs. Each wallet has a cap set by the creator.
             </>,
             <>
-              <Emphasis>It does not apply to every wallet.</Emphasis> Withdrawing from an
-              external wallet such as MetaMask sends the full amount with no fee, because
-              that path cannot combine the two transfers into one transaction and we will
-              not charge a fee that can land without the withdrawal it belongs to.
+              <Emphasis>Oversubscribed sales fill pro-rata.</Emphasis> If more is committed than
+              the sale accepts, everyone receives the same share of their commitment in tokens and
+              the rest back. You claim both yourself.
             </>,
             <>
-              <Emphasis>It is not a network fee.</Emphasis> Gas is separate, paid by you to
-              the network, and we receive none of it.
+              <Emphasis>Sales can fail, and then you are refunded in full.</Emphasis> A sale that
+              ends below its minimum fails. So does one whose token is listed by anyone else before
+              it graduates. In both cases you claim your whole commitment back.
+            </>,
+            <>
+              <Emphasis>Graduation opens the market.</Emphasis> A successful sale graduates into a
+              market on the order book. At least 20% of the accepted raise, with tokens, becomes
+              liquidity that stays locked for a period the creator chooses, which can be short.
+              The rest of the raise goes to the address the creator named. Until a sale graduates,
+              committed funds stay in the contract; if the creator does not configure graduation,
+              an operator can.
+            </>,
+            <>
+              <Emphasis>The creator&apos;s tokens vest.</Emphasis> On a schedule the creator chose,
+              after a cliff. Vesting delays when they can sell; it does not stop them selling
+              afterwards.
+            </>,
+            <>
+              <Emphasis>We do not vet sales.</Emphasis> Being able to join an auction here is not an
+              endorsement of the token, its team or its plans.
             </>,
           ]}
         />
       </Section>
 
-      <Section title="8. Things you must not do">
+      <Section title="8. Points, rewards and referrals">
+        <Points
+          items={[
+            <>
+              <Emphasis>Points follow published rules, and the rules can change.</Emphasis> Points
+              are counted from your activity under rules we publish and may change between seasons.
+              Points are not money, cannot be transferred, and have no value on their own.
+            </>,
+            <>
+              <Emphasis>Rewards are paid per season.</Emphasis> Where a season pays out in a token,
+              the amount follows the published rules at the season&apos;s close. On testnet, those
+              tokens have no value and carry no promise of future value or conversion.
+            </>,
+            <>
+              <Emphasis>Referrals.</Emphasis> If someone joins through your link, you earn the share
+              of their trading fees the rules describe, as points. Referring yourself, or inflating
+              activity to earn more, breaks section 9.
+            </>,
+          ]}
+        />
+      </Section>
+
+      <Section title="9. Things you must not do">
         <Points
           items={[
             "Use the interface for money laundering, sanctions evasion, fraud, or any other unlawful purpose.",
             "Manipulate markets, including wash trading and spoofing.",
+            "Refer yourself, or inflate activity with fake or circular trades, to earn points or rewards.",
             "Attack the interface or its infrastructure — scraping at abusive rates, probing for vulnerabilities without permission, or interfering with anyone else's use of it.",
-            "Misrepresent yourself as Iter or as connected to us.",
+            "Misrepresent yourself as Rate or as connected to us.",
           ]}
         />
       </Section>
 
-      <Section title="9. Intellectual property">
+      <Section title="10. Intellectual property">
         <p>
-          The Iter name and branding are ours. Source code is licensed under the terms published in
+          The Rate name and branding are ours. Source code is licensed under the terms published in
           the repository, and those terms govern the code. Nothing here grants you a licence to use
           our branding.
         </p>
       </Section>
 
-      <Section title="10. No warranty">
+      <Section title="11. No warranty">
         <p>
           <Emphasis>
             The interface is provided &ldquo;as is&rdquo; and &ldquo;as available&rdquo;, without
@@ -289,11 +346,11 @@ export default function Terms() {
         taking the enforceable part with them — so the carve-out is what
         protects the rest of the section, not a hole in it.
       */}
-      <Section title="11. Limitation of liability">
+      <Section title="12. Limitation of liability">
         <p>
           <Emphasis>
-            You transact from your own wallet, with contracts we do not control, and we are never a
-            party to it.
+            You transact from your own wallet, with contracts that execute on their own, and we are
+            never a party to it.
           </Emphasis>{" "}
           We take no custody, hold no balance, execute nothing on your behalf and can reverse
           nothing. There is no point at which your assets pass through us, and so no point at which
@@ -304,25 +361,44 @@ export default function Terms() {
           arising from your use of the interface — including lost profits, lost assets and lost
           opportunity, and including losses caused by smart contract failure, network congestion,
           MEV, oracle error, or your own transaction choices. Where liability cannot lawfully be
-          excluded, it is capped at zero: we charge you nothing for the interface and hold nothing
-          of yours, so there is no fee to refund and no balance to make you whole from.
+          excluded, it is capped at the greater of the protocol fees we received from your
+          transactions in the 12 months before the claim and <TBD>fixed sum, e.g. US$100</TBD>.
         </p>
       </Section>
 
-      <Section title="12. Indemnity">
+      <Section title="13. Indemnity">
         <p>
           You agree to cover us against claims arising from your use of the interface, your breach
           of these terms, and any token or content you publish through it.
         </p>
       </Section>
 
-      <Section title="13. Access, changes and disputes">
+      <Section title="14. Access, changes and disputes">
         <p>
           We may change these terms, and may restrict or withdraw access to the interface at any
           time, including where required by law. Material changes will be reflected in the date
-          above. These terms are governed by the laws of the Cayman Islands, and disputes will be
-          resolved by confidential binding arbitration seated in the Cayman Islands, conducted
-          under <TBD>arbitral rules and institution</TBD>.
+          above. These terms are governed by the laws of the British Virgin Islands.
+        </p>
+        <p>
+          <Emphasis>Talk to us first.</Emphasis> Before starting any claim, tell us about the
+          dispute in writing at <TBD>contact email</TBD>. If it is not resolved within 30 days,
+          either side may start arbitration.
+        </p>
+        <p>
+          <Emphasis>Then arbitration, not court.</Emphasis> Any dispute, controversy or claim
+          arising out of or relating to these terms or the interface, including their breach,
+          termination or validity, will be settled by arbitration under the BVI IAC Arbitration
+          Rules. The seat is the British Virgin Islands, there is one arbitrator, the language is
+          English, and the proceedings and award are confidential.
+        </p>
+        <p>
+          <Emphasis>Individual claims only.</Emphasis> Disputes are resolved for you individually.
+          You may not bring or join a class, collective or representative action against us, and
+          an arbitrator may not consolidate your claim with anyone else&apos;s.
+        </p>
+        <p>
+          Some places do not let these terms take away your right to go to a local court or join
+          a collective claim. Where that is the case, those rights are unaffected.
         </p>
         <p>
           See also the{" "}

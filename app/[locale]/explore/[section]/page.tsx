@@ -20,13 +20,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const section = rawSection as ExploreSection;
   const network = readDisplaySlug("explore", await searchParams);
   const networkName = supportedNetworkName(network);
-  const title = `${sectionTitle(section)} | Iter Explore`;
+  const title = `${sectionTitle(section)} | Rate Explore`;
   return {
     title,
-    description: `Explore ${section} on Iter ${networkName}.`,
+    description: `Explore ${section} on Rate ${networkName}.`,
     openGraph: {
       title,
-      description: `Explore ${section} on Iter ${networkName}.`,
+      description: `Explore ${section} on Rate ${networkName}.`,
       images: [`/api/og/explore?kind=section&section=${section}&network=${encodeURIComponent(networkName)}`],
     },
     twitter: { card: "summary_large_image", images: [`/api/og/explore?kind=section&section=${section}&network=${encodeURIComponent(networkName)}`] },

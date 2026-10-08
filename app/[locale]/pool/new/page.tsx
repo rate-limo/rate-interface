@@ -1,10 +1,11 @@
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { AppShell } from "@/components/Shell/AppShell";
 import { MarketPageProvider } from "@/contexts/MarketPageProvider";
 import { LiquidityFlow } from "@/components/Liquidity/LiquidityFlow";
 import { getLiquidityOverview } from "@/lib/liquidity/poolStats";
 import { Metadata } from "next";
-import { Toaster } from "sonner";
 import { readDisplaySlug, supportedNetworkName } from "@/lib/routing/chainParams";
+import { modeFromParam } from "@/lib/liquidity/flowUrl";
 import * as motion from "motion/react-client";
 
 /**
@@ -15,19 +16,19 @@ import * as motion from "motion/react-client";
  * one acts.
  *
  * Accepts `base`/`quote` so a row on the overview can deep-link into the flow
- * with its pair already chosen. LiquidityFlow doesn't consume them yet — see the
- * note where they're read.
+ * with its pair already chosen, and `mode=launch` so "Launch a pool" has an
+ * address of its own. The flow writes all three back as they change.
  */
 
 interface PageProps {
-  searchParams: Promise<{ chain?: string; base?: string; quote?: string }>;
+  searchParams: Promise<{ chain?: string; base?: string; quote?: string; mode?: string }>;
 }
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const network = readDisplaySlug("pool", await searchParams);
   const networkName = supportedNetworkName(network);
   return {
-    title: `New position | Iter ${networkName}`,
+    title: `New position | Rate ${networkName}`,
     description: `Provide concentrated liquidity and launch pools on ${networkName}. Pick a pair and fee, set your range on the v3-style chart, then approve and confirm.`,
   };
 }
@@ -59,12 +60,16 @@ export default async function PoolNew({ searchParams }: PageProps) {
             id="pool-new-page"
             className="w-full"
           >
-            {/* The overview already builds /pool/new?base=&quote= links, so the
-                params arrive today; LiquidityFlow keeps its own pair state and
-                doesn't read them yet. Pre-filling from the query is the next step
-                and belongs in LiquidityFlow, not here. */}
+            {/* The pair was read here and dropped for months: every "Provide" row
+                on the overview links /pool/new?base=&quote=, and the flow opened
+                on the chain's default pair under that address. A symbol this
+                chain does not list still falls back — the flow heals it and
+                corrects the URL to match. */}
             <LiquidityFlow
               networkSlug={network}
+              initialBase={sp.base}
+              initialQuote={sp.quote}
+              initialMode={modeFromParam(sp.mode)}
               /* Real unlisted markets, read server-side. The flow itself is
                  still mock-driven, so this is matched by SYMBOL — a mock-only
                  token matches nothing and shows no banner, which is correct
@@ -74,17 +79,7 @@ export default async function PoolNew({ searchParams }: PageProps) {
             />
           </motion.div>
         </div>
-        <Toaster
-          position="bottom-right"
-          closeButton
-          toastOptions={{
-            style: {
-              background: "var(--m-surface)",
-              border: "1px solid var(--m-border)",
-              color: "var(--m-text-primary)",
-            },
-          }}
-        />
+        <AppToaster />
       </AppShell>
     </MarketPageProvider>
   );

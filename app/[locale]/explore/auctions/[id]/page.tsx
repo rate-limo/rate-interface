@@ -9,7 +9,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const network = readDisplaySlug("create", await searchParams);
   const networkName = supportedNetworkName(network);
   const image = `/api/og/explore?kind=auction&id=${encodeURIComponent(id)}&network=${encodeURIComponent(networkName)}`;
-  return { title: `Auction ${id} | Iter`, description: `Presale auction ${id} on Iter ${networkName}.`, openGraph: { title: `Auction ${id} | Iter`, description: `Presale auction ${id} on Iter ${networkName}.`, images: [image] }, twitter: { card: "summary_large_image", images: [image] } };
+  return { title: `Auction ${id} | Rate`, description: `Presale auction ${id} on Rate ${networkName}.`, openGraph: { title: `Auction ${id} | Rate`, description: `Presale auction ${id} on Rate ${networkName}.`, images: [image] }, twitter: { card: "summary_large_image", images: [image] } };
 }
 
 export default async function ExploreAuctionItem({ params, searchParams }: PageProps) {

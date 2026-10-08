@@ -37,10 +37,22 @@ export async function getCreatorTokens(
 
 export async function getTokenBySymbol(networkName: string, symbol: string) {
   const ponderLink = PonderLinks[networkName];
-  // get token from indexer
   const res = await fetch(`${ponderLink}/api/token/symbol/${symbol}`);
-  const data = await res.json();
-  return data;
+  /*
+   * THROW on a miss, like `getTokenByAddress` beside it.
+   *
+   * This returned whatever came back. The gateway answers a miss with
+   * `{"error":"Token not found"}` and a 404, so an unknown symbol resolved to
+   * that object AS THE TOKEN — no `symbol`, no `id` — and the page rendered a
+   * profile of it. The crashes surfaced four frames away and named neither the
+   * token nor the lookup: `tokenColor` on `symbol.length`, and the live-stats
+   * query key on `address.toLowerCase()`.
+   *
+   * It matters more after a redeploy than before: every pre-redeploy token URL
+   * becomes an unknown symbol at once.
+   */
+  if (!res.ok) throw new Error(`Token not found: ${symbol}`);
+  return res.json();
 }
 
 export async function getTokenByAddress(networkName: string, address: string) {
@@ -55,6 +67,26 @@ export async function getTokens(
   pageSize: number,
   page: number,
   options: string,
+  /**
+   * `"all"` drops the LISTING GATE, and only a caller that is not a ranking may
+   * pass it.
+   *
+   * `/api/tokens/*` serves verified markets only, which is right for every
+   * ranked table on the venue and wrong for a question about reachability. The
+   * deposit page is the second kind: "what can I put into this wallet" is the
+   * same shape as `/api/search`, which `routeCoverage.test.ts` pins as ungated
+   * for exactly this reason.
+   *
+   * Measured on a freshly redeployed Arc: nine tokens exist, every one of them
+   * `verified: false` because nothing has graduated yet — so the gated list
+   * answered zero and the deposit page offered NOTHING, including USDC, the
+   * venue's own quote asset. A deposit screen that cannot name the asset it
+   * settles in reads as a venue that accepts nothing.
+   *
+   * It stays opt-in rather than becoming the default: the rankings are the
+   * majority of callers and the gate is correct for all of them.
+   */
+  source?: "all",
 ) {
   let url;
   if (options === '') {
@@ -66,7 +98,7 @@ export async function getTokens(
   } else if (options === 'new') {
     url = `${PonderLinks[networkName]}/api/tokens/new/${pageSize}/${page}`;
   }
-  const response = await fetch(url as string);
+  const response = await fetch(source ? `${url}?source=${source}` : (url as string));
   // Same reasoning as getPairs: an error body carries no `tokens` key, and
   // parsing it anyway turns a failed request into a plausible-looking object.
   if (!response.ok) {

@@ -113,16 +113,38 @@ export async function getThesesFeed(
  * list makes the URL itself the cache key, so a tape that re-renders on every
  * fill re-asks for nothing.
  */
+/**
+ * ABSOLUTE, straight at the gateway — and it must stay that way.
+ *
+ * **This file is `"use server"` (line 1), so every export here is a Server
+ * Action.** A client component calling one does not make the request itself: it
+ * POSTs to the action and the `fetch` below runs on the SERVER. A relative URL
+ * has no origin to resolve against there, so `fetch` throws
+ * `TypeError: Failed to parse URL` — which `getJson` swallows into `null`,
+ * which `useIdentities` turns into an empty map by design, which leaves every
+ * wallet in the app rendering as a truncated address with nothing on screen or
+ * in the browser's network tab to say why.
+ *
+ * That is exactly what happened between c3fe4b9b and this commit. The reasoning
+ * that moved it — "its only caller is a client component, so the browser makes
+ * the request, so the gateway's origin allowlist applies" — is true of
+ * `fetchProfile` in `lib/portfolio/profile.ts`, which carries no `"use server"`
+ * and genuinely does run in the browser. It is false here, and the two
+ * functions therefore need OPPOSITE URLs. Measured on the dev server: 108
+ * `getIdentities: request failed … Failed to parse URL` lines, one per render.
+ *
+ * The CORS allowlist never applied to this call. A server-to-server request
+ * carries no browser `Origin`, which is the same reason `app/api/gateway/[...path]`
+ * can proxy for the browser at all.
+ */
 export async function getIdentities(
   networkName: string,
   addresses: readonly string[],
 ): Promise<Record<string, unknown> | null> {
   const root = base(networkName);
   if (!root || addresses.length === 0) return null;
-  return getJson(
-    `${root}/api/identities?addresses=${encodeURIComponent(addresses.join(","))}`,
-    "getIdentities",
-  );
+  const list = encodeURIComponent(addresses.join(","));
+  return getJson(`${root}/api/identities?addresses=${list}`, "getIdentities");
 }
 
 /**

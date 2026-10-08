@@ -69,6 +69,20 @@
    @layer utilities gets claimed and dropped. The parent clips
    (overflow-hidden) and the scale stays >1 the whole time so the frame
    is always fully covered. */
+/*
+ * The transfer result mark: one pop, never a loop.
+ *
+ * A celebration that repeats turns into a spinner and makes a finished transfer
+ * look pending — which on this screen is the opposite of what it must say. The
+ * caller applies it under `motion-safe:` so a reduced-motion reader gets the
+ * glyph in its final position with no animation at all.
+ */
+@keyframes transferMark {
+  0%   { transform: scale(.72); opacity: 0; }
+  60%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 @keyframes hero-drift {
   0% {
     transform: scale(1.04) translate3d(0, 0, 0);
@@ -545,11 +559,10 @@
      theme renders exactly as before. */
   --m-surface-success: #E6F2E8;
   --m-on-surface-success: #456B45;
-  /* Logo mark colour -- deliberately decoupled from the primary/UI accent
-     above. The brand mark stays emerald in both themes while the UI accent is
-     Sky Blue: logo is logo, UI is UI. Deep emerald in light (reads on the
-     near-white nav); mint in dark (see .dark override). */
-  --m-logo: #B07A08; /* high noon */
+  /* Logo mark colour -- deliberately decoupled from the primary/UI colour
+     above: logo is logo, UI is UI. Rate orange, the same value in both
+     themes (was gold in light, ember in dark). --m-accent shares it. */
+  --m-logo: #E85D2A; /* last light — one orange in both themes */
 
   --m-secondary-100: #E7EFE7;
   --m-secondary-200: #CBDCCC;
@@ -560,7 +573,11 @@
   --m-secondary-700: #2A4230;
   --m-secondary-800: #1A2A1E;
 
-  --m-accent: #DCC85A;
+  --m-accent: #E85D2A;
+  /* The accent as TEXT. #E85D2A is 3.1:1 on --m-background, under WCAG AA for
+     anything smaller than display size; this darker shade is 4.8:1. Dark mode
+     keeps the brand orange itself, which reads fine on #0D0F12. */
+  --m-accent-text: #B8431A;
 
   --m-success-100: #E5F0E5;
   --m-success-200: #C3DFC3;
@@ -669,7 +686,7 @@
   --m-chart-buy: #5E8764;
   --m-chart-sell: #7FAFD8;
   --m-chart-current: #7FAFD8;
-  --m-chart-highlight: #DCC85A;
+  --m-chart-highlight: #E85D2A;
   /* Candles are GREEN and RED, and deliberately not the graphics' two hues.
      
      They were briefly dollar green and cobalt — the colours the colonnade
@@ -743,7 +760,7 @@
   --primary-foreground: 210 45% 16%;
   --secondary: 129 18% 45%;
   --secondary-foreground: 0 0% 100%;
-  --accent: 51 65% 61%;
+  --accent: 16 81% 54%;            /* #E85D2A */
   --accent-foreground: 216 11.6% 16.9%;
   --destructive: 0 47% 60%;
   --destructive-foreground: 0 0% 100%;
@@ -839,7 +856,7 @@
   --m-on-surface-success: #6E9E7C;
   /* Logo mark stays emerald in dark (mint), decoupled from the Sky Blue UI
      accent above. */
-  --m-logo: #E85D2A; /* last light */
+  --m-logo: #E85D2A; /* last light — one orange in both themes */
 
   --m-secondary-100: #CBD5DD;
   --m-secondary-200: #A8B7C3;
@@ -850,7 +867,8 @@
   --m-secondary-700: #2A3742;
   --m-secondary-800: #1B242C;
 
-  --m-accent: #C4A96A;
+  --m-accent: #E85D2A;
+  --m-accent-text: #E85D2A;
 
   /* Sage, not mint. Still unmistakably "up" against terracotta "down", which is
      the only job these two have to do on a price. */
@@ -863,7 +881,7 @@
   --m-success-700: #334A3B;
   --m-success-800: #1E2A22;
 
-  /* Brass, not amber — warning must stay distinguishable from --m-accent gold,
+  /* Brass, not amber — warning must stay distinguishable from the --m-accent orange,
      so it sits a step deeper and less yellow. */
   --m-warning-100: #EFE2CC;
   --m-warning-200: #E0CBA8;
@@ -936,7 +954,7 @@
   --m-chart-buy: #6E9E7C;
   --m-chart-sell: #7B9CBB;
   --m-chart-current: #7B9CBB;
-  --m-chart-highlight: #C4A96A;
+  --m-chart-highlight: #E85D2A;
   --m-candle-bull-fill: #52C48A;
   --m-candle-bull-border: #74D3A3;
   --m-candle-bear-fill: #E36A75;
@@ -967,7 +985,7 @@
   --primary-foreground: 216 16% 6%;
   --secondary: 208 19% 41%;        /* #566B7D */
   --secondary-foreground: 40 12% 90%;
-  --accent: 42 43% 59%;            /* #C4A96A */
+  --accent: 16 81% 54%;            /* #E85D2A */
   --accent-foreground: 216 16% 6%;
   --destructive: 6 40% 58%;        /* #BE7168 */
   --destructive-foreground: 40 12% 90%;
@@ -1028,7 +1046,7 @@
   --m-on-surface-success: #6E9E7C;
   /* Logo mark stays emerald in dark (mint), decoupled from the Sky Blue UI
      accent above. */
-  --m-logo: #E85D2A; /* last light */
+  --m-logo: #E85D2A; /* last light — one orange in both themes */
 
   --m-secondary-100: #CBD5DD;
   --m-secondary-200: #A8B7C3;
@@ -1039,7 +1057,8 @@
   --m-secondary-700: #2A3742;
   --m-secondary-800: #1B242C;
 
-  --m-accent: #C4A96A;
+  --m-accent: #E85D2A;
+  --m-accent-text: #E85D2A;
 
   /* Sage, not mint. Still unmistakably "up" against terracotta "down", which is
      the only job these two have to do on a price. */
@@ -1052,7 +1071,7 @@
   --m-success-700: #334A3B;
   --m-success-800: #1E2A22;
 
-  /* Brass, not amber — warning must stay distinguishable from --m-accent gold,
+  /* Brass, not amber — warning must stay distinguishable from the --m-accent orange,
      so it sits a step deeper and less yellow. */
   --m-warning-100: #EFE2CC;
   --m-warning-200: #E0CBA8;
@@ -1108,7 +1127,7 @@
   --m-chart-buy: #6E9E7C;
   --m-chart-sell: #7B9CBB;
   --m-chart-current: #7B9CBB;
-  --m-chart-highlight: #C4A96A;
+  --m-chart-highlight: #E85D2A;
   /* NOTE: this is the SECOND `.dark` block in this file, and it re-declares
      chart and candle tokens that the first one at ~740 already sets. Later
      wins, so this copy is the one that actually reaches the page -- editing
@@ -1140,7 +1159,7 @@
   --primary-foreground: 216 16% 6%;
   --secondary: 208 19% 41%;        /* #566B7D */
   --secondary-foreground: 40 12% 90%;
-  --accent: 42 43% 59%;            /* #C4A96A */
+  --accent: 16 81% 54%;            /* #E85D2A */
   --accent-foreground: 216 16% 6%;
   --destructive: 6 40% 58%;        /* #BE7168 */
   --destructive-foreground: 40 12% 90%;
@@ -1609,4 +1628,61 @@
   /* The figure is the signal; the movement is decoration. A reader who cannot
      see motion still gets the value, with no slide. */
   .dock-estimate-in { animation: none; }
+}
+
+/*
+ * How far a toast sits above the bottom of the window.
+ *
+ * The shell puts a bar down there and toasts landed behind it: `StatusBar` is a
+ * 40px strip from 1200px up, and below that `MobileTabs` is a floating bar
+ * about 68px tall sitting 10px above the safe area. Sonner's own `mobileOffset`
+ * switches at 600px, which is not where either of those appears — so the value
+ * is set here, where the shell's real breakpoint can be named, and passed into
+ * sonner through `AppToaster`.
+ */
+[data-sonner-toaster] {
+  --iter-toast-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 1200px) {
+  [data-sonner-toaster] {
+    /* The 40px status bar, plus a gap. MobileTabs is hidden at this width. */
+    --iter-toast-bottom: 56px;
+  }
+}
+
+/*
+ * A launch card entering the Launches grid.
+ *
+ * Plain top-level CSS, NOT a Tailwind utility, and not named `animate-*`:
+ * that prefix is a reserved v4 namespace, so a custom `.animate-launch-arrive`
+ * in @layer utilities is claimed and dropped — the same failure `.hero-drift`
+ * and `.backdrop-drift` above carry a paragraph about, where the class appears
+ * in the HTML with no rule behind it and nothing warns.
+ *
+ * One curve and named properties only. The siblings get the same duration so a
+ * row reflows as one movement rather than the new card sliding into a grid that
+ * has already jumped.
+ */
+@keyframes launch-arrive {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+.launch-arrive {
+  animation: launch-arrive 320ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* The ring is the part that survives the motion: it says WHAT changed, where
+   the animation only said that something did. It fades on its own. */
+.launch-arrive-mark {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--m-success) 22%, transparent);
+  transition: box-shadow 900ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The movement goes; the ring and the chip stay. They were carrying the
+     information — the animation was only carrying the eye. */
+  .launch-arrive { animation: none; }
+  .launch-arrive-mark { transition: none; }
 }

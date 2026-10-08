@@ -18,9 +18,9 @@ import {
  * false statement, not stale documentation.
  */
 export const metadata: Metadata = {
-  title: "Privacy policy | Iter",
+  title: "Privacy policy | Rate",
   description:
-    "What Iter collects, what it doesn't, and what you can do about it. Self-custodial: no KYC, no data sales.",
+    "What Rate collects, what it doesn't, and what you can do about it. Self-custodial: no KYC, no data sales.",
   // Kept out of search results while this is a draft — an unreviewed policy
   // with visible [placeholders] should not be the thing a search engine
   // surfaces as our privacy statement. Remove once it is signed off.
@@ -32,10 +32,10 @@ export default function Privacy() {
     <LegalPage
       eyebrow="privacy policy"
       title="What we keep, and what we never see"
-      updated="1 August 2026"
+      updated="2 October 2026"
       lede={
         <>
-          Iter is a self-custodial interface: you hold your own keys, there is no identity check,
+          Rate is a self-custodial interface: you hold your own keys, there is no identity check,
           and there is no account to create. You connect a wallet — that is the whole sign-in. The
           one exception is support: if you write to us, we keep the email address you give us so we
           can reply. This page lists everything the app receives.
@@ -46,8 +46,9 @@ export default function Privacy() {
 
       <Section title="Who this is about">
         <p>
-          This policy covers the Iter web application and the services behind it, operated by{" "}
-          <TBD>legal entity name and registered address</TBD>. Questions or requests go to{" "}
+          This policy covers the Rate web application and the services behind it, operated by{" "}
+          Digital Native Standard LTD, a company incorporated in the British Virgin Islands,{" "}
+          <TBD>registered address</TBD>. Questions or requests go to{" "}
           <TBD>contact email</TBD>.
         </p>
       </Section>
@@ -89,9 +90,9 @@ export default function Privacy() {
               already noticed it — disconnecting stops us showing it, not them from remembering it.
             </>,
             <>
-              <Emphasis>Your wallet address — also if you join the waitlist.</Emphasis> Pressing
-              &ldquo;Join the waitlist&rdquo; stores your address and the time you joined. Nothing
-              else: no balance, no activity.
+              <Emphasis>Your wallet address — also if you join the waitlist.</Emphasis> Joining at
+              waitlist.rate.limo stores your address and the time you joined. Nothing else: no
+              balance, no activity.
             </>,
             <>
               <Emphasis>Your email address and messages, if you contact support.</Emphasis> The
@@ -99,7 +100,9 @@ export default function Privacy() {
               everything written in the conversation, by you and by us. We never check that the
               address is yours and never link it to a wallet. Your browser keeps a key to the
               conversation so it can show it to you again — clearing site data loses the thread,
-              and there is no way to recover it.
+              and there is no way to recover it. Affiliate and chain-integration applications are
+              filed the same way, as support messages, so they also hold what you typed into that
+              form: for example a name, a role or a social handle.
             </>,
             <>
               <Emphasis>Usage analytics — only if you allow them.</Emphasis> Off unless you accept
@@ -131,8 +134,10 @@ export default function Privacy() {
         <Points
           items={[
             <>
-              <Emphasis>Your private keys or seed phrase.</Emphasis> The app cannot see them, and
-              nobody from Iter will ever ask for them.
+              <Emphasis>Your private keys or seed phrase.</Emphasis> They never reach our servers,
+              and nobody from Rate will ever ask for them. If you use the Rate wallet, its key is
+              derived on your device from your passkey and kept, encrypted, in your browser on
+              wallet.rate.limo for up to 24 hours so that reloading the page does not sign you out.
             </>,
             <>
               <Emphasis>Identity documents.</Emphasis> There is no KYC on this interface.
@@ -157,7 +162,7 @@ export default function Privacy() {
         <p>
           Transactions you sign are recorded on a public blockchain by design. That data is not
           collected by us, is visible to anyone, and{" "}
-          <Emphasis>cannot be edited or deleted by us or by you</Emphasis> — not by Iter, and not
+          <Emphasis>cannot be edited or deleted by us or by you</Emphasis> — not by Rate, and not
           by any request under any law. A wallet address can often be linked to a person by
           combining public sources, so treat every onchain action as public.
         </p>
@@ -172,8 +177,22 @@ export default function Privacy() {
               you have allowed them.
             </>,
             <>
-              <Emphasis>Reown AppKit and WalletConnect</Emphasis> — the wallet connection layer.
-              Your own wallet provider has its own privacy policy and we do not control it.
+              <Emphasis>Railway</Emphasis> — hosts the services behind the app (the market data
+              API, live updates and sign-in), and so sees IP addresses and request data.
+            </>,
+            <>
+              <Emphasis>Cloudflare</Emphasis> — DNS for rate.limo. It resolves our domain names
+              and does not see the content of your requests.
+            </>,
+            <>
+              <Emphasis>Your passkey provider</Emphasis> — Apple, Google, a password manager or a
+              security key creates and stores the passkey behind the Rate wallet, and runs the
+              fingerprint or face check. That check never reaches us.
+            </>,
+            <>
+              <Emphasis>An external wallet, if you use one</Emphasis> — MetaMask or another browser
+              wallet you connect to fund a deposit has its own privacy policy, and we do not control
+              it.
             </>,
             <>
               <Emphasis>RPC and indexing providers</Emphasis> — reading chain state necessarily
@@ -267,7 +286,7 @@ export default function Privacy() {
 
       <Section title="Children">
         <p>
-          Iter is not directed at children and is not intended for anyone under the age of majority
+          Rate is not directed at children and is not intended for anyone under the age of majority
           where they live — 18 in most places. We do not knowingly collect their data.
         </p>
       </Section>

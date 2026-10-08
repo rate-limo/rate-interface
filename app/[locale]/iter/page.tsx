@@ -12,8 +12,8 @@ interface PageProps {
 }
 
 export const metadata: Metadata = {
-  title: "Iter protocol metrics",
-  description: "Protocol revenue, liquidity, and LP performance across Iter markets.",
+  title: "Rate protocol metrics",
+  description: "Protocol revenue, liquidity, and LP performance across Rate markets.",
 };
 
 export default async function IterPage({ searchParams }: PageProps) {
@@ -34,7 +34,7 @@ export default async function IterPage({ searchParams }: PageProps) {
       <div className="min-h-screen bg-[color:var(--m-background)] text-[color:var(--m-text-primary)]">
         <AppShell
           headerContent={
-            <div className="text-sm font-semibold text-[color:var(--m-text-primary)]">Iter Protocol</div>
+            <div className="text-sm font-semibold text-[color:var(--m-text-primary)]">Rate Protocol</div>
           }
           walletContent={<IterDesktopWalletButton />}
         >

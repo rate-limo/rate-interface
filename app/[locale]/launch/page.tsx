@@ -23,7 +23,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const network = readDisplaySlug("launch", await searchParams);
   const networkName = supportedNetworkName(network);
   return {
-    title: `Launches | Iter ${networkName}`,
+    title: `Launches | Rate ${networkName}`,
     description: `Every token launched on ${networkName} — market caps, momentum, and how far each one is from listing.`,
   };
 }

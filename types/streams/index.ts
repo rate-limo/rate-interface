@@ -44,8 +44,15 @@ export {
   streamToSpotOrderMatchedEvent,
   streamToSpotTradeEvent,
   streamToSpotFillSummaryEvent,
+  eventToSpotAccountActivityStream,
+  streamToSpotAccountActivityEvent,
+  eventToSpotLaunchStream,
+  streamToSpotLaunchEvent,
   expandFillSummary,
   collapseFillSummary,
+  eventToSpotOrderCloseSummaryStream,
+  streamToSpotOrderCloseSummaryEvent,
+  expandOrderCloseSummary,
 } from "@iter/types";
 
 export type {
@@ -70,7 +77,13 @@ export type {
   SpotTradeEvent,
   SpotTradeStream,
   SpotFillSummaryEvent,
+  SpotAccountActivityEvent,
+  SpotAccountActivityKind,
   SpotFillSummaryStream,
   SpotFillRow,
+  SpotOrderCloseSummaryEvent,
+  SpotOrderCloseSummaryStream,
+  SpotLaunchEvent,
+  SpotLaunchStream,
   StreamableObject,
 } from "@iter/types";

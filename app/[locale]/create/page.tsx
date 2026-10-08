@@ -1,8 +1,8 @@
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { AppShell } from "@/components/Shell/AppShell";
 import { MarketPageProvider } from "@/contexts/MarketPageProvider";
 import { LaunchLanding } from "@/components/Launch/LaunchLanding";
 import { Metadata } from "next";
-import { Toaster } from "sonner";
 import { readDisplaySlug, supportedNetworkName } from "@/lib/routing/chainParams";
 import * as motion from "motion/react-client";
 
@@ -23,7 +23,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const network = readDisplaySlug("create", await searchParams);
   const networkName = supportedNetworkName(network);
   return {
-    title: `Create a token | Iter ${networkName}`,
+    title: `Create a token | Rate ${networkName}`,
     description: `Create a token on ${networkName}, open its market and seed the book — deploy, listing and first position in one transaction.`,
   };
 }
@@ -47,17 +47,7 @@ export default async function Launch({ searchParams }: PageProps) {
             <LaunchLanding networkSlug={network} />
           </motion.div>
         </div>
-        <Toaster
-          position="bottom-right"
-          closeButton
-          toastOptions={{
-            style: {
-              background: "var(--m-surface)",
-              border: "1px solid var(--m-border)",
-              color: "var(--m-text-primary)",
-            },
-          }}
-        />
+        <AppToaster />
       </AppShell>
     </MarketPageProvider>
   );

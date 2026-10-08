@@ -1,8 +1,7 @@
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { HomeDesktopPage } from "@/components/Pages/Home/DesktopPage";
 import { AppShell } from "@/components/Shell/AppShell";
 import { MarketPageProvider } from "@/contexts/MarketPageProvider";
-import { DesktopOnly } from "@/components/Molecules/DesktopOnly";
-import { Toaster } from "sonner";
 import { Metadata } from "next";
 import * as motion from "motion/react-client";
 import { readDisplaySlug, supportedNetworkName } from "@/lib/routing/chainParams";
@@ -19,18 +18,18 @@ export async function generateMetadata({
   const networkName = supportedNetworkName(network);
 
   return {
-    title: `Crypto Exchange | The first fully onchain Exchange | Self-custody Bitcoin & Altcoin exchange in ${networkName} | Iter`,
-    description: `Iter is a secure self-custodial cryptocurrency exchange that allows you to buy, sell, and trade Bitcoin, Ethereum, and 700+ altcoins. The leader in driving onchain ecnomy adoption.`,
+    title: `Crypto Exchange | The first fully onchain Exchange | Self-custody Bitcoin & Altcoin exchange in ${networkName} | Rate`,
+    description: `Rate is a secure self-custodial cryptocurrency exchange that allows you to buy, sell, and trade Bitcoin, Ethereum, and 700+ altcoins. The leader in driving onchain ecnomy adoption.`,
     openGraph: {
-      title: `Crypto Exchange | The first fully onchain Exchange | Self-custody Bitcoin & Altcoin exchange in ${networkName} | Iter`,
-      description: `Iter is a secure self-custodial cryptocurrency exchange that allows you to buy, sell, and trade Bitcoin, Ethereum, and 700+ altcoins. The leader in driving onchain ecnomy adoption.`,
+      title: `Crypto Exchange | The first fully onchain Exchange | Self-custody Bitcoin & Altcoin exchange in ${networkName} | Rate`,
+      description: `Rate is a secure self-custodial cryptocurrency exchange that allows you to buy, sell, and trade Bitcoin, Ethereum, and 700+ altcoins. The leader in driving onchain ecnomy adoption.`,
       images: [
         {
           url: "/api/og", // app/api/og/route.ts -- serves the light or dark card by time of day
           width: 1200,
           height: 630,
           type: "image/jpeg",
-          alt: "Iter",
+          alt: "Rate",
         },
       ],
     },
@@ -61,53 +60,22 @@ export default async function Main({ searchParams }: PageProps) {
           No <main> of our own here: AppShell renders one. */}
       <AppShell>
         <div className="relative isolate min-h-full">
-          {/* Desktop (min-width: 1200px) */}
+          {/* One page at every width. Below 1200px this used to render
+              DesktopOnly ("Mobile Coming Soon"), so on a phone the Explore tab
+              — one of the five in MobileTabs — was a dead end. The directory's
+              tables scroll sideways inside their own overflow-x-auto. */}
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
-            id="trade-desktop-page"
-            className="hidden w-full min-[1200px]:block"
+            id="explore-page"
+            className="w-full"
           >
             <HomeDesktopPage thresholdUsd={thresholdUsd} />
           </motion.div>
-
-          {/* Tablet (min-width: 375px and max-width: 1199px) */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
-            id="trade-tablet-page"
-            className="hidden min-[375px]:block min-[1200px]:hidden"
-          >
-            <DesktopOnly />
-          </motion.div>
-
-          {/* Mobile (max-width: 374px) */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
-            id="trade-mobile-page"
-            className="block min-[375px]:hidden"
-          >
-            <DesktopOnly />
-          </motion.div>
         </div>
-        <Toaster
-          position="bottom-right"
-          closeButton
-          toastOptions={{
-            style: {
-              background: "var(--m-surface)",
-              border: "1px solid var(--m-border)",
-              color: "var(--m-text-primary)",
-            },
-          }}
-        />
+        <AppToaster />
       </AppShell>
     </MarketPageProvider>
   );

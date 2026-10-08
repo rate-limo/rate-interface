@@ -34,7 +34,7 @@ import { DEFAULT_CHAIN_SLUG } from "@/lib/routing/chainParams";
  * one would scope the right rail to that wallet, which is what /profile does.
  */
 export const metadata: Metadata = {
-  title: "Home — Iter",
+  title: "Home — Rate",
   description:
     "Callouts from the traders you follow, who is winning right now, and what is moving.",
 };

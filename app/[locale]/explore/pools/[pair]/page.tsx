@@ -10,7 +10,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const networkName = supportedNetworkName(network);
   const symbol = pair.replace(/_/g, "/").toUpperCase();
   const image = `/api/og/explore?kind=pool&pair=${encodeURIComponent(pair)}&network=${encodeURIComponent(networkName)}`;
-  return { title: `${symbol} pool | Iter`, description: `${symbol} liquidity pool on Iter ${networkName}.`, openGraph: { title: `${symbol} pool | Iter`, description: `${symbol} liquidity pool on Iter ${networkName}.`, images: [image] }, twitter: { card: "summary_large_image", images: [image] } };
+  return { title: `${symbol} pool | Rate`, description: `${symbol} liquidity pool on Rate ${networkName}.`, openGraph: { title: `${symbol} pool | Rate`, description: `${symbol} liquidity pool on Rate ${networkName}.`, images: [image] }, twitter: { card: "summary_large_image", images: [image] } };
 }
 
 export default async function ExplorePoolItem({ params, searchParams }: PageProps) {
