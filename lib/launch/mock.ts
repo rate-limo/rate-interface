@@ -2,14 +2,15 @@
  * MOCK launch data + the pure helpers the flow validates with.
  *
  * The helpers are real and permanent; only `mockLaunchExecution` is
- * illustrative, and it now models CoinGenerator's actual shape — admin-set quote
- * options and terms read from the contract, a launch that lists a pair and hands
- * back the remaining supply, and no liquidity position anywhere.
+ * illustrative, and it models AssetGenerator's ladder launch — admin-set quote
+ * options and terms, a launch that lists the pair at startingMarketCap / supply,
+ * and a receipt carrying only the dev-bought coins.
  */
 
 import {
   COIN_DECIMALS,
   FEE_DENOM,
+  LAUNCH_SUPPLY,
   type FieldErrors,
   type LaunchDraft,
   type LaunchExecution,
@@ -64,7 +65,7 @@ export function fmtFee(numerator: number): string {
  * Symbols already trading. A collision isn't fatal onchain — addresses are the
  * identity — but it is fatal to a user reading a market list, so the flow warns.
  */
-const TAKEN = new Set(["ETH", "WETH", "WBTC", "USDC", "USDT", "MON", "ITER"]);
+const TAKEN = new Set(["ETH", "WETH", "WBTC", "USDC", "USDT", "MON", "ITER", "RATE"]);
 
 export function isSymbolTaken(symbol: string): boolean {
   return TAKEN.has(symbol.trim().toUpperCase());
@@ -90,10 +91,6 @@ export function validateToken(t: TokenDraft): FieldErrors {
   else if (!SYMBOL_RE.test(symbol))
     errors.symbol = "2–11 characters, letters and digits, starting with a letter.";
 
-  const supply = parseAmount(t.totalSupply);
-  if (supply <= 0) errors.totalSupply = "Supply must be greater than zero.";
-  else if (supply > 1e15) errors.totalSupply = "That supply is too large to price sensibly.";
-
   if (t.description.length > 300) errors.description = "Keep the description under 300 characters.";
 
   return errors;
@@ -107,12 +104,9 @@ export function validateMarket(quote: string, options: readonly QuoteOption[]): 
   return {};
 }
 
-/**
- * Market cap implied by the ADMIN-SET listing price, denominated in the quote
- * token. Not a creator input — see QuoteOption.listingPrice.
- */
-export function impliedMarketCap(supply: number, listingPrice: number): number {
-  return supply * listingPrice;
+/** Quote per coin at the start: the admin-set starting market cap spread over the supply. */
+export function startingPrice(supply: number, startingMarketCap: number): number {
+  return supply > 0 ? startingMarketCap / supply : 0;
 }
 
 /**
@@ -142,26 +136,15 @@ const wait = (ms: number) =>
     setTimeout(resolve, reduce ? Math.min(ms, 120) : ms);
   });
 
-/**
- * Illustrative quote options. Shaped like what `enabledQuoteTokens()` plus
- * `quoteOption(...)` return, including `listingPaymentSymbol: null` — the
- * contract's default, meaning the listing cost comes out of the new supply.
- */
+/** Illustrative quote options, shaped like `enabledQuoteTokens()` + `quoteOption(...)`. */
 export const MOCK_QUOTE_OPTIONS: QuoteOption[] = [
   {
     symbol: "USDC",
     address: mockAddress("USDC"),
-    listingPrice: 0.00006,
-    listingPaymentSymbol: null,
-    graduationTargetQuote: 25_000,
-    startingTakerFee: 1_000_000,
-  },
-  {
-    symbol: "ETH",
-    address: mockAddress("ETH"),
-    listingPrice: 0.00000003,
-    listingPaymentSymbol: null,
-    graduationTargetQuote: 10,
+    decimals: 6,
+    startingMarketCap: BigInt(5_000_000_000),
+    minDevBuy: BigInt(5_000_000),
+    graduationMarketCap: BigInt(25_000_000_000),
     startingTakerFee: 1_000_000,
   },
 ];
@@ -169,16 +152,12 @@ export const MOCK_QUOTE_OPTIONS: QuoteOption[] = [
 /** Illustrative generator terms. Every value is admin-set on the real contract. */
 export const MOCK_TERMS: LaunchTerms = {
   launchFeeEth: 0.01,
+  launchFeeSymbol: "ETH",
 };
 
 /**
- * The illustrative execution.
- *
- * `submit` returns `receivedSupply` slightly below the minted supply: the
- * MatchingEngine takes the listing cost out of the new coin (QuoteOption's
- * `listingPayment` defaults to the coin itself), and the contract forwards only
- * what is left. A UI that showed the full supply would be overstating what the
- * creator actually ends up holding.
+ * The illustrative execution. `submit` hands back only the dev-bought coins:
+ * the rest is in the ladder or held for graduation, as on chain.
  */
 export const mockLaunchExecution: LaunchExecution = {
   async uploadLogo(): Promise<UploadedLogo> {
@@ -201,15 +180,17 @@ export const mockLaunchExecution: LaunchExecution = {
   },
   async submit(draft: LaunchDraft, _networkName: string | number): Promise<LaunchReceipt> {
     await wait(1400);
-    const supply = parseAmount(draft.token.totalSupply);
+    const supply = LAUNCH_SUPPLY;
     const symbol = draft.token.symbol.toUpperCase();
+    const quote = MOCK_QUOTE_OPTIONS[0]!;
+    const paid = parseAmount(draft.market.devBuy);
+    const price = startingPrice(supply, Number(quote.startingMarketCap) / 10 ** quote.decimals);
     return {
       coinAddress: mockAddress(`${symbol}:coin`),
       pairAddress: mockAddress(`${symbol}:pair`),
       txHash: "0x9a3f7b1c04e2d85a6f3b90c17e4d2a8b5c6019fe3d4a7b28c5901ef6a3b24b21",
-      // Illustrative listing cost. The real figure is whatever the engine
-      // consumed, read back from the coin's balance after `addPair`.
-      receivedSupply: Math.max(0, supply - Math.min(supply * 0.001, 1_000_000)),
+      receivedSupply: price > 0 ? paid / price : 0,
+      devBuyQuote: paid,
       logoURI: draft.token.logoPreview,
       // The mock runs no real claim; LaunchConfirm overwrites this with what
       // `claimLogo` actually returned.

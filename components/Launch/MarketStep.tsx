@@ -1,24 +1,22 @@
 "use client";
 
 /**
- * Step 2 — which book the coin lists against.
+ * Step 2 — which book the coin lists against, and the dev buy.
  *
- * The creator selects the quote market and its initial price. The implied fully
- * diluted market cap updates from price × fixed token supply.
+ * The starting price is NOT a choice: the contract sets it so the whole supply
+ * is worth the quote option's `startingMarketCap`. The one market decision the
+ * creator makes is how much to buy at that price — required, between the
+ * option's `minDevBuy` and 10% of supply. The five ladder steps are shown as
+ * facts: the contract places them, from `startingMarketCap` to
+ * `graduationMarketCap`.
  */
 
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { cn } from "@/lib/utils";
 import { liqToken } from "@/lib/liquidity/mock";
-import {
-  fmtAmount,
-  fmtCompact,
-  fmtFee,
-  fmtRate,
-  impliedMarketCap,
-  parseAmount,
-} from "@/lib/launch/mock";
-import type { QuoteOption, TokenDraft } from "@/lib/launch/types";
+import { fmtAmount, fmtCompact, fmtFee, fmtRate } from "@/lib/launch/mock";
+import { clearsListingFloor, devBuyRefusal, devBuyView } from "@/lib/launch/devBuy";
+import { LAUNCH_SUPPLY_TEXT, type QuoteOption, type TokenDraft } from "@/lib/launch/types";
 import { Callout, Field, GhostButton, Kv, KvRow, KvVal, Lbl, Panel, PrimaryButton } from "./parts";
 
 function PairTokenImage({ token, quote }: { token: TokenDraft; quote: QuoteOption }) {
@@ -53,42 +51,56 @@ export function MarketStep({
   token,
   quote,
   options,
-  listingPrice,
-  onPriceChange,
+  devBuy,
+  onDevBuyChange,
   onChange,
   onContinue,
   onBack,
+  launchReady,
 }: {
   token: TokenDraft;
   quote: string;
   options: readonly QuoteOption[];
-  listingPrice: string;
-  onPriceChange: (price: string) => void;
+  devBuy: string;
+  onDevBuyChange: (amount: string) => void;
   onChange: (quote: string) => void;
   onContinue: () => void;
   onBack: () => void;
+  /** False while this network still runs the previous launch contract. */
+  launchReady?: boolean;
 }) {
   const symbol = token.symbol.trim().toUpperCase() || "TOKEN";
-  const supply = parseAmount(token.totalSupply);
-  const chosen = options.find((o) => o.address === quote) ?? null;
-  const price = Number(listingPrice);
-  const cap = chosen && Number.isFinite(price) && price > 0 ? impliedMarketCap(supply, price) : 0;
+  // Supply is fixed at 1B, so a quote whose start market cap can't price 1B
+  // coins above the contract's floor (ETH, a stock token) can't be launched
+  // against here at all: those pairs go through an auction or a pool launch.
+  const usable = options.filter((o) => clearsListingFloor(o));
+  const chosen = usable.find((o) => o.address === quote) ?? null;
+  const view = chosen ? devBuyView(chosen, LAUNCH_SUPPLY_TEXT, devBuy) : null;
+  const typed = devBuy.trim() !== "";
 
   return (
-    <Panel
-      className="mx-auto max-w-[1120px]"
-      title="Pick the market"
-    >
+    <Panel className="mx-auto max-w-[1120px]" title="Pick the market and your buy">
       <Lbl>List against</Lbl>
-      {options.length === 0 ? (
+      {launchReady === false ? (
+        <Callout tone="warn">
+          <b className="font-semibold">Launching on this network returns shortly.</b> It&apos;s
+          moving to the new launch flow. Pick another network to launch now.
+        </Callout>
+      ) : options.length === 0 ? (
         <Callout tone="warn">
           <b className="font-semibold">No quote tokens are enabled right now.</b> The generator only
           lists against quotes an operator has approved, so launching isn&apos;t possible until one
           is.
         </Callout>
+      ) : usable.length === 0 ? (
+        <Callout tone="warn">
+          <b className="font-semibold">None of the enabled quote tokens can price a 1B-supply launch.</b>{" "}
+          Their starting price would round to zero. To list against one of them, run an auction or
+          launch a pool instead.
+        </Callout>
       ) : (
         <div className="grid gap-1.5 md:grid-cols-2">
-          {options.map((o) => {
+          {usable.map((o) => {
             const on = o.address === quote;
             return (
               <button
@@ -123,60 +135,100 @@ export function MarketStep({
         </div>
       )}
 
-      {chosen && (
+      {chosen && view && (
         <>
-          <Lbl>Initial market price</Lbl>
-          <Field
-            ariaLabel={`Initial ${symbol} price in ${chosen.symbol}`}
-            value={listingPrice}
-            onChange={onPriceChange}
-            inputMode="decimal"
-            placeholder="0.00"
-            suffix={`${chosen.symbol} per ${symbol}`}
-            big
-            invalid={listingPrice !== "" && !(price > 0)}
-          />
-          <p className="mt-1.5 text-[11px] text-[var(--m-text-secondary)]">
-            This becomes the opening rate for the orderbook and the center of the initial liquidity range.
-          </p>
-
-          <Lbl>Valuation preview</Lbl>
+          <Lbl>Starts at</Lbl>
           <Kv>
-            <KvRow k="Listing price">
+            <KvRow k="Market cap">
               <KvVal>
-                {price > 0 ? <>1 {symbol} = {fmtRate(price)} {chosen.symbol}</> : "—"}
+                {fmtAmount(view.startingMarketCap)} {chosen.symbol}
               </KvVal>
             </KvRow>
-            <KvRow k="Implied market cap · FDV">
+            <KvRow k="Price">
               <KvVal>
-                {cap > 0 ? `${fmtAmount(cap)} ${chosen.symbol}` : "—"}
+                {view.price > 0 ? (
+                  <>
+                    1 {symbol} = {fmtRate(view.price)} {chosen.symbol}
+                  </>
+                ) : (
+                  "—"
+                )}
               </KvVal>
             </KvRow>
-            <KvRow k="Listing cost paid in">
-              <KvVal>{chosen.listingPaymentSymbol ?? `${symbol} (from the new supply)`}</KvVal>
-            </KvRow>
-            <KvRow k="Starting taker fee">
-              <KvVal tone="gold">{fmtFee(chosen.startingTakerFee)}</KvVal>
+            <KvRow k="Taker fee">
+              <KvVal tone="gold">{fmtFee(chosen.startingTakerFee)} · makers free</KvVal>
             </KvRow>
           </Kv>
 
-          <Callout>The market can move immediately after launch. The displayed market cap is an implied valuation, not guaranteed liquidity.</Callout>
-
-          {chosen.graduationTargetQuote > 0 && (
-            <Callout tone="gold">
-              <b className="font-semibold">Graduation criteria.</b> Progress is based on cumulative
-              purchases in the quote token. This market graduates after buyers purchase{" "}
-              <b className="font-mono">
-                {fmtCompact(chosen.graduationTargetQuote)} {chosen.symbol}
-              </b>
-              . Iter administrators configure this target in the backend.
-            </Callout>
+          <Lbl>Your dev buy</Lbl>
+          <Field
+            ariaLabel={`Dev buy in ${chosen.symbol}`}
+            dataTestId="launch-dev-buy"
+            value={devBuy}
+            onChange={onDevBuyChange}
+            inputMode="decimal"
+            placeholder={String(view.min)}
+            suffix={chosen.symbol}
+            big
+            invalid={typed && !view.check.ok}
+          />
+          <div className="mt-1.5 flex items-center justify-between gap-3 text-[11.5px]">
+            <span className="text-[var(--m-text-secondary)]">
+              {view.check.ok || (typed && view.check.reason !== "priceTooLow") ? (
+                <>
+                  {fmtAmount(view.amount)} {chosen.symbol} buys{" "}
+                  <b className="font-mono font-semibold text-[var(--m-text-primary)]">
+                    {fmtCompact(view.coins)} {symbol}
+                  </b>{" "}
+                  ({view.sharePct.toFixed(2)}% of supply) at the starting price
+                </>
+              ) : (
+                <>
+                  Minimum {fmtAmount(view.min)} {chosen.symbol}, up to 10% of supply
+                </>
+              )}
+            </span>
+            <span className="flex shrink-0 gap-1.5 font-mono">
+              <button
+                type="button"
+                className="rounded-md border border-[var(--m-border)] px-2 py-0.5 text-[var(--m-text-secondary)] hover:border-[var(--m-primary)]"
+                onClick={() => onDevBuyChange(String(view.min))}
+              >
+                min
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-[var(--m-border)] px-2 py-0.5 text-[var(--m-text-secondary)] hover:border-[var(--m-primary)]"
+                onClick={() => onDevBuyChange(String(view.max))}
+              >
+                max {fmtAmount(view.max)}
+              </button>
+            </span>
+          </div>
+          {typed && !view.check.ok && (
+            <p className="mt-1 text-[11.5px] text-[var(--m-error)]">{devBuyRefusal(view.check.reason)}</p>
           )}
+
+          <Lbl>Then 80% sells in five steps</Lbl>
+          <Kv>
+            {view.ladder.map((step, i) => (
+              <KvRow key={i} k={`Step ${i + 1}`}>
+                <KvVal>
+                  {fmtAmount(step.marketCap)} {chosen.symbol} cap · {step.supplyPct.toFixed(0)}% of supply
+                </KvVal>
+              </KvRow>
+            ))}
+          </Kv>
+          <Callout>
+            The rest of the supply and everything raised wait until all five steps sell. Then
+            anyone can graduate the coin: it all goes into the pool, and fee and volatility
+            become yours to set.
+          </Callout>
         </>
       )}
 
-      <PrimaryButton dataTestId="launch-step-market" onClick={onContinue} disabled={!chosen || !(price > 0)}>
-        Continue to volatility
+      <PrimaryButton dataTestId="launch-step-market" onClick={onContinue} disabled={!chosen || !view?.check.ok}>
+        Continue to review
       </PrimaryButton>
       <GhostButton onClick={onBack}>Back to token</GhostButton>
     </Panel>

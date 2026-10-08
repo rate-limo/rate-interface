@@ -14,8 +14,9 @@
 
 import { useRef, useState } from "react";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
-import { COIN_DECIMALS, fmtCompact, isSymbolTaken, parseAmount, validateToken } from "@/lib/launch/mock";
-import type { TokenDraft } from "@/lib/launch/types";
+import { COIN_DECIMALS, isSymbolTaken, validateToken } from "@/lib/launch/mock";
+import { LAUNCH_SUPPLY, type TokenDraft } from "@/lib/launch/types";
+import type { LaunchChain } from "@/lib/launch/launchChains";
 import {
   Callout,
   Field,
@@ -45,12 +46,24 @@ export function TokenStep({
   onLogoPick,
   onContinue,
   showErrors,
+  chains,
+  chain,
+  onChainChange,
 }: {
   draft: TokenDraft;
   onChange: (patch: Partial<TokenDraft>) => void;
   onLogoPick: (file: File | null) => void;
   onContinue: () => void;
   showErrors: boolean;
+  /**
+   * The chains this coin can be deployed to. NOT on `TokenDraft`: the draft is
+   * what `Coin`'s constructor takes, the auction flow holds a subset of it, and
+   * the chain is a property of the TRANSACTION rather than of the token — the
+   * same reason `networkSlug` has always travelled as its own prop.
+   */
+  chains: LaunchChain[];
+  chain: string;
+  onChainChange: (slug: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -59,7 +72,6 @@ export function TokenStep({
   const err = (k: string) => (showErrors ? errors[k] : undefined);
 
   const symbol = draft.symbol.trim().toUpperCase();
-  const supply = parseAmount(draft.totalSupply);
   const taken = symbol.length >= 2 && isSymbolTaken(symbol);
 
   // A rejected file used to be dropped silently, which reads as a broken control:
@@ -169,6 +181,31 @@ export function TokenStep({
         />
         <FieldError>{err("symbol")}</FieldError>
       </div>
+      {/* WHICH CHAIN THIS DEPLOYS TO.
+          It used to be whatever the page's URL said, shown nowhere and
+          changeable only by leaving the flow — so a creator who opened Create
+          from a market on one chain launched there without being told. Only
+          chains carrying an AssetGenerator are listed; see lib/launch/launchChains.
+          Changing it re-reads the quote options and terms, because both are
+          admin-set per chain, and re-selects the quote. */}
+      <Lbl>Network</Lbl>
+      <select
+        aria-label="Launch network"
+        data-testid="launch-network"
+        value={chain}
+        onChange={(e) => onChainChange(e.target.value)}
+        className="h-[42px] w-full rounded-[11px] border border-[var(--m-border)] bg-[var(--m-surface-2)] px-3 text-[14px] text-[var(--m-text-primary)] outline-none focus:border-[var(--m-primary)]"
+      >
+        {chains.map((c) => (
+          <option key={c.slug} value={c.slug}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 font-mono text-[11px] text-[var(--m-text-secondary-2)]">
+        The coin, its market and the fee are all on this chain.
+      </p>
+
       {/* Decimals used to be an input. `Coin`'s constructor takes none, so every
           launched coin is the OpenZeppelin ERC-20 default — offering a control
           for it would have been a field the contract silently ignores. */}
@@ -176,23 +213,16 @@ export function TokenStep({
         {COIN_DECIMALS} decimals · fixed by the contract
       </p>
 
+      {/* Supply used to be an input. Every /create launch is 1B (LAUNCH_SUPPLY);
+          a creator who wants another supply runs an auction or launches a pool. */}
       <Lbl>Total supply</Lbl>
-      <Field
-        ariaLabel="Total supply"
-        dataTestId="launch-supply"
-        value={draft.totalSupply}
-        onChange={(v) => onChange({ totalSupply: v })}
-        inputMode="decimal"
-        suffix={symbol || "tokens"}
-        big
-        invalid={Boolean(err("totalSupply"))}
-      />
-      <FieldError>{err("totalSupply")}</FieldError>
-      {supply > 0 && !errors.totalSupply && (
-        <p className="mt-1 font-mono text-[11px] text-[var(--m-text-secondary-2)]">
-          {fmtCompact(supply)} {symbol || "tokens"} · minted once, at deploy
-        </p>
-      )}
+      <p data-testid="launch-supply" className="font-mono text-[15px] font-semibold">
+        {LAUNCH_SUPPLY.toLocaleString("en-US")} {symbol || "tokens"}{" "}
+        <span className="text-[12px] font-normal text-[var(--m-text-secondary-2)]">— fixed</span>
+      </p>
+      <p className="mt-1 font-mono text-[11px] text-[var(--m-text-secondary-2)]">
+        Minted once, at deploy. Want a different supply? Run an auction or launch a pool.
+      </p>
 
         </div>
         <div className="min-w-0">
@@ -251,8 +281,8 @@ export function TokenStep({
       )}
 
       <Callout tone="warn">
-        <b className="font-semibold">A deployed contract can&apos;t be edited.</b> Symbol, supply and
-        decimals are permanent. The logo, description and links are not.
+        <b className="font-semibold">A deployed contract can&apos;t be edited.</b> Name and symbol
+        are permanent. The logo, description and links are not.
       </Callout>
 
       <PrimaryButton dataTestId="launch-submit" onClick={onContinue}>Continue to market</PrimaryButton>

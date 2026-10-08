@@ -1,37 +1,47 @@
 /**
  * Token-launch domain types, modelled on contracts/src/asset/AssetGenerator.sol.
  *
- * Rewritten 2026-08-01 when AssetGenerator replaced the MemeassetGenerator sketch.
- * The earlier version was designed against an intended flow rather than a
- * contract, and got four things wrong that this file now follows:
+ * Rewritten 2026-10-02 for the ladder launch. One call,
+ * `launch(name, symbol, supply, quote, devBuyQuote, lockMode)`:
  *
- *  - `launch()` deploys, lists the pair and hands the creator the remaining
- *    supply. It places NO orders and opens NO position, so there is no range,
- *    no seeding and no Seed step.
- *  - Quote options provide a default starting price; the launch flow can carry
- *    a creator-selected opening price as market configuration.
- *  - There are no fee tiers. The generator charges 1.00% taker before
- *    graduation and 0.10% after, and makers pay nothing.
- *  - `Coin`'s constructor takes no decimals, so every launched coin is the
- *    OpenZeppelin ERC-20 default of 18.
- *
- * Nothing here imports from lib/liquidity: a launch is not a liquidity position,
- * and the FeeTier it used to borrow does not apply.
+ *  - The starting price is the quote option's `startingMarketCap` / supply.
+ *  - The creator must buy between `minDevBuy` and 10% of supply at that price.
+ *    That is the only supply they receive.
+ *  - 80% of supply rests as five sell orders (16% each) at market caps rising
+ *    geometrically from `startingMarketCap` to `graduationMarketCap`. The rest
+ *    is held, with every quote raised, until graduation. No pool position and
+ *    no open bands until then.
+ *  - Graduation is two permissionless `graduate(coin)` calls: the first, once
+ *    all five asks have filled, ARMS it; the second, `GRADUATION_DELAY` (300s)
+ *    later, seeds the pool with everything held and hands the creator fee and
+ *    volatility control. `lockMode` decides that position's fate.
+ *  - Before graduation: Meme volatility (100 bps), the quote's
+ *    `startingTakerFee` (1%), makers 0. Market buys cannot climb a step, so the
+ *    interface buys a launch coin with LIMIT orders until it graduates.
+ *  - `Coin`'s constructor takes no decimals, so every coin is 18.
  */
 
-export type LaunchStep = "token" | "market" | "volatility" | "fee" | "liquidity" | "confirm";
-export type LaunchProfile = "stable" | "standard" | "uniswap" | "meme";
+export type LaunchStep = "token" | "market" | "confirm";
 
 /** Fixed at deploy by `Coin`'s constructor — not a user choice. */
 export const COIN_DECIMALS = 18;
+
+/**
+ * Every /create launch mints exactly this many coins — not a user choice
+ * (decided 2026-10-02). The contract still takes a supply argument; creators who
+ * want another supply use an auction or launch a pool. Fixing it is also what
+ * makes the quote-token rule simple: a quote option is offered only if its
+ * start market cap prices a 1B launch at or above the contract's floor.
+ */
+export const LAUNCH_SUPPLY = 1_000_000_000;
+/** The same, as the text the supply-taking helpers parse. */
+export const LAUNCH_SUPPLY_TEXT = "1000000000";
 
 /** Step 1 — everything that describes the token. */
 export interface TokenDraft {
   /** Rejected empty by the contract (`EmptyMetadata`). */
   name: string;
   symbol: string;
-  /** Raw input; commas allowed. Rejected at zero by the contract (`SupplyIsZero`). */
-  totalSupply: string;
   description: string;
   website: string;
   x: string;
@@ -55,29 +65,34 @@ export interface TokenDraft {
 export interface QuoteOption {
   symbol: string;
   address: string;
-  /**
-   * Initial market price for the new pair, as the engine's 1e8-scaled rate,
-   * already divided down for display. Quote per coin.
-   */
-  listingPrice: number;
-  /**
-   * What the MatchingEngine charges the listing cost in. `null` means the coin
-   * itself — the contract's default, and why the creator receives their supply
-   * net of the listing cost rather than in full.
-   */
-  listingPaymentSymbol: string | null;
-  /** Backend-administered cumulative purchase target in this quote token. */
-  graduationTargetQuote: number;
-  /** Starting taker fee copied from AssetGenerator's quote option. */
+  /** The quote token's own decimals — 6 for USDC. Every raw amount below is in them. */
+  decimals: number;
+  /** What the WHOLE supply is worth at the starting price, raw quote units. */
+  startingMarketCap: bigint;
+  /** The smallest dev buy the contract accepts, raw quote units. */
+  minDevBuy: bigint;
+  /** The ladder's top step: the market cap at which the last ask fills, raw quote units. */
+  graduationMarketCap: bigint;
+  /** `FEE_DENOM`-scaled taker fee every coin listed against this quote starts on. */
   startingTakerFee: number;
 }
 
-/** Step 2 — the only thing the creator actually chooses about the market. */
+/**
+ * `AssetGenerator.LockMode`. What happens to the pool position graduation creates:
+ * 0 — the principal never leaves, the creator collects its fees forever;
+ * 1 — the principal vests to the creator linearly over 365 days from graduation.
+ */
+export type LockMode = "feesOnly" | "vest12Months";
+export const LOCK_MODE_INDEX: Record<LockMode, number> = { feesOnly: 0, vest12Months: 1 };
+
+/** Step 2 — which quote, and how much of it the creator spends on the dev buy. */
 export interface MarketDraft {
   /** Address of the chosen QuoteOption. */
   quote: string;
-  /** Creator-selected initial quote-token price per new token. */
-  listingPrice: number;
+  /** Raw input in the quote token, commas allowed. */
+  devBuy: string;
+  /** Chosen on Confirm; null until then, and the launch refuses without it. */
+  lockMode: LockMode | null;
 }
 
 /**
@@ -89,37 +104,47 @@ export interface MarketDraft {
 export interface LaunchTerms {
   /** Native-currency fee per launch. Zero is valid and means launching is free. */
   launchFeeEth: number;
+  /**
+   * The chain's gas asset the fee is paid in — ETH on RISE, USDC on Arc. Read
+   * from the registry, never assumed: on Arc the native coin IS USDC.
+   */
+  launchFeeSymbol: string;
+  /**
+   * True where the fee is taken in the launch's quote token (approved with the dev
+   * buy) instead of attached as native value -- Tempo, which has no native coin.
+   */
+  feeInQuote?: boolean;
+  /** True where the generator places the ladder in a second transaction (Tempo). */
+  ladderDeferred?: boolean;
 }
 
 /** `AssetGenerator.FEE_DENOM` — 1% is 1_000_000, 0.1% is 100_000. */
 export const FEE_DENOM = 100_000_000;
 
+/** Fixed for every coin until it graduates — `AssetGenerator`'s launch defaults. */
+export const LAUNCH_VOLATILITY_BPS = 100;
+/** `AssetGenerator.GRADUATION_DELAY`: seconds between arming and finishing graduation. */
+export const GRADUATION_DELAY_SEC = 300;
+
 export interface LaunchDraft {
   token: TokenDraft;
   market: MarketDraft;
-  risk: {
-    volatilityProfile: LaunchProfile | "custom";
-    slippagePct: number;
-    feeProfile: LaunchProfile | "custom";
-    feePct: number;
-  };
-  liquidity: LaunchLiquidityDraft | null;
-  payment: {
-    asset: "ETH";
-  };
 }
 
-export interface LaunchLiquidityDraft {
-  baseAmount: string;
-  quoteAmount: string;
-  low: number;
-  high: number;
-  fullRange: boolean;
-  locked: boolean;
-  lockDuration: "30 days" | "90 days" | "180 days" | "1 year";
-}
-
-export type LaunchPhase = "review" | "uploading" | "deploying" | "binding" | "pending" | "done";
+/**
+ * `ladder` is the two-transaction case: the coin is live and the price ladder
+ * is not, so it is neither a failure (nothing can be retried -- a retry would
+ * launch a second coin) nor a success (nothing is for sale). See
+ * `lib/launch/ladderRecovery`.
+ */
+export type LaunchPhase =
+  | "review"
+  | "uploading"
+  | "deploying"
+  | "binding"
+  | "ladder"
+  | "pending"
+  | "done";
 
 /**
  * What `/token-logo` gives back. BOTH fields are load-bearing.
@@ -141,8 +166,10 @@ export interface LaunchReceipt {
   /** The pair `addPair` returned. */
   pairAddress: string;
   txHash: string;
-  /** Supply actually received, i.e. minted supply minus the listing cost. */
+  /** Coins the dev buy delivered, from the `DevBuy` event. The rest is in the ladder or held. */
   receivedSupply: number;
+  /** Quote the creator paid for them, from the same event. */
+  devBuyQuote: number;
   /** Where the logo bytes ended up — null when no logo was picked. */
   logoURI: string | null;
   /**
@@ -191,7 +218,11 @@ export interface LaunchExecution {
   quoteOptions(networkName: string | number): Promise<QuoteOption[]>;
   /** Launch fee read from the generator on `networkName`; graduation targets come from the backend. */
   terms(networkName: string | number): Promise<LaunchTerms>;
-  /** `AssetGenerator.launch(name, symbol, initialSupply, quote)` on `networkName`. */
+  /**
+   * Approve the dev buy's quote to the generator (exact amount), then
+   * `AssetGenerator.launch(name, symbol, initialSupply, quote, devBuyQuote, lockMode)`
+   * with the launch fee attached, on `networkName`.
+   */
   submit(draft: LaunchDraft, networkName: string | number): Promise<LaunchReceipt>;
 }
 

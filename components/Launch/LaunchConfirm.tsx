@@ -1,39 +1,52 @@
 "use client";
 
+import Link from "next/link";
+
 /**
  * Step 3 — review, gate, submit.
  *
- * Rewritten for CoinGenerator. The review now states what `launch()` actually
- * does: deploy the coin, list it against the chosen quote at the admin-set
- * price, and hand back the supply MINUS whatever the listing consumed. It no
- * longer claims a seeded position, because the contract opens none.
+ * States what the ladder `launch()` does: deploy the coin, list it at the
+ * starting price (starting market cap / supply), sell the creator their dev buy
+ * at that price, and rest 80% of supply as five sell steps. The rest, and
+ * everything raised, is held until graduation seeds the pool. The creator must
+ * choose here what happens to that pool afterwards (`lockMode`). Two wallet
+ * prompts: an exact approve of the quote, then the launch.
  *
  * The typed symbol gate stays: deploying a contract with a typo'd symbol is
  * permanent, and there is no owner who could fix it afterwards.
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useAccount } from "wagmi";
+import { LadderNotPlacedError, placeLadder } from "@/lib/launch/ladderRecovery";
 import { toast } from "sonner";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { cn } from "@/lib/utils";
+import { allocate } from "@/lib/launch/allocation";
+import { devBuyView } from "@/lib/launch/devBuy";
+import { decodeOrderSubmitError } from "@/utils/orderErrors";
 import {
   COIN_DECIMALS,
   fmtAmount,
   fmtCompact,
   fmtFee,
   fmtRate,
-  parseAmount,
   shortHex,
 } from "@/lib/launch/mock";
-import type {
-  LaunchDraft,
-  LaunchExecution,
-  LaunchPhase,
-  LaunchReceipt,
-  LaunchTerms,
-  QuoteOption,
-  UploadedLogo,
+import {
+  LAUNCH_SUPPLY,
+  LAUNCH_SUPPLY_TEXT,
+  LAUNCH_VOLATILITY_BPS,
+  type LaunchDraft,
+  type LockMode,
+  type LaunchExecution,
+  type LaunchPhase,
+  type LaunchReceipt,
+  type LaunchTerms,
+  type QuoteOption,
+  type UploadedLogo,
 } from "@/lib/launch/types";
+import { ReviewSummary } from "./ReviewSummary";
 import {
   Callout,
   Field,
@@ -47,8 +60,22 @@ import {
   Waiting,
 } from "./parts";
 
+const LOCK_CHOICES: { mode: LockMode; title: string; body: string }[] = [
+  {
+    mode: "feesOnly",
+    title: "Keep earning fees forever",
+    body: "Liquidity is never withdrawable. You collect the pool's fees for as long as it trades.",
+  },
+  {
+    mode: "vest12Months",
+    title: "Unlock gradually",
+    body: "Liquidity unlocks gradually over 12 months after graduation. You collect fees meanwhile.",
+  },
+];
+
 export function LaunchConfirm({
   draft,
+  onLockMode,
   quoteOption,
   terms,
   logoFile,
@@ -59,8 +86,10 @@ export function LaunchConfirm({
   onBack,
   onRestart,
   onExplore,
+  onLaunched,
 }: {
   draft: LaunchDraft;
+  onLockMode: (mode: LockMode) => void;
   quoteOption: QuoteOption;
   terms: LaunchTerms | null;
   logoFile: File | null;
@@ -72,11 +101,29 @@ export function LaunchConfirm({
   onBack: () => void;
   onRestart: () => void;
   onExplore: (receipt: LaunchReceipt) => void;
+  /**
+   * The coin now exists on chain (its ladder may still be pending). The caller drops
+   * the saved draft here: a draft that survives this reopens /create on a confirm
+   * screen for a coin already deployed, one click from deploying a second copy.
+   */
+  onLaunched?: () => void;
 }) {
+  const { address: walletAddress } = useAccount();
   const [phase, setPhase] = useState<LaunchPhase>("review");
   const [typed, setTyped] = useState("");
   const [receipt, setReceipt] = useState<LaunchReceipt | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  // The half-launched case: a live coin whose ladder is not on the book. Held
+  // apart from `failure` because nothing failed that a retry could repair, and
+  // apart from `receipt` because the coin is not yet usable.
+  const [stranded, setStranded] = useState<{
+    coin: `0x${string}`;
+    launch: LaunchReceipt;
+    logo: UploadedLogo | null;
+  } | null>(null);
+  const [placing, setPlacing] = useState(false);
+  // `uploaded` is a local inside `run`; the catch needs it to resume the claim.
+  const uploadedRef = useRef<UploadedLogo | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -86,8 +133,8 @@ export function LaunchConfirm({
   }, []);
 
   const symbol = draft.token.symbol.trim().toUpperCase();
-  const supply = parseAmount(draft.token.totalSupply);
-  const gateOpen = typed.trim().toUpperCase() === symbol;
+  const supply = LAUNCH_SUPPLY;
+  const gateOpen = typed.trim().toUpperCase() === symbol && draft.market.lockMode !== null;
 
   const run = async () => {
     if (!isConnected) {
@@ -97,9 +144,11 @@ export function LaunchConfirm({
     setFailure(null);
     try {
       let uploaded: UploadedLogo | null = null;
+      setStranded(null);
       if (logoFile) {
         setPhase("uploading");
         uploaded = await execution.uploadLogo(logoFile);
+        uploadedRef.current = uploaded;
       }
       if (!alive.current) return;
       setPhase("deploying");
@@ -131,6 +180,7 @@ export function LaunchConfirm({
         logoURI: uploaded?.logoURI ?? submitted.logoURI,
         logoBound,
       };
+      onLaunched?.();
       if (!alive.current) return;
       setPhase("pending");
       setReceipt(result);
@@ -143,10 +193,106 @@ export function LaunchConfirm({
       toast.success(`${symbol} is live`);
     } catch (error) {
       if (!alive.current) return;
-      setFailure(error instanceof Error ? error.message : "The launch did not go through.");
+      // Logged whole: the toast keeps one line, and a revert the ABI cannot name
+      // otherwise leaves nothing to diagnose it from.
+      console.error("launch failed", error);
+      // The coin IS deployed here and the fee IS spent, so this must not reach the
+      // failure callout below, which says the opposite in as many words.
+      if (error instanceof LadderNotPlacedError) {
+        onLaunched?.();
+        setStranded({
+          coin: error.coin,
+          launch: error.launch as LaunchReceipt,
+          logo: uploadedRef.current,
+        });
+        setPhase("ladder");
+        return;
+      }
+      // A named revert becomes its sentence; anything else (a declined prompt, an
+      // RPC error) keeps its own message rather than raw chain text.
+      const decoded = decodeOrderSubmitError(error);
+      setFailure(
+        decoded
+          ? `${decoded.title}. ${decoded.description}`
+          : error instanceof Error
+            ? error.message.split("\n")[0]!
+            : "The launch did not go through.",
+      );
       setPhase("review");
     }
   };
+
+  /**
+   * Finish a launch whose ladder never landed.
+   *
+   * Permissionless on the contract and it reverts `LadderAlreadyPlaced` on a
+   * second call, so this is safe to press twice and safe to press by someone who
+   * is not the creator. On success the flow resumes exactly where it stopped —
+   * the logo claim, then the ordinary receipt.
+   */
+  const finishLadder = async () => {
+    if (!stranded || !walletAddress) return;
+    setPlacing(true);
+    setFailure(null);
+    try {
+      await placeLadder(stranded.coin, networkName, walletAddress);
+      if (!alive.current) return;
+      let logoBound: boolean | null = null;
+      if (stranded.logo) {
+        setPhase("binding");
+        logoBound = await execution.claimLogo(stranded.coin, stranded.logo.sha256, networkName);
+      }
+      if (!alive.current) return;
+      setReceipt({
+        ...stranded.launch,
+        logoURI: stranded.logo?.logoURI ?? stranded.launch.logoURI,
+        logoBound,
+      });
+      setStranded(null);
+      setPhase("done");
+      toast.success(`${symbol} is live`);
+    } catch (error) {
+      if (!alive.current) return;
+      console.error("placing the ladder failed", error);
+      const decoded = decodeOrderSubmitError(error);
+      setFailure(
+        decoded
+          ? `${decoded.title}. ${decoded.description}`
+          : error instanceof Error
+            ? error.message.split("\n")[0]!
+            : "The ladder did not go through.",
+      );
+      setPhase("ladder");
+    } finally {
+      if (alive.current) setPlacing(false);
+    }
+  };
+
+  if (phase === "ladder" && stranded) {
+    return (
+      <Panel className="mx-auto flex min-h-[360px] max-w-[460px] flex-col" title="One step left">
+        <Callout tone="warn">
+          <b className="font-semibold">{symbol} is deployed, but its price ladder is not on the book yet</b>{" "}
+          — so nothing is for sale. This chain places the ladder in a second transaction, and that one did
+          not land. Your launch fee and dev buy are already spent; sending the launch again would create a
+          second coin, so it finishes from here instead.
+        </Callout>
+        <p className="mt-3 font-mono text-[11px] break-all text-[var(--m-text-secondary-2)]">{stranded.coin}</p>
+        {failure && (
+          <Callout tone="warn">
+            <b className="font-semibold">{failure}</b> The ladder is still unplaced and can be placed again.
+          </Callout>
+        )}
+        <div className="flex-1" />
+        <PrimaryButton dataTestId="launch-place-ladder" onClick={finishLadder} disabled={placing || !walletAddress}>
+          {placing ? "Placing the ladder…" : "Place the price ladder"}
+        </PrimaryButton>
+        <p className="mt-2.5 text-center text-[11px] text-[var(--m-text-secondary-2)]">
+          Anyone can finish this — the ladder is fixed by the launch, so there is nothing left to choose.
+        </p>
+      </Panel>
+    );
+  }
 
   if (phase === "uploading") {
     return (
@@ -175,7 +321,7 @@ export function LaunchConfirm({
       <Panel className="mx-auto flex min-h-[360px] max-w-[460px] flex-col" title={`Launch ${symbol}`}>
         <Waiting
           title="Confirm in your wallet"
-          body={`Deploy ${symbol} and list it against ${quoteOption.symbol} — one transaction.`}
+          body={`Approve your ${quoteOption.symbol} dev buy, then deploy ${symbol}, list it and place its five sell steps. Up to two prompts.`}
         />
       </Panel>
     );
@@ -227,9 +373,10 @@ export function LaunchConfirm({
             <KvRow k="Pair">
               <KvVal tone="blue">{shortHex(receipt.pairAddress)} ↗</KvVal>
             </KvRow>
-            <KvRow k="In your wallet">
+            <KvRow k="Your dev buy">
               <KvVal>
-                {fmtCompact(receipt.receivedSupply)} {symbol}
+                {fmtCompact(receipt.receivedSupply)} {symbol} for {fmtAmount(receipt.devBuyQuote)}{" "}
+                {quoteOption.symbol}
               </KvVal>
             </KvRow>
             <KvRow k="Transaction">
@@ -237,9 +384,9 @@ export function LaunchConfirm({
             </KvRow>
           </Kv>
           <Callout>
-            <b className="font-semibold">The book is empty until someone trades.</b> Listing creates
-            the market; it does not put liquidity in it. Your whole supply is in your wallet — place
-            orders to make one.
+            <b className="font-semibold">The first step is on sale now.</b> Once all five steps sell,
+            anyone can graduate {symbol} from your portfolio&apos;s Creator tab. That opens the pool
+            and gives you its fee and volatility.
           </Callout>
           <div className="flex-1" />
           <PrimaryButton onClick={() => onExplore(receipt)}>Trade {symbol}</PrimaryButton>
@@ -253,9 +400,23 @@ export function LaunchConfirm({
   }
 
   // ---- review ----
+  // The split the contract makes: the dev buy to the creator, everything else
+  // into the locked pool position. Same `devBuyView` the Market step showed, so
+  // the two screens cannot quote different coin counts.
+  const view = devBuyView(quoteOption, LAUNCH_SUPPLY_TEXT, draft.market.devBuy);
+  const ladderCoins = (supply * view.ladder.reduce((sum, st) => sum + st.supplyPct, 0)) / 100;
+  const allocation = allocate(
+    [
+      { label: "Sold in 5 steps", value: ladderCoins },
+      { label: "Held for the pool", value: Math.max(0, supply - ladderCoins - view.coins) },
+      { label: "Your dev buy", value: view.coins },
+    ],
+    supply,
+  );
+
   return (
     <Panel className="mx-auto flex min-h-[360px] max-w-[1120px] flex-col">
-      <div className="mb-3.5 flex items-center gap-2.5">
+      <div className="mb-4 flex items-center gap-2.5">
         <button
           type="button"
           aria-label="Back to market"
@@ -264,15 +425,46 @@ export function LaunchConfirm({
         >
           ←
         </button>
-        <h3 className="text-base font-semibold">Launch {symbol}</h3>
-        <TokenImageIcon
-          symbol={symbol}
-          color="var(--m-logo)"
-          logoURI={draft.token.logoPreview ?? undefined}
-          size="sm"
-          className="ml-auto h-[22px] w-[22px] text-[7px]"
-        />
+        <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-[var(--m-text-secondary-2)]">
+          Launch a coin
+        </span>
       </div>
+
+      <ReviewSummary
+        title="Review & confirm"
+        lede="Check every figure before deploying. The coin has no owner, so none of it can be changed afterwards."
+        symbol={symbol}
+        name={draft.token.name.trim() || "Unnamed"}
+        logoURI={draft.token.logoPreview ?? undefined}
+        chip="Fair launch"
+        tiles={[
+          { label: "Total supply", value: fmtCompact(supply), hint: `${COIN_DECIMALS} decimals` },
+          {
+            // A rate, never a dollar figure — the launch and liquidity specs
+            // both require this form.
+            label: "Starts at",
+            value: fmtRate(view.price),
+            hint: `${quoteOption.symbol} per ${symbol}`,
+          },
+          {
+            label: "Taker fee",
+            value: fmtFee(quoteOption.startingTakerFee),
+            hint: "yours to set after graduation",
+          },
+          {
+            label: "Graduates at",
+            value: fmtAmount(Number(quoteOption.graduationMarketCap) / 10 ** quoteOption.decimals),
+            hint: `${quoteOption.symbol} market cap, all 5 steps sold`,
+          },
+        ]}
+        allocation={allocation}
+        allocationNote={
+          <>
+            Your dev buy is the only part of the supply you receive. The rest, and every{" "}
+            {quoteOption.symbol} raised, go into the pool at graduation.
+          </>
+        }
+      >
 
       <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
       <Kv>
@@ -281,81 +473,110 @@ export function LaunchConfirm({
             {draft.token.name.trim()} · {symbol} · {COIN_DECIMALS}
           </KvVal>
         </KvRow>
-        <KvRow k="Supply">
-          <KvVal>{fmtCompact(supply)}</KvVal>
-        </KvRow>
         <KvRow k="Market">
           <KvVal>
             {symbol}/{quoteOption.symbol}
           </KvVal>
         </KvRow>
-        <KvRow k="Lists at">
+        <KvRow k="Dev buy">
           <KvVal>
-            1 {symbol} = {fmtRate(quoteOption.listingPrice)} {quoteOption.symbol}
+            {fmtAmount(view.amount)} {quoteOption.symbol} → {fmtCompact(view.coins)} {symbol} (
+            {view.sharePct.toFixed(2)}%)
           </KvVal>
         </KvRow>
-        <KvRow k="You receive">
-          <KvVal>supply − listing cost</KvVal>
+        <KvRow k="Starting market cap">
+          <KvVal>
+            {fmtAmount(view.startingMarketCap)} {quoteOption.symbol}
+          </KvVal>
         </KvRow>
         {terms && (
           <KvRow k="Launch fee">
             <KvVal>
-              {terms.launchFeeEth > 0 ? `${terms.launchFeeEth} ETH` : "free"}
+              {terms.launchFeeEth > 0 ? `${terms.launchFeeEth} ${terms.launchFeeSymbol}` : "free"}
             </KvVal>
           </KvRow>
         )}
-        <KvRow k="Payment asset">
-          <KvVal tone="blue">ETH · native</KvVal>
+        <KvRow k="Volatility">
+          <KvVal>{(LAUNCH_VOLATILITY_BPS / 100).toFixed(2)}% · Meme, fixed until graduation</KvVal>
         </KvRow>
-        <KvRow k="Starting taker fee">
-          <KvVal tone="gold">{fmtFee(quoteOption.startingTakerFee)}</KvVal>
+        <KvRow k="Sell steps">
+          <KvVal>
+            {view.ladder.map((st) => fmtAmount(st.marketCap)).join(" → ")} {quoteOption.symbol} cap
+          </KvVal>
         </KvRow>
-        <KvRow k="Graduation target">
-          <KvVal>{fmtAmount(quoteOption.graduationTargetQuote)} {quoteOption.symbol} purchased</KvVal>
-        </KvRow>
-        <KvRow k="Creator upside">
-          <KvVal tone="good">LP fees from your position accrue to you</KvVal>
-        </KvRow>
-        <KvRow k="Slippage limit">
-          <KvVal>{draft.risk.slippagePct.toFixed(2)}% · {draft.risk.volatilityProfile}</KvVal>
-        </KvRow>
-        <KvRow k="Market fee">
-          <KvVal>{draft.risk.feePct.toFixed(2)}% · {draft.risk.feeProfile}</KvVal>
-        </KvRow>
-        {draft.liquidity && (
-          <KvRow k="Initial liquidity">
-            <KvVal>{draft.liquidity.baseAmount || "0"} {symbol} · {draft.liquidity.quoteAmount || "0"} {quoteOption.symbol}</KvVal>
-          </KvRow>
-        )}
-      {draft.liquidity && (
-          <KvRow k="Liquidity lock">
-            <KvVal>{draft.liquidity.locked ? draft.liquidity.lockDuration : "unlocked"}</KvVal>
-          </KvRow>
-        )}
       </Kv>
 
       <div>
-      <Lbl>Pay with</Lbl>
-      <div className="flex items-center gap-3 rounded-[13px] border border-[var(--m-primary)] bg-[var(--m-surface-selected)] px-3.5 py-3">
-        <TokenImageIcon symbol="ETH" color="#627eea" size="md" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium text-[var(--m-text-primary)]">ETH</p>
-          <p className="mt-0.5 text-[11px] text-[var(--m-text-secondary)]">Paid as native ETH with the launch transaction</p>
-        </div>
-        <span className="font-mono text-[12px] font-semibold text-[var(--m-primary-fg)]">
-          {terms && terms.launchFeeEth > 0 ? `${terms.launchFeeEth} ETH` : "No fee"}
-        </span>
+      <Lbl>After graduation, the pool</Lbl>
+      <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="What happens to the pool after graduation">
+        {LOCK_CHOICES.map((c) => {
+          const on = draft.market.lockMode === c.mode;
+          return (
+            <button
+              key={c.mode}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              data-testid={`launch-lock-${c.mode}`}
+              onClick={() => onLockMode(c.mode)}
+              className={cn(
+                "rounded-xl border px-3.5 py-3 text-left",
+                on
+                  ? "border-[var(--m-primary)] bg-[var(--m-surface-selected)]"
+                  : "border-[var(--m-border)] bg-[var(--m-surface-2)] hover:border-[var(--m-primary)]",
+              )}
+            >
+              <b className="block text-[13.5px] font-semibold">{c.title}</b>
+              <span className="mt-0.5 block text-[11.5px] leading-snug text-[var(--m-text-secondary)]">{c.body}</span>
+            </button>
+          );
+        })}
       </div>
+      <p data-testid="launch-pool-risk" className="mt-2 text-[11.5px] leading-snug text-[var(--m-text-secondary)]">
+        After graduation, others can push the pool&apos;s price and trade against it; Rate is an order-book DEX.{" "}
+        <Link href="/fees#risks" className="underline underline-offset-2">How</Link>
+      </p>
+      <p className="mb-3 mt-1.5 text-[11px] text-[var(--m-text-secondary-2)]">Required. It can&apos;t be changed after launch.</p>
 
-      <Lbl>What this transaction does</Lbl>
-      <StepRow n="1" label="Pay with ETH" meta={terms && terms.launchFeeEth > 0 ? `${terms.launchFeeEth} ETH attached` : "no launch fee"} />
-      <StepRow n="2" label={`Deploy ${symbol}`} meta={`fixed supply, ${COIN_DECIMALS} decimals`} />
+      <Lbl>What you sign</Lbl>
+      {terms?.feeInQuote && terms.launchFeeEth > 0 ? (
+        // Tempo: the fee is pulled in the quote token, so it is approved with the dev buy.
+        <StepRow
+          n="1"
+          label={`Approve ${fmtAmount(view.amount + terms.launchFeeEth)} ${quoteOption.symbol}`}
+          meta={`exact amount: ${fmtAmount(view.amount)} dev buy + ${terms.launchFeeEth} launch fee`}
+        />
+      ) : (
+        <StepRow n="1" label={`Approve ${fmtAmount(view.amount)} ${quoteOption.symbol}`} meta="exact amount, for the dev buy" />
+      )}
       <StepRow
-        n="3"
-        label={`List ${symbol}/${quoteOption.symbol}`}
-        meta="listing cost taken from the new supply"
+        n="2"
+        label={`Launch ${symbol}`}
+        meta={
+          terms && terms.launchFeeEth > 0
+            ? terms.feeInQuote
+              ? `${terms.launchFeeEth} ${terms.launchFeeSymbol} fee, from the approval above`
+              : `${terms.launchFeeEth} ${terms.launchFeeSymbol} fee attached`
+            : "no launch fee"
+        }
       />
-      <StepRow n="4" label="Send you the rest" meta="whatever listing didn't consume" />
+      {terms?.ladderDeferred && (
+        <StepRow n="3" label="Place the sell ladder" meta="second transaction; the app sends it right after" />
+      )}
+      <p className="mb-3 mt-1 text-[11.5px] leading-5 text-[var(--m-text-secondary)]">
+        {terms?.ladderDeferred ? (
+          <>
+            The launch deploys {symbol}, lists {symbol}/{quoteOption.symbol} at the starting price and sends you
+            your dev buy; a second transaction places the five sell steps. This network caps how much one
+            transaction can do, so the ladder cannot ride along.
+          </>
+        ) : (
+          <>
+            The launch deploys {symbol}, lists {symbol}/{quoteOption.symbol} at the starting price, sends you
+            your dev buy, and places the five sell steps, all in one transaction.
+          </>
+        )}
+      </p>
 
       <Callout tone="warn">
         <b className="font-semibold">This is permanent.</b> Type{" "}
@@ -377,7 +598,8 @@ export function LaunchConfirm({
 
       {failure && (
         <Callout tone="warn">
-          <b className="font-semibold">{failure}</b> Nothing was deployed — funds untouched.
+          <b className="font-semibold">{failure}</b> Nothing was deployed, and no {quoteOption.symbol} left
+          your wallet.
         </Callout>
       )}
 
@@ -386,10 +608,11 @@ export function LaunchConfirm({
         {isConnected ? "Deploy & list" : "Connect wallet"}
       </PrimaryButton>
       <p className="mt-2.5 text-center text-[11px] text-[var(--m-text-secondary-2)]">
-        <span className="text-[var(--m-logo)]">◆</span> Self-custody · one transaction
+        <span className="text-[var(--m-logo)]">◆</span> Self-custody · approve, then launch
       </p>
       </div>
       </div>
+      </ReviewSummary>
     </Panel>
   );
 }
