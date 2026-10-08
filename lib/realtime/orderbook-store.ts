@@ -9,6 +9,22 @@ import type {
 const MAX_DEPTH = 100;
 const DUST = 0.0000001;
 const FLUSH_MS = 250;
+/**
+ * Levels kept per side, nearest the touch. Five times what is ever rendered.
+ *
+ * The maps are keyed by PRICE and only shrink when a delta arrives saying that
+ * exact price is now empty. A level that simply stops being mentioned — the
+ * common shape once a market has walked away from it — stays forever, so a tab
+ * left open on an active venue accumulates an entry for every price ever
+ * touched. Each is small; the point is that nothing bounded it.
+ *
+ * Pruning beyond this cap costs the display NOTHING: `computeSide` renders the
+ * nearest `MAX_DEPTH` and its totals are summed over that same slice, so no
+ * figure on screen reads a level past it. The price would have to walk through
+ * five hundred grouped levels before a pruned one mattered, and a reconnect or
+ * sequence gap reloads the whole book from a REST snapshot anyway.
+ */
+const RETAIN_PER_SIDE = MAX_DEPTH * 5;
 
 interface Level {
   base: number;
@@ -92,9 +108,28 @@ export class OrderbookStore {
     }
   }
 
+  /**
+   * Drop levels far from the touch, keeping the nearest `RETAIN_PER_SIDE`.
+   *
+   * Runs on flush rather than per delta: it is O(n log n) in the side's size and
+   * a delta arrives per message, while a flush is capped at one per FLUSH_MS.
+   * Skipped entirely until a side is actually over the cap, so the ordinary
+   * market — tens of levels — never pays for it.
+   */
+  private prune(side: Map<number, Level>, order: "asc" | "desc"): void {
+    if (side.size <= RETAIN_PER_SIDE) return;
+    const prices = [...side.keys()].sort((a, b) => (order === "desc" ? b - a : a - b));
+    for (const price of prices.slice(RETAIN_PER_SIDE)) side.delete(price);
+  }
+
   private flush(): void {
     if (!this.dirty) return;
     this.dirty = false;
+
+    // Bounded before the snapshot is computed, so the maps can never outgrow
+    // the window the snapshot reads from.
+    this.prune(this.bids, "desc");
+    this.prune(this.asks, "asc");
 
     const bids = computeSide(this.bids, "desc");
     const asks = computeSide(this.asks, "asc");

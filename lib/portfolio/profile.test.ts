@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   addressAvatarGradient,
   addressGradient,
@@ -7,6 +7,7 @@ import {
   displayName,
   emptyAccountProfile,
   formatJoined,
+  fetchProfile,
   toAccountProfile,
 } from "./profile";
 
@@ -228,5 +229,45 @@ describe("toAccountProfile — joinedAt", () => {
     expect(toAccountProfile({ profile: { joinedAt: null } }, ADDRESS_A).profile.joinedAt).toBe(null);
     expect(toAccountProfile({ profile: {} }, ADDRESS_A).profile.joinedAt).toBe(null);
     expect(toAccountProfile({ profile: { joinedAt: "not a date" } }, ADDRESS_A).profile.joinedAt).toBe(null);
+  });
+});
+
+describe("fetchProfile", () => {
+  /*
+   * The URL is the whole point of these.
+   *
+   * It read the gateway's own origin, and the gateway's CORS allowlist holds
+   * production and not localhost — so in dev the browser discarded every
+   * response and `useProfile` swallowed the rejection by design, leaving a
+   * connected wallet showing a truncated address with no error anywhere. Pinned
+   * as a string because that failure is invisible at runtime.
+   */
+  // Typed with the url parameter, so `calls[0][0]` is a string rather than a
+  // zero-length tuple — the assertions below are entirely about that argument.
+  const answer = (body: unknown, ok = true) =>
+    vi.fn(async (_url: string) => new Response(JSON.stringify(body), { status: ok ? 200 : 502 }));
+
+  it("asks this app's proxy, not the gateway origin", async () => {
+    const fetcher = answer({ address: ADDRESS_A, username: "lee" });
+    vi.stubGlobal("fetch", fetcher);
+    await fetchProfile("Arc Testnet", ADDRESS_A);
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      `/api/gateway/profile/${ADDRESS_A}?network=Arc%20Testnet`,
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("names the chain, because the proxy picks the gateway from it", async () => {
+    const fetcher = answer({ address: ADDRESS_A });
+    vi.stubGlobal("fetch", fetcher);
+    await fetchProfile("RISE Testnet", ADDRESS_A);
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain("network=RISE%20Testnet");
+    vi.unstubAllGlobals();
+  });
+
+  it("throws on a refusal so useProfile can degrade to the address", async () => {
+    vi.stubGlobal("fetch", answer({}, false));
+    await expect(fetchProfile("Arc Testnet", ADDRESS_A)).rejects.toThrow(/Couldn't load profile/);
+    vi.unstubAllGlobals();
   });
 });

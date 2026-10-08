@@ -8,19 +8,19 @@ import {
 } from "./refCookie";
 
 describe("cookieDomainFor — where the cookie is allowed to be shared", () => {
-  it("shares across iter.cx and its subdomains", () => {
-    expect(cookieDomainFor("iter.cx")).toBe(".iter.cx");
-    expect(cookieDomainFor("waitlist.iter.cx")).toBe(".iter.cx");
-    expect(cookieDomainFor("app.iter.cx")).toBe(".iter.cx");
+  it("shares across rate.limo and its subdomains", () => {
+    expect(cookieDomainFor("rate.limo")).toBe(".rate.limo");
+    expect(cookieDomainFor("waitlist.rate.limo")).toBe(".rate.limo");
+    expect(cookieDomainFor("app.rate.limo")).toBe(".rate.limo");
   });
 
   it("is case-insensitive, because a Host header need not be lowercase", () => {
-    expect(cookieDomainFor("Waitlist.Iter.cx")).toBe(".iter.cx");
+    expect(cookieDomainFor("Waitlist.Rate.LIMO")).toBe(".rate.limo");
   });
 
   /**
    * The important half. A browser silently REJECTS a Domain the current host is
-   * not under, so returning ".iter.cx" here would write no cookie at all rather
+   * not under, so returning ".rate.limo" here would write no cookie at all rather
    * than a host-only one — and nothing would report it.
    */
   it("omits the domain anywhere the browser would reject it", () => {
@@ -29,18 +29,18 @@ describe("cookieDomainFor — where the cookie is allowed to be shared", () => {
     expect(cookieDomainFor("iter-web-git-main.vercel.app")).toBeNull();
   });
 
-  /** `notiter.cx` ends with the string but is a different registrable domain. */
+  /** `notrate.limo` ends with the string but is a different registrable domain. */
   it("does not match a domain that merely ends with the same letters", () => {
-    expect(cookieDomainFor("notiter.cx")).toBeNull();
-    expect(cookieDomainFor("eviliter.cx")).toBeNull();
+    expect(cookieDomainFor("notrate.limo")).toBeNull();
+    expect(cookieDomainFor("evilrate.limo")).toBeNull();
   });
 });
 
 describe("buildRefCookie", () => {
   it("carries the domain and secure on production hosts", () => {
-    const c = buildRefCookie("51B331", "waitlist.iter.cx");
+    const c = buildRefCookie("51B331", "waitlist.rate.limo");
     expect(c).toContain(`${REF_COOKIE}=51B331`);
-    expect(c).toContain("domain=.iter.cx");
+    expect(c).toContain("domain=.rate.limo");
     expect(c).toContain("secure");
     expect(c).toContain("path=/");
     expect(c).toContain("samesite=lax");
@@ -55,14 +55,14 @@ describe("buildRefCookie", () => {
   });
 
   it("uppercases, because codes are compared uppercase everywhere", () => {
-    expect(buildRefCookie("51b331", "iter.cx")).toContain(`${REF_COOKIE}=51B331`);
+    expect(buildRefCookie("51b331", "rate.limo")).toContain(`${REF_COOKIE}=51B331`);
   });
 
   it("refuses a malformed code rather than storing it", () => {
-    expect(buildRefCookie("no", "iter.cx")).toBeNull();
-    expect(buildRefCookie("has spaces", "iter.cx")).toBeNull();
-    expect(buildRefCookie("../../etc/passwd", "iter.cx")).toBeNull();
-    expect(buildRefCookie("", "iter.cx")).toBeNull();
+    expect(buildRefCookie("no", "rate.limo")).toBeNull();
+    expect(buildRefCookie("has spaces", "rate.limo")).toBeNull();
+    expect(buildRefCookie("../../etc/passwd", "rate.limo")).toBeNull();
+    expect(buildRefCookie("", "rate.limo")).toBeNull();
   });
 });
 
@@ -91,7 +91,7 @@ describe("readRefCookie", () => {
   });
 
   it("round-trips what buildRefCookie writes", () => {
-    const built = buildRefCookie("51B331", "iter.cx")!;
+    const built = buildRefCookie("51B331", "rate.limo")!;
     // Browsers hand back only `name=value` pairs, not the attributes.
     expect(readRefCookie(built.split(";")[0])).toBe("51B331");
   });

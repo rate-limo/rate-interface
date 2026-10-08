@@ -21,6 +21,7 @@ import { PonderLinks, chainIds, networkNameToSlug, supportedChains } from "@/con
 import { fetchSwapTokens } from "@/lib/swap/useLiveSwapTokens";
 import type { SwapToken } from "@/lib/swap/types";
 import { multicall3For } from "@/lib/customChains";
+import { withFeeTokens } from "@/lib/wallet/feeTokenRows";
 import type { BalancesResult, ChainBalances, TokenBalance } from "./types";
 
 const balanceOfAbi = [{
@@ -256,7 +257,8 @@ export function useWalletBalances(
 
     networks.forEach((networkName, i) => {
       const chainId = chainIds[networkName];
-      const tokens = tokenQueries[i]?.data ?? [];
+      // Plus the fee tokens no market lists (Tempo's AlphaUSD/BetaUSD/ThetaUSD).
+      const tokens = withFeeTokens(chainId, tokenQueries[i]?.data ?? []);
       if (!chainId) return;
 
       for (const token of tokens) {

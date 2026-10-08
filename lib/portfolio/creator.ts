@@ -181,12 +181,12 @@ export function graduationHelp(symbol: string, info: GraduationInfo): string {
       // USDC did not "graduate at $99,997" — that is a price feed's opinion of
       // the moment, and the creator is reading a fact about their market.
       if (info.graduatedAtAmount != null && info.graduatedAtUnit) {
-        return `Graduated at ${amountCompact(info.graduatedAtAmount, info.graduatedAtUnit)} of quote liquidity. ${symbol} stays listed even if liquidity falls — only an Iter operator can hide it.`;
+        return `Graduated at ${amountCompact(info.graduatedAtAmount, info.graduatedAtUnit)} of quote liquidity. ${symbol} stays listed even if liquidity falls — only an Rate operator can hide it.`;
       }
       const at = info.graduatedAtQuoteTvlUsd;
       return at !== null
-        ? `Graduated at ${usdCompact(at)} of quote liquidity. ${symbol} stays listed even if liquidity falls — only an Iter operator can hide it.`
-        : `${symbol} stays listed even if liquidity falls — only an Iter operator can hide it.`;
+        ? `Graduated at ${usdCompact(at)} of quote liquidity. ${symbol} stays listed even if liquidity falls — only an Rate operator can hide it.`
+        : `${symbol} stays listed even if liquidity falls — only an Rate operator can hide it.`;
     }
     case "eligible":
       return `Threshold met. Graduating lists ${symbol} and its market across the app — it happens on its own within a minute either way.`;
@@ -304,16 +304,16 @@ export function feeControlHelp(symbol: string, info: FeeTierInfo): string {
       const cap = info.contractMarketCapUsd;
       const at = usdCompact(info.graduationUsd);
       if (info.graduationUsd <= 0) {
-        return `Set by Iter per quote token while a coin is new. Iter has not set a graduation requirement yet, so ${symbol} stays on its starting rate.`;
+        return `Set by Rate per quote token while a coin is new. Rate has not set a graduation requirement yet, so ${symbol} stays on its starting rate.`;
       }
       return cap === null
-        ? `Set by Iter per quote token while a coin is new. Yours to adjust once ${symbol} graduates at ${at} market cap — unpriced until its book has a trade.`
-        : `Set by Iter per quote token while a coin is new. Yours to adjust once ${symbol} graduates at ${at} market cap — currently ${usdCompact(cap)}.`;
+        ? `Set by Rate per quote token while a coin is new. Yours to adjust once ${symbol} graduates at ${at} market cap — unpriced until its book has a trade.`
+        : `Set by Rate per quote token while a coin is new. Yours to adjust once ${symbol} graduates at ${at} market cap — currently ${usdCompact(cap)}.`;
     }
     case "locked":
-      return `An Iter operator has paused fee control for ${symbol}. The fee stays where it is until they restore it.`;
+      return `An Rate operator has paused fee control for ${symbol}. The fee stays where it is until they restore it.`;
     case "no-headroom":
-      return `Iter has set the creator ceiling to 0%, so ${symbol} trades fee-free and there is nothing to adjust.`;
+      return `Rate has set the creator ceiling to 0%, so ${symbol} trades fee-free and there is nothing to adjust.`;
     default:
       return `Traders pay this on every fill, from the next trade — there is no delay and no notice. Requires a signature.`;
   }

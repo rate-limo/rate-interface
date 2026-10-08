@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ChartLine, Gift, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 import { cn } from "@/lib/utils";
@@ -69,7 +71,7 @@ export function ProfileHeader({
   netWorthLoading,
   onRefresh,
   spinning,
-  onOpenRewards,
+  onOpenReferrals,
 }: {
   address: string;
   networkName: string;
@@ -78,7 +80,8 @@ export function ProfileHeader({
   netWorthLoading: boolean;
   onRefresh: () => void;
   spinning: boolean;
-  onOpenRewards: () => void;
+  /** Opens the Referrals tab, where the wallet's invite link and code live. */
+  onOpenReferrals: () => void;
 }) {
   const { data: chainBrands } = useChainBrand();
   const { data: account, isLoading } = useAccountProfile(networkName, address);
@@ -200,6 +203,43 @@ export function ProfileHeader({
             </div>
 
             <div className="ml-auto flex items-center gap-2">
+              {/*
+                * DEPOSIT AND WITHDRAW, on the page that shows the money.
+                *
+                * The portfolio had neither. It reports a net worth, lists every
+                * balance and every position, and offered no way to add to any
+                * of it or take any of it out — the two routes existed and were
+                * reachable only from the shell's own navigation, so the screen
+                * a user lands on after a swap was a dead end for the one thing
+                * they are most likely to want next.
+                *
+                * Beside the net worth rather than in the Assets panel: these
+                * move the whole account, not one row, and the figure they change
+                * is the one being read right here.
+                *
+                * Self only. A visitor reading somebody else's portfolio cannot
+                * deposit to it — the address is not theirs and the wallet
+                * signing would be — so offering the control would be offering a
+                * capability that does not exist, which is the same call the
+                * struck-through "Edit logo" makes in the Creator tab.
+                */}
+              {isSelf && (
+                <>
+                  <Link
+                    href="/deposit"
+                    className="rounded-[10px] px-3.5 py-2 font-mono text-xs font-semibold text-[color:var(--m-on-primary)] transition-opacity hover:opacity-90"
+                    style={{ background: "var(--m-primary)" }}
+                  >
+                    Deposit
+                  </Link>
+                  <Link
+                    href="/withdraw"
+                    className="rounded-[10px] border border-[color:var(--m-border)] px-3.5 py-2 font-mono text-xs text-[color:var(--m-text-secondary)] transition-colors hover:border-[color:var(--m-primary)] hover:text-[color:var(--m-primary)]"
+                  >
+                    Withdraw
+                  </Link>
+                </>
+              )}
               {isSelf && (
                 <button
                   type="button"
@@ -216,7 +256,7 @@ export function ProfileHeader({
                 aria-label="Refresh"
                 className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-[color:var(--m-border)] text-[color:var(--m-primary)] transition-colors hover:border-[color:var(--m-primary)]"
               >
-                <span className={cn("inline-block", spinning && "animate-spin")}>↻</span>
+                <RefreshCw size={15} strokeWidth={1.75} aria-hidden className={cn(spinning && "animate-spin")} />
               </button>
               {isSelf && (
                 <button
@@ -227,17 +267,19 @@ export function ProfileHeader({
                   aria-label="Record today's value"
                   className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-[color:var(--m-border)] text-[color:var(--m-primary)] transition-colors hover:border-[color:var(--m-primary)] disabled:opacity-50"
                 >
-                  {recording ? "…" : "⏺"}
+                  {/* A chart, because what this does is add today's point to the
+                      profile's value chart; the record dot it replaced said nothing. */}
+                  <ChartLine size={15} strokeWidth={1.75} aria-hidden className={cn(recording && "animate-pulse")} />
                 </button>
               )}
               <button
                 type="button"
-                onClick={onOpenRewards}
-                title="Rewards"
-                aria-label="Open rewards"
+                onClick={onOpenReferrals}
+                title="Your referral link"
+                aria-label="Open your referral link"
                 className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-[color:var(--m-border)] text-[color:var(--m-primary)] transition-colors hover:border-[color:var(--m-primary)]"
               >
-                🎁
+                <Gift size={15} strokeWidth={1.75} aria-hidden />
               </button>
             </div>
           </div>

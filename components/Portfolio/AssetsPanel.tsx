@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { BalancesResult, ChainBalances, TokenBalance } from "@/lib/portfolio/types";
 import { chainColor, chainShort } from "@/lib/portfolio/mock";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ChainChip, TokenAvatar, money } from "./parts";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
@@ -46,6 +47,7 @@ export function AssetsPanel({
   spinning,
   onRefresh,
   showDemoControl = true,
+  bare = false,
 }: {
   balances: BalancesResult;
   demo: DemoState;
@@ -53,6 +55,14 @@ export function AssetsPanel({
   spinning: boolean;
   onRefresh: () => void;
   showDemoControl?: boolean;
+  /**
+   * Drop the card chrome and the "Assets" heading.
+   *
+   * For the desktop tab, where the strip already says Assets and this sits
+   * inside the activity card — its own border and heading would be a card in a
+   * card, announcing itself twice.
+   */
+  bare?: boolean;
 }) {
   const [filter, setFilter] = useState<string>("all");
 
@@ -91,10 +101,18 @@ export function AssetsPanel({
   }
 
   return (
-    <div className="rounded-[15px] border border-[color:var(--m-border)] bg-[color:var(--m-surface)] shadow-sm">
+    <div
+      className={
+        bare
+          ? ""
+          : "rounded-[15px] border border-[color:var(--m-border)] bg-[color:var(--m-surface)] shadow-sm"
+      }
+    >
       {/* header */}
       <div className="flex items-center gap-2.5 px-4 pb-2.5 pt-3.5">
-        <h3 className="text-sm font-semibold text-[color:var(--m-text-primary)]">Assets</h3>
+        {!bare && (
+          <h3 className="text-sm font-semibold text-[color:var(--m-text-primary)]">Assets</h3>
+        )}
         <span className="ml-auto font-mono text-[10.5px] text-[color:var(--m-text-secondary-2)]">
           {updatedNote}
         </span>
@@ -135,6 +153,31 @@ export function AssetsPanel({
         {shown.map((c) => (
           <ChainRows key={c.slug} chain={c} onRetry={() => retryChain(c.network)} />
         ))}
+        {/*
+          * An empty wallet is a dead end without this.
+          *
+          * The panel rendered nothing at all for an account holding nothing —
+          * no rows, no message, no way out — which reads as a panel that failed
+          * rather than a wallet that is empty. Only when the reads actually
+          * SUCCEEDED and found nothing: `anyLoading` is still arriving and
+          * `failed` means a chain could not be asked, and neither of those is
+          * "you have no assets". Telling someone their wallet is empty because
+          * an RPC timed out is the failure this whole panel is built to avoid.
+          */}
+        {!anyLoading && failed.length === 0 && shown.every((c) => c.tokens.length === 0) && (
+          <div className="px-4 py-6 text-center">
+            <p className="text-[13px] text-[color:var(--m-text-secondary)]">
+              Nothing here yet.
+            </p>
+            <Link
+              href="/deposit"
+              className="mt-3 inline-block rounded-[10px] px-3.5 py-2 font-mono text-xs font-semibold text-[color:var(--m-on-primary)] transition-opacity hover:opacity-90"
+              style={{ background: "var(--m-primary)" }}
+            >
+              Deposit
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* total */}
@@ -280,7 +323,7 @@ function ChainRows({ chain, onRetry }: { chain: ChainBalances; onRetry: () => vo
         <div
           key={`${tk.symbol}-${i}`}
           className={cn(
-            "flex items-center gap-2.5 rounded-[10px] px-2.5 py-2.5 hover:bg-[color:var(--m-surface-2)]",
+            "group flex items-center gap-2.5 rounded-[10px] px-2.5 py-2.5 hover:bg-[color:var(--m-surface-2)]",
             stale && "opacity-50"
           )}
         >
@@ -299,6 +342,37 @@ function ChainRows({ chain, onRetry }: { chain: ChainBalances; onRetry: () => vo
             <div className="font-mono text-[10.5px] text-[color:var(--m-text-secondary)]">
               {money(tk.usdValue)}
             </div>
+          </div>
+          {/*
+            * Per-asset, because the row is where the intent forms. The header's
+            * pair opens the screen; these say WHICH asset, so the deposit page
+            * arrives with it already chosen instead of asking a question the
+            * user just answered by pointing at a row.
+            *
+            * `?asset=` preselects and nothing more — the list stays open and
+            * changeable, which is what separates it from the `?chainId=` that
+            * page deliberately removed.
+            *
+            * Revealed on hover and focus, not always drawn: two controls on
+            * every row of a balance list turns a column of figures into a
+            * column of buttons. `focus-within` is what keeps them reachable
+            * without a mouse.
+            */}
+          <div className="ml-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <Link
+              href={`/deposit?asset=${encodeURIComponent(tk.symbol)}`}
+              aria-label={`Deposit ${tk.symbol}`}
+              className="rounded-[7px] border border-[color:var(--m-border)] px-2 py-[3px] font-mono text-[11px] text-[color:var(--m-primary)] transition-colors hover:border-[color:var(--m-primary)]"
+            >
+              Deposit
+            </Link>
+            <Link
+              href="/withdraw"
+              aria-label={`Withdraw ${tk.symbol}`}
+              className="rounded-[7px] border border-[color:var(--m-border)] px-2 py-[3px] font-mono text-[11px] text-[color:var(--m-text-secondary)] transition-colors hover:border-[color:var(--m-primary)] hover:text-[color:var(--m-primary)]"
+            >
+              Withdraw
+            </Link>
           </div>
         </div>
       ))}

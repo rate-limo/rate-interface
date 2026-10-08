@@ -1,7 +1,8 @@
-import { fillProgress } from "@/lib/orders/fillProgress";
+import { fillProgress, formatFillProgress } from "@/lib/orders/fillProgress";
 import { viewerSide } from "@/lib/trades/perspective";
 import { hasNoTokenLogo } from "@/lib/tokens/logo";
-import type { BandLpPosition } from "@/queries/server/liquidity";
+import type { LpToken } from "@/lib/liquidity/positions";
+import { feePct, type LaunchPoolRead } from "./launchPool";
 import type { CreatorToken, HistoryRow, LpPosition, Market, OpenOrder, StopOrder, TradeRow } from "./types";
 
 /**
@@ -38,24 +39,6 @@ function market(base: string, quote: string, network: string): Market {
 function num(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "--";
   return String(value);
-}
-
-/**
- * A band share count, short enough to read.
- *
- * Shares are minted at the pool's own scale, which is not a token's decimals
- * and is not ours to divide by — so this abbreviates rather than converts. A
- * caller that needs the exact figure reads `sharesBN`, which the gateway sends
- * unrounded for that reason.
- */
-function shareCount(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "--";
-  const abs = Math.abs(value);
-  if (abs >= 1e15) return `${(value / 1e15).toLocaleString("en-US", { maximumFractionDigits: 2 })}P`;
-  if (abs >= 1e12) return `${(value / 1e12).toLocaleString("en-US", { maximumFractionDigits: 2 })}T`;
-  if (abs >= 1e9) return `${(value / 1e9).toLocaleString("en-US", { maximumFractionDigits: 2 })}B`;
-  if (abs >= 1e6) return `${(value / 1e6).toLocaleString("en-US", { maximumFractionDigits: 2 })}M`;
-  return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
 function finite(value: unknown, fallback = 0): number {
@@ -95,12 +78,19 @@ export function toCreatorTokens(
   tokens: Record<string, unknown>[],
   network: string,
   pairsByBase: Map<string, Record<string, unknown>> = new Map(),
+  /** The coin's band pool + own fee, read from chain; keyed by lowercase coin address. */
+  launchPools: Map<string, LaunchPoolRead> = new Map(),
 ): CreatorToken[] {
   return tokens.map((token) => {
     const symbol = String(token.symbol ?? "?");
     const pair = pairsByBase.get(symbol.toUpperCase());
+    const launchPool = launchPools.get(String(token.id ?? "").toLowerCase());
     const totalSupply = finite(token.totalSupply);
-    const poolAmount = finite(pair?.dayBaseTvl);
+    // Book (the ladder's resting asks before graduation) PLUS the band pool
+    // (where everything goes at graduation). Reading the book alone reported $0
+    // for every graduated coin.
+    const poolAmount = finite(pair?.dayBaseTvl) + (launchPool?.poolBase ?? 0);
+    const takerFeeNum = launchPool?.takerFeeNum ?? null;
     const listingDate = finite(token.listingDate);
     const price = finite(pair?.price, Number.NaN);
     const quoteTvlUsd = finite(pair?.dayQuoteTvlUSD);
@@ -125,9 +115,10 @@ export function toCreatorTokens(
       inRange: true,
       rangeLow: "—",
       rangeHigh: "—",
-      feeTierPct: 0,
+      feeTierPct: takerFeeNum === null ? 0 : feePct(takerFeeNum),
+      feeTierRead: takerFeeNum !== null,
       feesEarnedUsd: 0,
-      seededUsd: finite(pair?.dayBaseTvlUSD) + quoteTvlUsd,
+      seededUsd: finite(pair?.dayBaseTvlUSD) + quoteTvlUsd + (launchPool?.valueUsd ?? 0),
       deployedAt: listingDate > 0 ? new Date(listingDate * 1000).toLocaleString("en-US") : "—",
       age: ageFrom(listingDate),
       txHash: "—",
@@ -136,6 +127,7 @@ export function toCreatorTokens(
       // this tested the logo against a substring of a DIFFERENT field and the
       // Creator tab's "logo pending" hint could not fire for any token.
       logoPending: hasNoTokenLogo(token.logoURI),
+      logoURI: hasNoTokenLogo(token.logoURI) ? undefined : String(token.logoURI),
       metaClaimed: false,
       pairId: pair ? String(pair.id ?? "") || null : null,
       quoteTvlUsd,
@@ -145,9 +137,9 @@ export function toCreatorTokens(
       contractMarketCapUsd: null,
       graduationUsd: 0,
       feeGraduated: token.graduatedAt != null,
-      // New launch pools use the protocol's 10 bps taker fee. Graduation may
-      // change who controls the fee, but it does not imply a 1% starting rate.
-      takerFeeNum: 100_000,
+      // The coin's own fee from `launches(coin)` (1% for ladder launches);
+      // 0.10% is the engine default a market falls back to when it can't be read.
+      takerFeeNum: takerFeeNum ?? 100_000,
       maxCreatorTakerFeeNum: 1_000_000,
       creatorFeeLocked: false,
     };
@@ -156,6 +148,7 @@ export function toCreatorTokens(
 
 export interface LiveOrderRow {
   orderId?: number;
+  pair?: string;
   isBid: boolean;
   base?: { id: string };
   quote?: { id: string };
@@ -191,11 +184,14 @@ export function toOpenOrders(orders: LiveOrderRow[], network: string): OpenOrder
       ...(o.orderId === undefined ? {} : { orderId: o.orderId }),
       ...(o.base?.id ? { baseAddress: o.base.id as `0x${string}` } : {}),
       ...(o.quote?.id ? { quoteAddress: o.quote.id as `0x${string}` } : {}),
+      ...(o.pair ? { pairAddress: o.pair as `0x${string}` } : {}),
+      ...(Number.isFinite(o.price) ? { priceValue: o.price } : {}),
       market: market(o.baseSymbol, o.quoteSymbol, network),
       side: o.isBid ? "Buy" : "Sell",
       price: num(o.price),
       amount: num(o.amount),
       filledPct: percent,
+      fill: formatFillProgress(progress),
       // Partial the moment anything has filled. The chain decides "filled" by
       // deleting the row (see the OrderMatched `clear` flag), so a row being
       // here at all means it has NOT completed — which is why 100% is not a
@@ -248,6 +244,9 @@ export interface LiveHistoryRow {
   timestamp: number;
   /** Broker-written: "open" | "filled" | "canceled". Absent on older rows. */
   status?: string | null;
+  /** Present on an order the gateway recovered from its fills. See `fills.ts`. */
+  fills?: number | null;
+  origins?: { pool: number; maker: number } | null;
 }
 
 /**
@@ -258,6 +257,12 @@ export interface LiveHistoryRow {
  * rather than guessing: claiming a fill that did not happen is the one error
  * here with consequences, and the same asymmetry is already documented for the
  * toast that reports these.
+ *
+ * Not every row here is a resting order any more. An order that crossed the
+ * book entirely never emitted `OrderPlaced` and so was never written down; the
+ * gateway recovers those from their fills. They arrive `filled`, with no
+ * `orderId`, and carrying the counts below — which for them are the only record
+ * of what the order traded against.
  */
 export function toHistoryRows(rows: LiveHistoryRow[], network: string): HistoryRow[] {
   return rows.map((h) => ({
@@ -271,6 +276,10 @@ export function toHistoryRows(rows: LiveHistoryRow[], network: string): HistoryR
     size: num(h.amount),
     status: historyStatus(h.status),
     time: isoTime(h.timestamp),
+    // Spread conditionally, so a row that carried no counts stays ABSENT rather
+    // than arriving as zero — the distinction `fillSummary` refuses to collapse.
+    ...(h.fills == null ? {} : { fills: h.fills }),
+    ...(h.origins == null ? {} : { origins: h.origins }),
   }));
 }
 
@@ -381,21 +390,23 @@ export interface LiveLpRow {
  * only is what the swap card's Earn disposition opens, and the portfolio spec
  * calls for labelling it. Both amounts present means a two-sided range.
  *
- * `aprPct` comes from the POOL, keyed by pair symbol, because no per-position
- * accrual exists. Null propagates rather than becoming zero.
+ * `aprPct` comes from the POOL, keyed by pair symbol, for both generations —
+ * there is no per-position APR to have. `feesEarnedUsd` and `valueUsd` ARE per
+ * position, and for bands only, assembled by `lib/portfolio/lpFees`. Null
+ * propagates rather than becoming zero on any of them.
  */
 export function toLpPositions(
   rows: LiveLpRow[],
   network: string,
   aprByPair: Map<string, number | null> = new Map(),
   /**
-   * Band positions, appended after the ranges.
-   *
-   * A separate argument rather than a merged input because the two shapes have
-   * almost nothing in common: a band has no min/max, no per-leg amounts and no
-   * meaningful `inRange`. Mapping them together would mean inventing all three.
+   * LP tokens, appended after the ranges -- ONE row per token, its bands inside
+   * (v2). A separate argument because the shapes share almost nothing: a band
+   * token has no min/max and no meaningful `inRange`.
    */
-  bands: BandLpPosition[] = [],
+  tokens: LpToken[] = [],
+  /** Lifetime fees per token in USD (collected + claimable), or null when unmeasured. */
+  feesUsdByToken: Map<string, number | null> = new Map(),
 ): LpPosition[] {
   const ranges = rows
     .filter((r) => r.active)
@@ -421,34 +432,29 @@ export function toLpPositions(
       };
     });
 
-  const bandRows: LpPosition[] = bands.map((b) => {
-    const parts = b.pairSymbol?.split("/");
-    const base = parts?.length === 2 && parts[0] ? parts[0] : (b.base ?? "?");
-    const quote = parts?.length === 2 && parts[1] ? parts[1] : (b.quote ?? "?");
-    return {
-      market: market(base, quote, network),
-      // A share count, labelled as one and formatted COMPACTLY.
-      //
-      // It is not a token amount and has no decimals of its own — the pool's
-      // accounting scale is whatever it is — so rendering it as "0.05 SKHY"
-      // would be a category error. But the raw integer is 17 digits
-      // (5e16 for a 0.05 deposit), and printing that is not a row anyone can
-      // read. `shareCount` keeps the magnitude legible without claiming a unit
-      // the chain never gave it.
-      provided: `${shareCount(b.shares)} shares · band ${b.band}`,
-      // Pool-level APR is keyed by pair and the band pools are not in the
-      // liquidity stats source, so there is nothing to look up rather than a
-      // zero to report.
-      aprPct: null,
-      feesEarnedUsd: null,
-      // True by construction: a band always straddles the anchor. Kept honest
-      // by `kind`, which is what lets the table omit the pill entirely rather
-      // than render a status that is always the same.
-      inRange: true,
-      kind: "band" as const,
-      band: b.band,
-    };
-  });
+  const bandRows: LpPosition[] = tokens
+    .filter((t) => t.active)
+    .map((t) => {
+      // Identical key to the ranges', so one `aprByPair` serves both generations.
+      const key = `${t.baseSymbol}/${t.quoteSymbol}`;
+      return {
+        market: market(t.baseSymbol, t.quoteSymbol, network),
+        provided: `#${t.tokenId} · ${t.bands.length} band${t.bands.length === 1 ? "" : "s"}`,
+        aprPct: aprByPair.get(key) ?? null,
+        feesEarnedUsd: feesUsdByToken.get(t.tokenId) ?? null,
+        // Priced by the gateway in SQL, summed over the token's bands.
+        valueUsd: t.valueUSD,
+        inRange: true,
+        kind: "band" as const,
+        tokenId: t.tokenId,
+        bands: t.bands.map((b) => ({
+          band: b.band,
+          sharePct: b.sharePct,
+          width: b.toleranceBuy,
+          feeMultiplier: b.feeMultiplier,
+        })),
+      };
+    });
 
   return [...ranges, ...bandRows];
 }

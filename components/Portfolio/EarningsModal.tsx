@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Copy, Check, Gift, Mail, ScrollText } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { IndexerData } from "@/lib/portfolio/types";
+import { SeasonNotice } from "@/components/Rewards/SeasonNotice";
 
 /**
  * What this wallet has earned that is not trading PnL — referrals and creator rewards,
@@ -85,6 +86,7 @@ export function EarningsModal({
             </span>{" "}
             points this epoch
           </span>
+          <SeasonNotice compact className="mt-1.5 text-center" />
         </div>
 
         {/* The referral offer, and the link under it as one block — the banner states the
@@ -93,7 +95,7 @@ export function EarningsModal({
           <div className="flex items-center justify-center gap-2 bg-[color:var(--m-primary)] px-4 py-3 text-center">
             <Gift aria-hidden className="h-4 w-4 shrink-0 text-[color:var(--m-on-primary)]" />
             <span className="text-[13.5px] font-semibold text-[color:var(--m-on-primary)]">
-              Refer and earn {referrals.cutPct}% of your friends&rsquo; fees
+              Refer and earn {referrals.cutPct}% of the order-book fees your friends pay, as points
             </span>
           </div>
           <button
@@ -174,10 +176,8 @@ export function EarningsModal({
         </div>
 
         <p className="mt-4 text-center text-[12.5px] leading-5 text-[color:var(--m-text-secondary)]">
-          Invite your friends to start earning {referrals.cutPct}% of their trading fees.
-          {referrals.boostPct > 0
-            ? ` Attested referees add ${referrals.boostPct}%, up to ${referrals.maxBoostPct}%.`
-            : ""}
+          Invite your friends to start earning {referrals.cutPct}% of the order-book fees they pay, as
+          points.
         </p>
       </DialogContent>
     </Dialog>

@@ -1,7 +1,9 @@
 "use client";
 
+import { bandTint } from "@/components/Liquidity/PositionCard";
 import { useState } from "react";
 import { formatPct } from "@/lib/pair/derive";
+import { fillSummary } from "@/lib/portfolio/fills";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -11,9 +13,11 @@ import { parseAbi, zeroAddress } from "viem";
 import { exchangeAbi } from "@/components/abis/exchange";
 import { matchingEngineAddress } from "@/lib/deployments";
 import { buildPageUrl } from "@/lib/routing/chainParams";
-import { chainIds } from "@/consts";
+import { chainIds, networkNameToSlug } from "@/consts";
+import { ShareRateButton } from "@/components/Share/ShareRateButton";
 import { activityCounts, filterActivity, type ActivityFilter } from "@/lib/portfolio/activity";
 import { openOrderKey } from "@/lib/portfolio/orderIdentity";
+import { formatFeesUsd } from "@/lib/portfolio/lpFees";
 import type { HistoryRow, IndexerData, OpenOrder, StopOrder } from "@/lib/portfolio/types";
 import type { SectionKey } from "./section";
 import { toastContractError } from "@/lib/errors/toastContractError";
@@ -161,7 +165,8 @@ function OCard({
   network: string;
   right?: React.ReactNode;
   kvs: { k: string; v: React.ReactNode }[];
-  action?: { label: string; onClick: () => void; danger?: boolean };
+  /** `testId` so a mobile-only action is selectable — see `e2e/hooks.spec.ts`. */
+  action?: { label: string; onClick: () => void; danger?: boolean; testId?: string };
   selecting?: boolean;
   selected?: boolean;
   onSelect?: () => void;
@@ -210,6 +215,7 @@ function OCard({
         <button
           type="button"
           onClick={action.onClick}
+          data-testid={action.testId}
           className="mt-2.5 w-full rounded-[9px] border border-[color:var(--m-border)] px-3 py-2 text-center font-mono text-[11.5px]"
           style={action.danger ? { color: "var(--m-error)" } : { color: "var(--m-primary)" }}
         >
@@ -263,10 +269,28 @@ export function ActivityContent({
   // instead of being rebound to a different order.
   const [selectedOrders, setSelectedOrders] = useState<Set<OpenOrder>>(new Set());
   const { writeContractAsync, isPending: isCancelPending } = useWriteContract();
+  const { address: owner } = useAccount();
   const router = useRouter();
   const cancel = (label: string) => toast(`Cancel requested · ${label}`);
-  const manage = (base: string, quote: string) => {
-    router.push(buildPageUrl("pool", { slug: networkSlug, deposit: true, base, quote }));
+  /*
+   * "Manage" meant ADD, and there was no other verb.
+   *
+   * It routes to `/pool/deposit`, so the only thing an LP could do from the tab
+   * that shows their positions was put more in. The flow that takes liquidity
+   * OUT exists — `WithdrawFlow`, on a card at `/pool` — but nothing here linked
+   * to it, so closing a position meant knowing that page exists and finding the
+   * control once you arrived. A deposit CTA already sends people here ("View in
+   * portfolio"), which made this the end of a loop with no exit.
+   *
+   * Two verbs now, named after what they do.
+   */
+  // `positionId` is the LP token: one token is one position holding its whole band
+  // ladder, so a pair alone no longer says which position to act on.
+  const addFunds = (base: string, quote: string, positionId?: string) => {
+    router.push(buildPageUrl("pool", { slug: networkSlug, deposit: true, base, quote, positionId }));
+  };
+  const withdraw = (base: string, quote: string, positionId?: string) => {
+    router.push(buildPageUrl("pool", { slug: networkSlug, withdraw: true, base, quote, positionId }));
   };
 
   if (view === "orders") {
@@ -434,12 +458,20 @@ export function ActivityContent({
                   <td className={`${TD} ${NUM}`}>{rate(o.price)}</td>
                   <td className={`${TD} ${NUM}`}>{orderAmount(o)}</td>
                   <td className={`${TD} ${NUM}`}>
-                    {o.filledPct}%<FillBar pct={o.filledPct} />
+                    <span title={o.fill?.title}>{o.fill?.label ?? `${o.filledPct}%`}</span>
+                    <FillBar pct={o.filledPct} />
                   </td>
                   <td className={TD}>
                     <Pill tone={o.status === "Open" ? "primary" : "accent"}>{o.status}</Pill>
                   </td>
                   <td className={TD}>
+                    <div className="flex items-center gap-3">
+                    {owner && o.pairAddress && o.orderId !== undefined && o.priceValue !== undefined && networkNameToSlug[o.market.network] ? (
+                      <ShareRateButton
+                        chainSlug={networkNameToSlug[o.market.network]}
+                        order={{ account: owner, pair: o.pairAddress, isBid: o.side === "Buy", orderId: o.orderId, price: o.priceValue, baseSymbol: o.market.base, quoteSymbol: o.market.quote }}
+                      />
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => cancel(`${o.market.base}/${o.market.quote}`)}
@@ -448,6 +480,7 @@ export function ActivityContent({
                     >
                       Cancel
                     </button>
+                    </div>
                   </td>
                 </tr>
                 );
@@ -472,7 +505,8 @@ export function ActivityContent({
                   k: "Filled",
                   v: (
                     <>
-                      {o.filledPct}%<FillBar pct={o.filledPct} />
+                      <span title={o.fill?.title}>{o.fill?.label ?? `${o.filledPct}%`}</span>
+                      <FillBar pct={o.filledPct} />
                     </>
                   ),
                 },
@@ -534,7 +568,7 @@ export function ActivityContent({
                     type="button"
                     onClick={onOpenOrders}
                     title={`This stop triggered and became resting order #${order.regularOrderId}. Cancel or manage it from Open orders.`}
-                    className="rounded-lg border border-[color:var(--m-border)] px-2.5 py-1 font-mono text-[11.5px] text-[color:var(--m-primary)] transition-colors hover:border-[color:var(--m-primary)]"
+                    className="relative rounded-lg border border-[color:var(--m-border)] px-2.5 py-1 font-mono text-[11.5px] text-[color:var(--m-primary)] transition-[color,border-color,scale] before:absolute before:inset-x-0 before:top-1/2 before:h-10 before:-translate-y-1/2 before:content-[''] hover:border-[color:var(--m-primary)] active:scale-[0.96]"
                   >
                     View order #{order.regularOrderId}
                   </button>
@@ -568,7 +602,7 @@ export function ActivityContent({
           <table className="w-full border-collapse text-[13px]">
             <thead>
               <tr>
-                {["Pool", "Provided", "APR", "Fees earned", "Range", ""].map((h, i) => (
+                {["Pool", "Provided", "APR", "Fees earned", "Range / bands", ""].map((h, i) => (
                   <th key={i} className={TH}>
                     {h}
                   </th>
@@ -585,7 +619,7 @@ export function ActivityContent({
                       network={l.market.network}
                       sub={
                         <span className="flex items-center gap-1.5">
-                          {l.singleSided ? "single-sided" : "range"}
+                          {l.kind === "band" ? "band ladder" : l.singleSided ? "single-sided" : "range"}
                           {l.fromSwap && (
                             <>
                               {" · "}
@@ -604,21 +638,44 @@ export function ActivityContent({
                     {l.aprPct === null ? "—" : `~${formatPct(l.aprPct)}`}
                   </td>
                   <td className={`${TD} ${NUM}`} style={{ color: "var(--m-success)" }}>
-                    {l.feesEarnedUsd === null ? "—" : `+$${l.feesEarnedUsd.toFixed(2)}`}
+                    {formatFeesUsd(l.feesEarnedUsd)}
                   </td>
                   <td className={TD}>
-                    <Pill tone={l.inRange ? "logo" : "muted"}>
-                      {l.inRange ? "In-range" : "Out of range"}
-                    </Pill>
+                    {/* A band straddles the anchor by construction, so its pill
+                        would read "In-range" on every row forever — a status
+                        that never varies is decoration. `live.ts` said the table
+                        omitted it for bands; until now it did not. */}
+                    {l.kind === "band" ? (
+                      <BandSplit bands={l.bands ?? []} />
+                    ) : (
+                      <Pill tone={l.inRange ? "logo" : "muted"}>
+                        {l.inRange ? "In-range" : "Out of range"}
+                      </Pill>
+                    )}
                   </td>
                   <td className={TD}>
-                    <button
-                      type="button"
-                      onClick={() => manage(l.market.base, l.market.quote)}
-                      className="rounded-lg border border-[color:var(--m-border)] px-2.5 py-1 font-mono text-[11.5px] text-[color:var(--m-primary)] transition-colors hover:border-[color:var(--m-primary)]"
-                    >
-                      Manage
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {/* Selectors are the contract between the app and the e2e
+                          suite (`e2e/hooks.spec.ts`). These two carried none,
+                          so the only way into the withdraw flow from the tab
+                          that shows what you hold was untestable. */}
+                      <button
+                        type="button"
+                        data-testid="lp-add"
+                        onClick={() => addFunds(l.market.base, l.market.quote, l.tokenId)}
+                        className="rounded-lg border border-[color:var(--m-border)] px-2.5 py-1 font-mono text-[11.5px] text-[color:var(--m-primary)] transition-colors hover:border-[color:var(--m-primary)]"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="lp-withdraw"
+                        onClick={() => withdraw(l.market.base, l.market.quote, l.tokenId)}
+                        className="relative rounded-lg border border-[color:var(--m-border)] px-2.5 py-1 font-mono text-[11.5px] text-[color:var(--m-text-secondary)] transition-[color,border-color,scale] before:absolute before:inset-x-0 before:top-1/2 before:h-10 before:-translate-y-1/2 before:content-[''] hover:border-[color:var(--m-text-primary)] hover:text-[color:var(--m-text-primary)] active:scale-[0.96]"
+                      >
+                        Withdraw
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -632,7 +689,11 @@ export function ActivityContent({
               base={l.market.base}
               quote={l.market.quote}
               network={l.market.network}
-              right={<Pill tone={l.inRange ? "logo" : "muted"}>{l.inRange ? "In-range" : "Out"}</Pill>}
+              right={
+                l.kind === "band" ? null : (
+                  <Pill tone={l.inRange ? "logo" : "muted"}>{l.inRange ? "In-range" : "Out"}</Pill>
+                )
+              }
               kvs={[
                 { k: "Provided", v: l.provided },
                 {
@@ -647,15 +708,28 @@ export function ActivityContent({
                   k: "Fees earned",
                   v: (
                     <span style={{ color: "var(--m-success)" }}>
-                      {l.feesEarnedUsd === null ? "—" : `+$${l.feesEarnedUsd.toFixed(2)}`}
+                      {formatFeesUsd(l.feesEarnedUsd)}
                     </span>
                   ),
                 },
-                { k: "Type", v: l.singleSided ? "single-sided" : "range" },
+                l.kind === "band"
+                  ? { k: "Bands", v: <BandSplit bands={l.bands ?? []} /> }
+                  : { k: "Type", v: l.singleSided ? "single-sided" : "range" },
               ]}
+              /*
+               * WITHDRAW is the mobile card's one action, and that is a choice.
+               *
+               * `OCard` carries a single button, and of the two verbs this is
+               * the one with no other route to it: adding is reachable from
+               * /pool, /pool/new and the swap card's LP disposition, while
+               * taking liquidity out was reachable from nowhere the portfolio
+               * links to. The row is still a link to the pair for everything
+               * else.
+               */
               action={{
-                label: "Manage position",
-                onClick: () => manage(l.market.base, l.market.quote),
+                label: "Withdraw",
+                testId: "lp-withdraw",
+                onClick: () => withdraw(l.market.base, l.market.quote, l.tokenId),
               }}
             />
           ))}
@@ -880,6 +954,17 @@ export function ActivityContent({
                 <td className={`${TD} ${NUM}`}>{h.size}</td>
                 <td className={TD}>
                   <Pill tone={historyTone(h.status)}>{h.status}</Pill>
+                  {/* What the order actually traded against. Until band pools
+                      became the venue's main liquidity this said nothing new;
+                      now an order can fill entirely against the pool, and every
+                      screen reported that exactly like a trade against another
+                      wallet. Under the pill rather than in its own column: it
+                      qualifies the status, and it is absent on most rows. */}
+                  {fillSummary(h.fills, h.origins) && (
+                    <div className="mt-1 font-dm-mono text-[10px] leading-tight text-[color:var(--m-text-secondary-2)]">
+                      {fillSummary(h.fills, h.origins)}
+                    </div>
+                  )}
                 </td>
                 <td className={`${TD} ${NUM}`} style={{ color: "var(--m-text-secondary-2)" }}>
                   {h.time}
@@ -899,6 +984,11 @@ export function ActivityContent({
             right={<Pill tone={historyTone(h.status)}>{h.status}</Pill>}
             kvs={[
               { k: "Type", v: h.type },
+              // "Matched", not "Filled" — the status pill on this same card
+              // already says Filled, and two of them read as one label twice.
+              ...(fillSummary(h.fills, h.origins)
+                ? [{ k: "Matched", v: fillSummary(h.fills, h.origins) as string }]
+                : []),
               { k: "Side", v: <SidePill side={h.side} /> },
               { k: "Rate", v: rate(h.price) },
               { k: "Size", v: h.size },
@@ -926,7 +1016,7 @@ export function ActivityContent({
  * **It offers the action, not just the absence.** A tab that says only "nothing
  * here" leaves the reader to find the place that would change that.
  */
-function TabEmpty({
+export function TabEmpty({
   loading,
   glyph,
   title,
@@ -938,8 +1028,14 @@ function TabEmpty({
   glyph: string;
   title: string;
   body: string;
-  cta: string;
-  href: string;
+  /**
+   * Optional as a PAIR. The Rewards tab has no single page that would earn
+   * points — they accrue from trading, providing and referring — so it offers
+   * the sentence without inventing one destination for it. Every other caller
+   * has an obvious action and still passes both.
+   */
+  cta?: string;
+  href?: string;
 }) {
   if (loading) {
     return (
@@ -968,12 +1064,48 @@ function TabEmpty({
       </span>
       <h3 className="mt-1 text-base font-semibold">{title}</h3>
       <p className="max-w-[44ch] text-[13px] text-[color:var(--m-text-secondary)]">{body}</p>
-      <Link
-        href={href}
-        className="mt-1.5 rounded-[10px] border border-[color:var(--m-primary)] bg-[color:var(--m-primary)] px-4 py-2 text-sm font-semibold text-[color:var(--m-on-primary)]"
-      >
-        {cta}
-      </Link>
+      {cta && href && (
+        <Link
+          href={href}
+          className="mt-1.5 rounded-[10px] border border-[color:var(--m-primary)] bg-[color:var(--m-primary)] px-4 py-2 text-sm font-semibold text-[color:var(--m-on-primary)]"
+        >
+          {cta}
+        </Link>
+      )}
+    </div>
+  );
+}
+
+/**
+ * An LP token's distribution in one line -- "B0 34% · B1 33% · B2 33%" -- with a
+ * hairline bar under it. By VALUE: share counts are per band and cannot be compared.
+ */
+/**
+ * A band is named by its fee multiplier ("2× 37%"), not its index ("B1 37%"): the
+ * index is the contract's, the multiplier is what tells an LP which band earns
+ * more. Same width as the index, so the row keeps its layout. A band whose
+ * multiplier is unknown falls back to the index rather than printing a guess.
+ */
+function bandLabel(b: { band: number; feeMultiplier: number | null }): string {
+  return b.feeMultiplier !== null && b.feeMultiplier > 0 ? `${+b.feeMultiplier.toFixed(2)}×` : `B${b.band}`;
+}
+
+function BandSplit({
+  bands,
+}: {
+  bands: { band: number; sharePct: number; width: number | null; feeMultiplier: number | null }[];
+}) {
+  if (bands.length === 0) return <span className="text-[color:var(--m-text-tertiary)]">—</span>;
+  return (
+    <div className="min-w-[140px]" data-testid="lp-band-split">
+      <div className="font-mono text-[11.5px] tabular-nums text-[color:var(--m-text-secondary)]">
+        {bands.map((b) => `${bandLabel(b)} ${b.sharePct.toFixed(0)}%`).join(" · ")}
+      </div>
+      <div className="mt-1 flex h-1 gap-px overflow-hidden rounded-full bg-[color:var(--m-surface-2)]" aria-hidden>
+        {bands.map((b) => (
+          <div key={b.band} style={{ width: `${b.sharePct}%`, background: bandTint(b.band) }} />
+        ))}
+      </div>
     </div>
   );
 }

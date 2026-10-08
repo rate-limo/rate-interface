@@ -34,7 +34,7 @@ export interface PublicPoints {
    * `toReferralSummary`. Never hardcode these on the client: the accrual reads
    * the same row, and a frontend copy drifts the moment an operator edits it.
    */
-  referral?: { cutPct: number; boostPct: number; maxBoostPct: number };
+  referral?: { cutPct: number };
 }
 
 export const EMPTY_POINTS: PublicPoints = {
@@ -43,10 +43,25 @@ export const EMPTY_POINTS: PublicPoints = {
   byEpoch: [],
   refereeCount: 0,
   attestedRefereeCount: 0,
-  referral: { cutPct: 0, boostPct: 0, maxBoostPct: 0 },
+  referral: { cutPct: 0 },
 };
 
-/** Human label for a `tPoints.source` value. Unknown sources pass through. */
+/**
+ * Human label for a `tPoints.source` value. Unknown sources pass through.
+ *
+ * The cases are `PointSource` in `apps/broker/src/point/rules.ts` — the union
+ * the accrual actually writes — and they were not. `bonus` and `callout` had no
+ * case at all, so they fell through and rendered as raw lowercase table cells,
+ * while `maker` had one for a source the broker has never emitted.
+ *
+ * ## Two of these are the referral programme, and they are opposite sides of it
+ *
+ * `referral` is the REFERRER's share of the order-book fees their referees
+ * paid, as points. `bonus` is the REFEREE's own bonus, paid for having been
+ * referred (both in apps/broker's point/earn.ts) — its own source precisely so it can never be
+ * mistaken for trading. Labelling only the first "Referral bonus" named the
+ * wrong one after the wrong side of the relationship.
+ */
 function sourceLabel(source: string): string {
   switch (source) {
     case "trading":
@@ -54,12 +69,36 @@ function sourceLabel(source: string): string {
     case "liquidity":
       return "Liquidity";
     case "referral":
+      return "Referral cut";
+    case "bonus":
       return "Referral bonus";
-    case "maker":
-      return "Maker rebate";
+    case "callout":
+      return "Callout cut";
+    case "rebate":
+      return "Affiliate rebate";
     default:
       return source;
   }
+}
+
+/**
+ * Points this wallet earned from the referral programme, both sides summed.
+ *
+ * Read from `bySource` — the same object the table rows come from and the same
+ * `bySource.referral` field `toReferralSummary` puts on the Referrals tab, so
+ * the two tabs cannot report different referral totals for one wallet.
+ *
+ * `bonus` and `rebate` are included because they ARE referral earnings: a
+ * wallet only has either because somebody referred them — `rebate` because
+ * that somebody is an approved affiliate. The Referrals tab's `earnedPts` counts the
+ * referrer's cut alone, which is right there — that tab is about the people you
+ * referred. This figure answers a different question ("what has the referral
+ * programme paid me"), so it is a superset, not a rival.
+ */
+export function referralPointsOf(points: PublicPoints): number {
+  const num = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return num(points?.bySource?.referral) + num(points?.bySource?.bonus) + num(points?.bySource?.rebate);
 }
 
 /**
@@ -94,6 +133,7 @@ export function toRewardSummary(points: PublicPoints): RewardSummary {
     claimablePts: 0,
     epochPts: thisEpoch?.points ?? 0,
     epoch,
+    referralPts: referralPointsOf(points),
   };
 }
 

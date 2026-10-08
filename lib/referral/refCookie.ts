@@ -37,7 +37,7 @@ export const REF_COOKIE = "iter.ref";
 export const REF_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 30;
 
 /** The registrable domain both apps live under. */
-const SHARED_DOMAIN = "iter.cx";
+const SHARED_DOMAIN = "rate.limo";
 
 /**
  * The `Domain` attribute to use from `hostname`, or null for "omit it".

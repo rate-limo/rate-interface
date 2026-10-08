@@ -149,7 +149,10 @@ export function indexerData(): IndexerData {
       { market: { base: "ETH", quote: "USDC", network: RISE }, type: "Limit", side: "Sell", price: "1,700", size: "0.10", status: "Canceled", time: "Jul 24" },
     ],
     rewards: {
-      summary: { earnedPts: 18340, claimablePts: 13900, epochPts: 6200, epoch: 3 },
+      // `referralPts` matches the "Referral bonus" row below, as the live
+      // summary matches its own rows — a fixture that disagrees with itself
+      // teaches the wrong thing about the shape it is standing in for.
+      summary: { earnedPts: 18340, claimablePts: 13900, epochPts: 6200, epoch: 3, referralPts: 1500 },
       rows: [
         { source: "Trading rewards", network: RISE, earnedPts: 9800, epoch: 3, status: "Claimable" },
         { source: "Maker rebates", network: MONAD, earnedPts: 2600, epoch: 3, status: "Claimable" },
@@ -159,19 +162,17 @@ export function indexerData(): IndexerData {
       ],
     },
     referrals: {
-      // No `tier` — there never was one. The accrual has a flat cut plus a
-      // capped per-attested-referee boost (tEarnConfig), and "Tier 2 · 15%" was
-      // a rank the broker has no concept of. These mirror the schema defaults
-      // so the mock looks like a plausible live wallet.
+      // No `tier` — there never was one. The accrual has one flat share of
+      // referees' fees (tEarnConfig), and "Tier 2 · 15%" was a rank the broker
+      // has no concept of. This mirrors the schema default so the mock looks
+      // like a plausible live wallet.
       summary: {
         code: "HYUNGSU",
-        link: "iter.cx/r/HYUNGSU",
+        link: "rate.limo/r/HYUNGSU",
         referred: 8,
         active: 5,
         earnedPts: 2300,
-        cutPct: 5,
-        boostPct: 3,
-        maxBoostPct: 30,
+        cutPct: 25,
       },
       rows: [
         { friend: "0x9c…12", network: RISE, joined: "Jul 20", theirVolumeUsd: "48,200", earnedPts: 720, status: "Active" },

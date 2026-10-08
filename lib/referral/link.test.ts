@@ -5,19 +5,19 @@ import { fetchReferralCode, inviteLink, inviteUrl, referralLink, referralUrl, wa
 
 describe("referralLink", () => {
   it("builds the display form without a scheme", () => {
-    expect(referralLink("7C2A9E")).toBe("iter.cx/r/7C2A9E");
+    expect(referralLink("7C2A9E")).toBe("rate.limo/r/7C2A9E");
   });
 
   it("uppercases, because codes are case-insensitive but shown uppercase", () => {
-    expect(referralLink("hyungsu")).toBe("iter.cx/r/HYUNGSU");
+    expect(referralLink("hyungsu")).toBe("rate.limo/r/HYUNGSU");
   });
 
   it("trims, so a code pasted with whitespace still yields a valid link", () => {
-    expect(referralLink("  7C2A9E \n")).toBe("iter.cx/r/7C2A9E");
+    expect(referralLink("  7C2A9E \n")).toBe("rate.limo/r/7C2A9E");
   });
 
   it("does not read the current host — a link copied from a preview deploy must still point at production", () => {
-    expect(referralUrl("7C2A9E")).toBe("https://iter.cx/r/7C2A9E");
+    expect(referralUrl("7C2A9E")).toBe("https://rate.limo/r/7C2A9E");
     expect(referralUrl("7C2A9E")).not.toContain("localhost");
   });
 });
@@ -64,7 +64,7 @@ describe("fetchReferralCode", () => {
   });
 
   it("throws when the body carries no code", async () => {
-    // A 200 with an empty body would otherwise render `iter.cx/r/undefined`,
+    // A 200 with an empty body would otherwise render `rate.limo/r/undefined`,
     // a link that looks real and resolves to nothing.
     stubFetch(() => ok({}));
     await expect(fetchReferralCode("0x01")).rejects.toThrow(/no code/);
@@ -76,40 +76,40 @@ describe("waitlistInviteLink", () => {
     // The whole reason this function exists. `/r/CODE` renders InviteView inside
     // the app shell and asks for a wallet first, which is the wrong first ask for
     // someone invited to a list.
-    expect(waitlistInviteLink("51b331")).toBe("waitlist.iter.cx/r/51B331");
-    expect(waitlistInviteUrl("51b331")).toBe("https://waitlist.iter.cx/r/51B331");
+    expect(waitlistInviteLink("51b331")).toBe("waitlist.rate.limo/r/51B331");
+    expect(waitlistInviteUrl("51b331")).toBe("https://waitlist.rate.limo/r/51B331");
   });
 
   it("upper-cases and trims, exactly like the app link", () => {
-    expect(waitlistInviteLink("  abc123  ")).toBe("waitlist.iter.cx/r/ABC123");
+    expect(waitlistInviteLink("  abc123  ")).toBe("waitlist.rate.limo/r/ABC123");
   });
 
   it("does not disturb the app referral link", () => {
     // Both destinations are live and serve different invitations; changing one
     // must not silently repoint the other.
-    expect(referralLink("51B331")).toBe("iter.cx/r/51B331");
+    expect(referralLink("51B331")).toBe("rate.limo/r/51B331");
   });
 
   it("hardcodes the production host", () => {
     // These strings are pasted into someone else's chat window, so a link minted
     // on a preview deployment or localhost must still point at production.
-    expect(waitlistInviteUrl("ABC123").startsWith("https://waitlist.iter.cx/")).toBe(true);
+    expect(waitlistInviteUrl("ABC123").startsWith("https://waitlist.rate.limo/")).toBe(true);
   });
 });
 
 describe("inviteLink — the one place the share destination is decided", () => {
-  it("points at the waitlist while Iter is pre-launch", () => {
+  it("points at the waitlist while Rate is pre-launch", () => {
     // The phase decision, pinned. Flipping these two bodies to referralLink/
     // referralUrl at launch is the whole migration -- and this test is what
     // makes that flip deliberate rather than accidental.
-    expect(inviteLink("51B331")).toBe("waitlist.iter.cx/r/51B331");
-    expect(inviteUrl("51B331")).toBe("https://waitlist.iter.cx/r/51B331");
+    expect(inviteLink("51B331")).toBe("waitlist.rate.limo/r/51B331");
+    expect(inviteUrl("51B331")).toBe("https://waitlist.rate.limo/r/51B331");
   });
 
   it("keeps the app referral link reachable and unchanged", () => {
     // /r/CODE is still a live route and still right for an app referral; it is
     // just not what a sharing surface reaches for today.
-    expect(referralLink("51B331")).toBe("iter.cx/r/51B331");
+    expect(referralLink("51B331")).toBe("rate.limo/r/51B331");
   });
 });
 
@@ -117,7 +117,7 @@ describe("no sharing surface names a destination itself", () => {
   /**
    * The guard against a FIFTH copy.
    *
-   * `Rewards/ReferralPanel` rendered `iter.cx/r/HYUNGSU` from a hand-typed string
+   * `Rewards/ReferralPanel` rendered `rate.limo/r/HYUNGSU` from a hand-typed string
    * in `lib/rewards/mock.ts`, so it kept advertising the app door after this
    * module had moved on — exactly the drift the file's own docstring warns about.
    * Typechecking cannot catch it: a hardcoded URL is a valid string.
@@ -133,7 +133,14 @@ describe("no sharing surface names a destination itself", () => {
     for (const entry of readdirSync(dir)) {
       const p = join(dir, entry);
       if (statSync(p).isDirectory()) out = out.concat(sources(p));
-      else if (/\.(ts|tsx)$/.test(p) && !p.endsWith(".test.ts")) out.push(p);
+      // `.test.tsx` as well as `.test.ts`. The exclusion exists because a test
+      // FIXTURE may legitimately hold a literal invite URL — that is the value
+      // under test — and it shipped covering only the first extension, back
+      // when no component test needed one. `components/Portfolio/Rewards.test.tsx`
+      // is the first that does, and it was flagged as a component writing an
+      // invite URL by hand. A test file ships nothing to a reader, so this
+      // widens the exclusion to what it always meant, not past it.
+      else if (/\.(ts|tsx)$/.test(p) && !/\.test\.tsx?$/.test(p)) out.push(p);
     }
     return out;
   }

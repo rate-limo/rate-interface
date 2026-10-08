@@ -158,6 +158,10 @@ export function SidePill({ side }: { side: "Buy" | "Sell" }) {
   );
 }
 
+// Capped short of full, as FillRing is: a row here is an order the chain has not
+// cleared, and a full bar reads as "done".
+const FILL_BAR_MAX = 97;
+
 export function FillBar({ pct }: { pct: number }) {
   return (
     <span
@@ -166,7 +170,7 @@ export function FillBar({ pct }: { pct: number }) {
     >
       <span
         className="block h-full"
-        style={{ width: `${pct}%`, backgroundColor: "var(--m-primary)" }}
+        style={{ width: `${Math.max(0, Math.min(pct, FILL_BAR_MAX))}%`, backgroundColor: "var(--m-primary)" }}
       />
     </span>
   );

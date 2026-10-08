@@ -1,33 +1,47 @@
 /**
- * The two CoinGenerator writes a creator can make from the portfolio.
+ * The `AssetGenerator` writes a creator can make from the portfolio.
  *
- * ## These are transactions, and nothing else in this tab is
+ * ## These are transactions, and the List control is not
  *
- * Everything else in the Creator tab is a read, plus `requestGraduation` — a POST that
- * deliberately carries no authority, because apps/web holds no key and the server
- * re-derives eligibility itself. These two are the opposite: real wallet signatures,
- * real gas, and the contract checks `msg.sender` against `launches[coin].creator`.
- *
- * So they need the review → confirm → pending → result machine the swap and launch flows
- * already have, not a fetch. This interface is the same seam as `LaunchExecution`: the
- * component is written against it, a mock implements it today, and wiring wagmi changes
- * nothing above the line.
+ * `requestGraduation` (lib/portfolio/graduate.ts) is a POST that carries no
+ * authority — admin-service re-derives listing eligibility itself. These are the
+ * opposite: real wallet signatures against the coin's own generator, which checks
+ * `msg.sender` against `launches[coin].creator` (graduate excepted — anyone may
+ * call it once the pool holds enough).
  *
  * ## Errors are content, not noise
  *
- * `CoinGenerator` reverts with named errors, each of which maps to a sentence a creator
- * can act on. Collapsing them into "transaction reverted" throws away the only part of
- * the failure that helps. `describeCoinAdminError` is where that mapping lives.
+ * The generator reverts with named errors, each of which maps to a sentence a
+ * creator can act on. Collapsing them into "transaction reverted" throws away
+ * the only part of the failure that helps. `describeCoinAdminError` is where that
+ * mapping lives; matching is by NAME, which viem surfaces when the ABI is
+ * present, and which survives a recompile that changes argument types.
  */
 
+import {
+  getAccount,
+  simulateContract,
+  switchChain,
+  waitForTransactionReceipt,
+  writeContract,
+} from "@wagmi/core";
+import { AssetGeneratorABI } from "@iter/abis";
+import { chainIds } from "@/consts";
+import { contractAddress } from "@/lib/deployments";
+import { wagmiChains } from "@/lib/customChains";
+import { wagmiConfig } from "@/lib/providers";
+
 export type CoinAdminErrorKind =
+  | "ladder-not-filled"
+  | "not-ready"
   | "not-graduated"
-  | "above-cap"
-  | "locked"
-  | "not-creator"
-  | "requirement-not-met"
-  | "requirement-not-set"
+  | "nothing-to-release"
+  | "not-vesting"
   | "already-graduated"
+  | "locked"
+  | "above-cap"
+  | "out-of-range"
+  | "not-creator"
   | "rejected"
   | "unknown";
 
@@ -40,90 +54,100 @@ export class CoinAdminError extends Error {
   }
 }
 
-/**
- * Turn a revert into a sentence.
- *
- * Matches on the custom error NAME rather than a selector: viem surfaces the decoded
- * name when the ABI is present, and a name survives a recompile that changes argument
- * types while a hand-copied selector does not.
- */
+/** Turn a revert into a sentence. */
 export function describeCoinAdminError(error: unknown): CoinAdminError {
   if (error instanceof CoinAdminError) return error;
   const raw = error instanceof Error ? error.message : String(error ?? "");
 
-  if (/NotGraduatedYet/.test(raw)) {
-    return new CoinAdminError("not-graduated", "This coin has to graduate before you can set its fee.");
+  if (/LadderNotFilled/.test(raw)) {
+    return new CoinAdminError("ladder-not-filled", "Not every sell step has sold yet, so graduation can't be armed.");
   }
-  if (/FeeAboveCreatorCap/.test(raw)) {
-    return new CoinAdminError("above-cap", "That is above the ceiling Iter allows creators to set.");
+  if (/GraduationNotReady/.test(raw)) {
+    return new CoinAdminError("not-ready", "Graduation is armed but not ready yet. Try again when the countdown ends.");
   }
-  if (/CreatorFeeControlLocked/.test(raw)) {
-    return new CoinAdminError("locked", "An Iter operator has paused fee control for this coin.");
+  if (/NotGraduated/.test(raw)) {
+    return new CoinAdminError("not-graduated", "This coin hasn't graduated yet, so there is no pool position.");
   }
-  if (/NotTheCreator/.test(raw)) {
-    return new CoinAdminError("not-creator", "Only the wallet that launched this coin can set its fee.");
+  if (/NothingToRelease/.test(raw)) {
+    return new CoinAdminError("nothing-to-release", "Nothing new has vested since your last release.");
   }
-  if (/GraduationRequirementNotMet/.test(raw)) {
-    return new CoinAdminError(
-      "requirement-not-met",
-      "Market cap is below the graduation requirement — the book has to price it higher first.",
-    );
-  }
-  if (/GraduationRequirementNotSet/.test(raw)) {
-    return new CoinAdminError("requirement-not-set", "Iter has not set a graduation requirement yet.");
+  if (/NotVesting/.test(raw)) {
+    return new CoinAdminError("not-vesting", "This coin's liquidity never unlocks. You can only collect its fees.");
   }
   if (/AlreadyGraduated/.test(raw)) {
     return new CoinAdminError("already-graduated", "This coin has already graduated.");
   }
+  if (/CreatorFeeControlLocked/.test(raw)) {
+    return new CoinAdminError(
+      "locked",
+      "Fee and volatility are locked for this coin. They unlock at graduation, unless an operator has locked them.",
+    );
+  }
+  if (/FeeAboveCreatorCap/.test(raw)) {
+    return new CoinAdminError("above-cap", "That fee is above the ceiling Rate allows creators to set.");
+  }
+  if (/FeeOutsidePairRange|InvalidVolatility|InvalidFee/.test(raw)) {
+    return new CoinAdminError("out-of-range", "That fee or volatility is outside the range Rate allows.");
+  }
+  if (/NotTheCreator/.test(raw)) {
+    return new CoinAdminError("not-creator", "Only the wallet that launched this coin can do that.");
+  }
   if (/User rejected|user rejected|denied transaction/.test(raw)) {
-    return new CoinAdminError("rejected", "You rejected the signature — nothing was sent.");
+    return new CoinAdminError("rejected", "You rejected the signature. Nothing was sent.");
   }
   return new CoinAdminError("unknown", "The transaction failed. Nothing was changed.");
 }
 
 export interface CoinAdminExecution {
-  /** `CoinGenerator.graduate(coin)`. Resolves to the transaction hash. */
+  /**
+   * `graduate(coin)`. Anyone may call it, twice: the first call ARMS it once all
+   * five ladder steps have sold, the second finishes it `GRADUATION_DELAY` later.
+   */
   graduate(coin: string): Promise<string>;
-  /** `CoinGenerator.setPairTakerFee(coin, feeNum)`, feeNum on the 1e8 scale. */
-  setTakerFee(coin: string, feeNum: number): Promise<string>;
+  /** `setPairTradingConfig(coin, slippageLimitBps, 0, takerFee)`, fee on the 1e8 scale. Creator, after graduation. */
+  setTradingConfig(coin: string, slippageLimitBps: number, takerFeeNum: number): Promise<string>;
+  /** `collectLockedFees(coin, recipient)`. Creator, after graduation. */
+  collectFees(coin: string, recipient: string): Promise<string>;
+  /** `releaseVested(coin, recipient)`. Creator, `vest12Months` only, whatever has vested since the last release. */
+  releaseVested(coin: string, recipient: string): Promise<string>;
 }
 
 /**
- * Mock. Applies the contract's own preconditions so the UI's disabled states are
- * exercised rather than assumed — a mock that always succeeds would hide exactly the
- * paths this flow exists to render.
+ * The live execution, pinned to the coin's OWN chain: the portfolio is
+ * cross-chain, so the wallet's ambient chain is routinely a different one.
  */
-export function mockCoinAdmin(state: {
-  feeGraduated: boolean;
-  creatorFeeLocked: boolean;
-  maxCreatorTakerFeeNum: number;
-  eligible: boolean;
-}): CoinAdminExecution {
+export function coinAdminFor(networkName: string): CoinAdminExecution {
+  const send = async (
+    functionName: "graduate" | "setPairTradingConfig" | "collectLockedFees" | "releaseVested",
+    args: readonly unknown[],
+  ): Promise<string> => {
+    const chain = wagmiChains.find((c) => c.id === chainIds[networkName]);
+    const generator = contractAddress(networkName, "assetGenerator");
+    if (!chain || !generator) throw new CoinAdminError("unknown", "This coin's network isn't available here.");
+    const account = getAccount(wagmiConfig);
+    if (!account.address) throw new CoinAdminError("unknown", "Connect a wallet first.");
+    if (account.chainId !== chain.id) await switchChain(wagmiConfig, { chainId: chain.id });
+    try {
+      const { request } = await simulateContract(wagmiConfig, {
+        chainId: chain.id,
+        address: generator,
+        abi: AssetGeneratorABI,
+        functionName,
+        args: args as never,
+        account: account.address,
+      });
+      const hash = await writeContract(wagmiConfig, request);
+      const receipt = await waitForTransactionReceipt(wagmiConfig, { chainId: chain.id, hash });
+      if (receipt.status !== "success") throw new CoinAdminError("unknown", "The transaction reverted. Nothing was changed.");
+      return hash;
+    } catch (error) {
+      throw describeCoinAdminError(error);
+    }
+  };
   return {
-    async graduate() {
-      await new Promise((r) => setTimeout(r, 700));
-      if (state.feeGraduated) throw new CoinAdminError("already-graduated", "This coin has already graduated.");
-      if (!state.eligible) {
-        throw new CoinAdminError(
-          "requirement-not-met",
-          "Market cap is below the graduation requirement — the book has to price it higher first.",
-        );
-      }
-      state.feeGraduated = true;
-      return "0xmock";
-    },
-    async setTakerFee(_coin, feeNum) {
-      await new Promise((r) => setTimeout(r, 700));
-      if (!state.feeGraduated) {
-        throw new CoinAdminError("not-graduated", "This coin has to graduate before you can set its fee.");
-      }
-      if (state.creatorFeeLocked) {
-        throw new CoinAdminError("locked", "An Iter operator has paused fee control for this coin.");
-      }
-      if (feeNum > state.maxCreatorTakerFeeNum) {
-        throw new CoinAdminError("above-cap", "That is above the ceiling Iter allows creators to set.");
-      }
-      return "0xmock";
-    },
+    graduate: (coin) => send("graduate", [coin]),
+    setTradingConfig: (coin, bps, fee) => send("setPairTradingConfig", [coin, bps, 0, fee]),
+    collectFees: (coin, recipient) => send("collectLockedFees", [coin, recipient]),
+    releaseVested: (coin, recipient) => send("releaseVested", [coin, recipient]),
   };
 }

@@ -152,7 +152,7 @@ export const UNTRACKED_LABEL = "cost unknown";
 /** The long form, as a tooltip or a line under the number. */
 export const UNTRACKED_TITLE =
   "Part of this arrived without a purchase we could see — wrapped, transferred in, " +
-  "airdropped, or withdrawn from a pool. Realised PnL only covers the part bought on Iter.";
+  "airdropped, or withdrawn from a pool. Realised PnL only covers the part bought on Rate.";
 
 export interface PositionFlags {
   /** No live price, so the value is unknown — never zero. */

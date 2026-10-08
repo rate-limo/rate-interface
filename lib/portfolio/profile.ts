@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
 // Defined in its own module because the OG card route calls it from the server;
 // see `imageUrl.ts`. Re-exported here so existing client imports are unchanged.
@@ -284,11 +285,33 @@ export function isSignatureRejection(err: unknown): boolean {
   return err instanceof Error && /reject|denied|cancel/i.test(err.message);
 }
 
+/**
+ * SAME-ORIGIN, through the app's own gateway proxy.
+ *
+ * This read the gateway directly, and the gateway's CORS allowlist holds the
+ * production origins and not localhost — verified by asking it with each:
+ * `Origin: https://www.iter.cx` comes back with `access-control-allow-origin`,
+ * `Origin: http://localhost:3217` comes back 200 with no such header, so the
+ * browser discards it and the fetch rejects. `useProfile` swallows that by
+ * design ("an unreachable gateway costs the NAME and nothing else"), so the
+ * whole symptom was a wallet showing a truncated address in dev with no error
+ * anywhere.
+ *
+ * `app/api/gateway/[...path]` exists for exactly this and says so: "The gateway
+ * intentionally rejects arbitrary localhost origins; server-to-server requests
+ * have no browser Origin and remain within policy." Same path every other
+ * browser read takes (`usePairs`, `usePairCandles`, `useUngatedPair`).
+ *
+ * Note this is an ORIGIN control, not an auth one — the route is public and the
+ * write half authenticates by signature — so proxying grants nothing a `curl`
+ * could not already do.
+ */
 export async function fetchProfile(
   networkName: string,
   address: string,
 ): Promise<ProfileData> {
-  const res = await fetch(`${gatewayUrl(networkName)}/api/profile/${address}`);
+  const query = encodeURIComponent(networkName);
+  const res = await gatewayFetch(`/api/gateway/profile/${address}?network=${query}`);
   if (!res.ok) throw new Error(`Couldn't load profile (${res.status})`);
   return (await res.json()) as ProfileData;
 }

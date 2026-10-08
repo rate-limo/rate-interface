@@ -56,11 +56,21 @@ export interface OpenOrder {
   orderId?: number;
   baseAddress?: `0x${string}`;
   quoteAddress?: `0x${string}`;
+  /** The order book the order rests on — with orderId and side, what a rate card names. */
+  pairAddress?: `0x${string}`;
+  /** The price as a number, for the rate card; `price` is the display string. */
+  priceValue?: number;
   market: Market;
   side: Side;
   price: string;
   amount: string;
   filledPct: number;
+  /**
+   * What the Filled column prints, from `formatFillProgress`: never "100%" for a
+   * row the chain has not cleared, and "—" when progress is unknown. Optional so
+   * fixtures without it still render `filledPct`.
+   */
+  fill?: { label: string; title?: string };
   status: "Open" | "Partial";
   fromSwap?: boolean;
 }
@@ -103,11 +113,33 @@ export interface LpPosition {
    */
   aprPct: number | null;
   /**
-   * Null until a per-position fee source exists. Nothing in broker, gateway or
-   * admin-service accrues fees per LP token today, so any number here would be
-   * invented — see the portfolio spec's rule about values no service computes.
+   * Lifetime fees this position earned, in USD — **band positions only**.
+   *
+   * Two sources added: fees CLAIMED (`bandPositions.feesUSD`, which the broker
+   * only writes on `BandFeesClaimed`) plus fees still OWED
+   * (`BandPositionManager.portfolio`). They are disjoint — `BandPool.collect`
+   * advances the position's fee-growth cursor as it pays — so the sum is the
+   * lifetime figure and claiming does not make this number fall. Derivation and
+   * the forfeit exclusion live in `lib/portfolio/lpFees`.
+   *
+   * **Still null for a `range` position**: those are `Pool.sol` positions, a
+   * generation nothing has opened since 2026-09-05, and no accrual for them
+   * exists in broker, gateway or chain view. Null is "not measured" here too —
+   * render it as an em-dash, never as `$0.00`.
    */
   feesEarnedUsd: number | null;
+  /**
+   * What the position is worth now, in USD — **band positions only**.
+   *
+   * Priced by the gateway in SQL (`accountLp.ts`), taken whole rather than
+   * recomputed. It exists because the "In LP positions" tile summed the
+   * `provided` STRING, and a band's reads `5.01P shares` — a share count has no
+   * symbol to price, so a funded wallet's liquidity totalled $0.
+   *
+   * Absent on a `range`, whose `provided` does name token amounts; the tile
+   * falls back to parsing those.
+   */
+  valueUsd?: number | null;
   inRange: boolean;
   singleSided?: boolean;
   fromSwap?: boolean;
@@ -115,19 +147,22 @@ export interface LpPosition {
    * Which generation of pool this position lives in.
    *
    * "range" is a `Pool.sol` position that owns min/max prices it chose. "band"
-   * is a share of ONE band in a BandPool, which has no per-position range at all
-   * — `PoolPositions.sol` deleted those columns because `_fillBand` never read
-   * them. The distinction reaches the UI because the columns mean different
-   * things: a band always straddles the anchor, so `inRange` is true by
-   * construction and says nothing, and `provided` is a share count rather than
-   * two token amounts.
+   * is ONE LP TOKEN in a BandPool, holding its whole band ladder (v2: one token =
+   * one position; apps/web/CLAUDE.md, LP section). A band always straddles the
+   * anchor, so `inRange` is true by construction and says nothing.
    *
    * Optional so every existing construction site keeps compiling as "range",
    * which is what they all are.
    */
   kind?: "range" | "band";
-  /** Band index, tightest first — band positions only. It IS the fill order. */
-  band?: number;
+  /** The LP token -- band positions only. What Add and Withdraw act on. */
+  tokenId?: string;
+  /**
+   * The token's distribution, tightest band first -- band positions only. `sharePct`
+   * is by VALUE (share counts are per band and cannot be compared); `width` is the
+   * live half-width as a fraction, 0 when the band is idle.
+   */
+  bands?: { band: number; sharePct: number; width: number | null; feeMultiplier: number | null }[];
 }
 
 export interface TradeRow {
@@ -179,6 +214,15 @@ export interface HistoryRow {
   size: string;
   status: "Open" | "Filled" | "Canceled" | "Expired";
   time: string;
+  /**
+   * How many fills closed this order, and how many of them the POOL filled.
+   *
+   * Absent on a row the gateway carried no counts for, which is not the same as
+   * zero — see `fillSummary`. Present on every order recovered from its fills,
+   * where it is the only record of what the order actually traded against.
+   */
+  fills?: number;
+  origins?: { pool: number; maker: number };
 }
 
 export type RewardStatus = "Claimable" | "Accruing" | "Claimed";
@@ -195,6 +239,16 @@ export interface RewardSummary {
   claimablePts: number;
   epochPts: number;
   epoch: number;
+  /**
+   * Points the referral programme has paid this wallet — the referrer's cut and
+   * the referee's own bonus, summed. See `referralPointsOf`.
+   *
+   * Carried on the summary rather than left to the table, because the table
+   * drops zero rows: a wallet earning nothing from referrals yet had no line
+   * about referrals anywhere on the tab, which is indistinguishable from the
+   * programme not existing.
+   */
+  referralPts: number;
 }
 
 export interface ReferralRow {
@@ -209,22 +263,21 @@ export interface ReferralSummary {
   code: string;
   link: string;
   referred: number;
-  /** Referees who ATTESTED. Only these earn the referrer a boost. */
+  /** Referees who ATTESTED. Reported only — since the boost was retired
+   * (2026-09-26) attestation does not change what the referrer earns. */
   active: number;
   earnedPts: number;
   /**
-   * Share of the trading fees a referee pays that reaches the referrer, and the
-   * capped boost their attested referees have earned.
+   * Share of the order-book fees a referee pays that reaches the referrer, paid
+   * as points.
    *
-   * These replace `tier` / `tierPct`. **There was never a tier**: `tEarnConfig`
-   * has `referralCutBps` plus a per-attested-referee boost with a ceiling
-   * (`boostBpsPerAttestedReferee`, `maxBoostBps`), and the UI's "Tier 3 · 12%"
-   * was a rank the accrual has no concept of. admin-service computes these from
-   * that config so the page and the accrual cannot disagree.
+   * Replaces `tier` / `tierPct`. **There was never a tier**: `tEarnConfig` has
+   * one flat `referralCutBps`, and the UI's "Tier 3 · 12%" was a rank the
+   * accrual has no concept of. admin-service computes this from that config so
+   * the page and the accrual cannot disagree. The per-attested-referee boost
+   * that used to sit beside it was retired on 2026-09-26.
    */
   cutPct: number;
-  boostPct: number;
-  maxBoostPct: number;
 }
 
 /* ---------------- creator (launched tokens) ---------------- */
@@ -272,6 +325,8 @@ export interface CreatorToken {
   rangeLow: string;
   rangeHigh: string;
   feeTierPct: number;
+  /** True when feeTierPct is the coin's own fee read from chain, not a placeholder. */
+  feeTierRead?: boolean;
   feesEarnedUsd: number;
   /** Value of the seeded position, in USD — a portfolio number, so USD is right. */
   seededUsd: number;
@@ -283,6 +338,8 @@ export interface CreatorToken {
    *  or the row still carries the legacy `placeholder_token.png`. See
    *  lib/tokens/logo.ts; cleared by binding a logo through `/token-logo/claim`. */
   logoPending: boolean;
+  /** The claimed artwork, when there is one. Absent renders the symbol mark. */
+  logoURI?: string;
   /** True once this wallet has claimed the token's metadata row. Always false today. */
   metaClaimed: boolean;
 

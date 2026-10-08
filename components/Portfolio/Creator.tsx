@@ -1,18 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { marketParam } from "@/lib/routing/proMarket";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import type { CreatorToken, IndexerData } from "@/lib/portfolio/types";
 import {
   canEditMetadata,
   canGraduate,
-  canGraduateFeeTier,
-  canSetTakerFee,
-  feeControlBlockedBy,
-  feeControlHelp,
-  feeTierProgressPct,
-  feeTierState,
   formatTakerFee,
   changeTone,
   creatorSummary,
@@ -26,8 +21,18 @@ import {
   usdCompact,
 } from "@/lib/portfolio/creator";
 import { GraduationError, requestGraduation } from "@/lib/portfolio/graduate";
-import { GRADUATED_FEE_PRESETS, MAX_GRADUATED_FEE_NUM } from "@/lib/fees/strategy";
-import { describeCoinAdminError, mockCoinAdmin } from "@/lib/portfolio/coinAdmin";
+import { useAccount } from "wagmi";
+import { coinAdminFor } from "@/lib/portfolio/coinAdmin";
+import { useCoinLaunch } from "@/hooks/useCoinLaunch";
+import {
+  canReleaseVested,
+  controlBlockedBy,
+  graduationStatus,
+  quoteAmount,
+  stepsSoldCount,
+  vestedBps,
+} from "@/lib/portfolio/coinLaunch";
+import { allowedFees, allowedVolatility, feeTierNum } from "@/lib/liquidity/launchPolicy";
 import { buildPageUrl, DEFAULT_CHAIN_SLUG } from "@/lib/routing/chainParams";
 import { networkNameToSlug } from "@/consts";
 import { cn } from "@/lib/utils";
@@ -108,7 +113,7 @@ function ListingBlock({ token: t }: { token: CreatorToken }) {
         toast.success(`${t.symbol} is listed`);
       } else if (result.heldForApproval) {
         // Threshold met but auto-listing is off — an operator has to approve.
-        toast.success("Threshold met — waiting on an Iter operator to approve the listing.");
+        toast.success("Threshold met — waiting on an Rate operator to approve the listing.");
       } else {
         toast.error(`Not yet — ${usdCompact(result.shortfallUsd)} more quote liquidity needed.`);
       }
@@ -196,7 +201,9 @@ function ListingBlock({ token: t }: { token: CreatorToken }) {
         <Link
           href={buildPageUrl("trade", {
             pro: true,
-            base: t.symbol,
+            // The coin by address (the quote is known here only by symbol; the
+            // page matches it among this coin's own markets).
+            base: marketParam({ id: t.address, symbol: t.symbol }),
             quote: t.quote,
             slug: slugFor(t.network),
           })}
@@ -209,192 +216,267 @@ function ListingBlock({ token: t }: { token: CreatorToken }) {
   );
 }
 
+/** Seconds since epoch, ticking once a second — mounted-only, for the graduation countdown. */
+function useNowSec(): number {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    setNow(Math.floor(Date.now() / 1000));
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
 /**
- * Fee tier — CoinGenerator's graduation, and the creator's control of the taker fee.
+ * The sell ladder, graduation, the creator's fee and volatility, and the pool
+ * position graduation creates — all `AssetGenerator`, all read from the chain
+ * (`useCoinLaunch`).
  *
- * This is NOT the block above. `ListingBlock` is quote TVL flipping `spotPairs.verified`
- * so the market appears in ranked lists, driven by a POST that carries no authority.
- * This one is market cap clearing `graduationUsd` ON CHAIN, its effect is the taker fee,
- * and both of its actions are wallet transactions. A coin can have either, both or
- * neither, so the two never share a verb: that one says **List**, this one says
- * **Graduate**.
- *
- * The market cap shown here is `contractMarketCapUsd` — what `usdValueOf()` reads off the
- * books — never the `marketCapUsd` column in the row above it. Only the contract's figure
- * decides whether `graduate()` succeeds, and promising eligibility the contract then
- * refuses is the specific bug this avoids.
+ * This is NOT the block above. `ListingBlock` is quote TVL flipping
+ * `spotPairs.verified` so the market appears in ranked lists, driven by a POST
+ * that carries no authority. This one is the coin's five sell steps selling
+ * out ON CHAIN, then two `graduate` calls; every action in it is a wallet
+ * transaction. A coin can have either, both or neither, so the two never share
+ * a verb: that one says **List**, this one says **Graduate**.
  */
-function FeeBlock({ token: t }: { token: CreatorToken }) {
-  const info = {
-    contractMarketCapUsd: t.contractMarketCapUsd,
-    graduationUsd: t.graduationUsd,
-    feeGraduated: t.feeGraduated,
-    takerFeeNum: t.takerFeeNum,
-    maxCreatorTakerFeeNum: t.maxCreatorTakerFeeNum,
-    creatorFeeLocked: t.creatorFeeLocked,
+function LaunchControlsBlock({ token: t }: { token: CreatorToken }) {
+  const { address } = useAccount();
+  const query = useCoinLaunch(t.network, t.address);
+  const s = query.data;
+  const nowSec = useNowSec();
+  const [pending, setPending] = useState<null | "graduate" | "config" | "collect" | "release">(null);
+  const [feeNum, setFeeNum] = useState<number | null>(null);
+  const [bps, setBps] = useState<number | null>(null);
+
+  if (!s || nowSec === 0) return null;
+
+  const execution = coinAdminFor(t.network);
+  const status = graduationStatus(s, nowSec);
+  const blockedBy = controlBlockedBy(s);
+  const isCreator = Boolean(address) && address!.toLowerCase() === s.creator.toLowerCase();
+  const bounds = {
+    minVolatilityBps: s.minVolatilityBps,
+    maxVolatilityBps: s.maxVolatilityBps,
+    minFee: s.minFeeNum,
+    maxFee: s.maxCreatorTakerFeeNum,
   };
+  const fees = allowedFees(bounds);
+  const vols = allowedVolatility(bounds);
+  const chosenFee = feeNum ?? s.takerFeeNum;
+  const chosenBps = bps ?? s.slippageLimitBps;
+  const dirty = chosenFee !== s.takerFeeNum || chosenBps !== s.slippageLimitBps;
+  const editable = blockedBy === null && isCreator && pending === null;
+  const sold = stepsSoldCount(s);
+  const vested = vestedBps(s.graduatedAt, nowSec);
+  const fmtQuote = (raw: bigint) =>
+    `${quoteAmount(raw, s.quoteDecimals).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${s.quoteSymbol}`;
+  const wait = Math.max(0, s.readyAt - nowSec);
 
-  const [pending, setPending] = useState<null | "graduate" | "fee">(null);
-  const [feeNum, setFeeNum] = useState(t.takerFeeNum);
-  const [live, setLive] = useState(info);
-
-  const state = feeTierState(live);
-  const blockedBy = feeControlBlockedBy(live);
-  const editable = canSetTakerFee(live) && pending === null;
-  const creatorCeiling = Math.min(live.maxCreatorTakerFeeNum, MAX_GRADUATED_FEE_NUM);
-  const feePresets = GRADUATED_FEE_PRESETS.filter((preset) => preset <= creatorCeiling);
-  const dirty = feeNum !== live.takerFeeNum;
-
-  // Injected so the disabled paths are exercised rather than assumed; swapping in wagmi
-  // changes nothing in this component (see lib/portfolio/coinAdmin).
-  const [execution] = useState(() =>
-    mockCoinAdmin({
-      feeGraduated: t.feeGraduated,
-      creatorFeeLocked: t.creatorFeeLocked,
-      maxCreatorTakerFeeNum: t.maxCreatorTakerFeeNum,
-      eligible: canGraduateFeeTier(info),
-    }),
-  );
-
-  const run = async (kind: "graduate" | "fee") => {
+  const run = async (kind: "graduate" | "config" | "collect" | "release") => {
+    if (!address && kind !== "graduate") return;
     setPending(kind);
     try {
       if (kind === "graduate") {
+        const arming = status === "armable";
         await execution.graduate(t.address);
-        setLive((s) => ({ ...s, feeGraduated: true, takerFeeNum: 100_000 }));
-        setFeeNum(100_000);
-        toast.success(`${t.symbol} graduated — taker fee is now ${formatTakerFee(100_000)}`);
+        toast.success(
+          arming
+            ? `${t.symbol}'s graduation is armed. Finish it in 5 minutes.`
+            : `${t.symbol} graduated. The pool is open, and fee and volatility are yours to set.`,
+        );
+      } else if (kind === "config") {
+        await execution.setTradingConfig(t.address, chosenBps, chosenFee);
+        toast.success(`${t.symbol}: taker fee ${formatTakerFee(chosenFee)}, volatility ${(chosenBps / 100).toFixed(2)}%`);
+      } else if (kind === "collect") {
+        await execution.collectFees(t.address, address!);
+        toast.success("Fees collected to your wallet.");
       } else {
-        await execution.setTakerFee(t.address, feeNum);
-        setLive((s) => ({ ...s, takerFeeNum: feeNum }));
-        toast.success(`${t.symbol} taker fee set to ${formatTakerFee(feeNum)}`);
+        await execution.releaseVested(t.address, address!);
+        toast.success("Vested liquidity released to your wallet.");
       }
+      await query.refetch();
     } catch (error) {
-      // The revert reason IS the message. See describeCoinAdminError.
-      toast.error(describeCoinAdminError(error).message);
+      // describeCoinAdminError already turned the revert into a sentence.
+      toast.error(error instanceof Error ? error.message : "The transaction failed. Nothing was changed.");
     } finally {
       setPending(null);
     }
   };
 
+  const chip = (on: boolean) =>
+    cn(
+      "rounded-[8px] border px-2 py-1.5 font-mono text-[11px] font-semibold",
+      on
+        ? "border-[color:var(--m-primary)] bg-[color:var(--m-primary-100)] text-[color:var(--m-primary-700)]"
+        : "border-[color:var(--m-border)] text-[color:var(--m-text-secondary)]",
+      !editable && "cursor-not-allowed opacity-60",
+    );
+  const action = "self-start rounded-[9px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold";
+
   return (
     <div
       className={cn(
-        "mt-3 flex flex-col gap-2 rounded-[11px] border px-3 py-2.5",
-        state === "graduated"
+        "mt-3 flex flex-col gap-3 rounded-[11px] border px-3 py-2.5",
+        status === "graduated"
           ? "border-[color:var(--m-primary)]"
-          : state === "eligible"
-            ? "border-[color:var(--m-success)]"
-            : "border-dashed border-[color:var(--m-border)]",
+          : status === "selling"
+            ? "border-dashed border-[color:var(--m-border)]"
+            : "border-[color:var(--m-success)]",
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-[color:var(--m-text-secondary-2)]">
-          Taker fee
+          Launch
         </span>
-        {blockedBy === "not-graduated" && <Pill tone="muted">Set by Iter</Pill>}
-        {blockedBy === "locked" && <Pill tone="muted">Paused by an operator</Pill>}
-        {editable && <Pill tone="logo">Yours to set</Pill>}
+        {status === "graduated" ? <Pill tone="logo">Graduated</Pill> : <Pill tone="muted">{sold} of 5 steps sold</Pill>}
+        {blockedBy === "locked" && <Pill tone="muted">Fee locked by an operator</Pill>}
       </div>
 
-      <div className="flex flex-wrap items-baseline gap-2.5">
-        <span className="text-[19px] font-semibold tabular-nums">{formatTakerFee(live.takerFeeNum)}</span>
-        {state !== "graduated" && (
-          <span className="font-mono text-[11px] text-[color:var(--m-text-secondary-2)]">
-            starting rate for {t.quote} launches
-          </span>
-        )}
-      </div>
-
-      {/* Progress toward the CONTRACT's requirement, on the contract's own figure. */}
-      {state !== "graduated" && t.graduationUsd > 0 && (
-        <div className="flex flex-col gap-1">
-          <div className="h-1.5 overflow-hidden rounded-full bg-[color:var(--m-surface)]">
-            <span
-              className="block h-full rounded-full"
-              style={{
-                width: `${feeTierProgressPct(live)}%`,
-                backgroundColor: state === "eligible" ? "var(--m-success)" : "var(--m-text-secondary-2)",
-              }}
-            />
-          </div>
-          <span className="font-mono text-[11px] tabular-nums text-[color:var(--m-text-secondary-2)]">
-            <b className="text-[color:var(--m-text-primary)]">
-              {t.contractMarketCapUsd === null ? "—" : usdCompact(t.contractMarketCapUsd)}
-            </b>{" "}
-            of {usdCompact(t.graduationUsd)} market cap
-          </span>
-        </div>
+      {status === "graduated" && (
+        <p data-testid="creator-pool-risk" className="m-0 text-[12px] leading-snug text-[color:var(--m-text-secondary)]">
+          Others can push this pool&apos;s price and trade against it; Rate is an order-book DEX.{" "}
+          <Link href="/fees#risks" className="underline underline-offset-2">How</Link>
+        </p>
       )}
 
-      {/* The creator's control. Rendered in every state; disabled in three of them. */}
-      {editable ? (
-        <div className="flex flex-col gap-2.5">
-          <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label={`${t.symbol} graduated fee preset`}>
-            {feePresets.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                role="radio"
-                aria-checked={feeNum === preset}
-                onClick={() => setFeeNum(preset)}
-                className={cn(
-                  "rounded-[8px] border px-2 py-2 font-mono text-[11px] font-semibold",
-                  feeNum === preset
-                    ? "border-[color:var(--m-primary)] bg-[color:var(--m-primary-100)] text-[color:var(--m-primary-700)]"
-                    : "border-[color:var(--m-border)] text-[color:var(--m-text-secondary)]",
-                )}
-              >
-                {formatTakerFee(preset)}
-              </button>
+      {status !== "graduated" && (
+        <div className="flex flex-col gap-1.5">
+          <div className="grid grid-cols-5 gap-1" aria-label={`${sold} of 5 sell steps sold`}>
+            {s.stepsSold.map((done, i) => (
+              <span
+                key={i}
+                className="h-1.5 rounded-full"
+                style={{ backgroundColor: done ? "var(--m-success)" : "var(--m-surface)" }}
+              />
             ))}
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-[10.5px] text-[color:var(--m-text-secondary-2)]">
-              Protocol presets · {formatTakerFee(creatorCeiling)} ceiling
-            </span>
-          <button
-            type="button"
-            disabled={!dirty || pending !== null}
-            onClick={() => void run("fee")}
-            className={cn(
-              "rounded-[9px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold transition-colors",
-              dirty && pending === null
-                ? "border-[color:var(--m-primary)] bg-[color:var(--m-primary)] text-[color:var(--m-on-primary)]"
-                : "cursor-not-allowed border-[color:var(--m-border)] text-[color:var(--m-text-secondary-2)]",
-            )}
-          >
-            {pending === "fee" ? "Confirming…" : `Set ${formatTakerFee(feeNum)}`}
-          </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled
-            className="cursor-not-allowed rounded-[9px] border border-[color:var(--m-border)] px-3 py-1.5 font-mono text-[11.5px] text-[color:var(--m-text-secondary-2)]"
-          >
-            Adjust fee
-          </button>
-          {state === "eligible" && (
+          <span className="font-mono text-[11px] tabular-nums text-[color:var(--m-text-secondary-2)]">
+            <b className="text-[color:var(--m-text-primary)]">{fmtQuote(s.quoteRaised)}</b> raised · graduates at{" "}
+            {fmtQuote(s.graduationMarketCap)} market cap
+          </span>
+          {status === "armable" && (
             <button
               type="button"
               disabled={pending !== null}
               onClick={() => void run("graduate")}
-              className="rounded-[9px] border border-[color:var(--m-success)] bg-[color:var(--m-success)] px-3 py-1.5 font-mono text-[11.5px] font-semibold text-[color:var(--m-on-primary)]"
+              className={cn(action, "border-[color:var(--m-success)] bg-[color:var(--m-success)] text-[color:var(--m-on-primary)]")}
+            >
+              {pending === "graduate" ? "Confirming…" : "Arm graduation"}
+            </button>
+          )}
+          {status === "armed" && (
+            <span className="font-mono text-[11.5px] text-[color:var(--m-text-primary)]">
+              Graduation armed. Ready in {Math.floor(wait / 60)}:{String(wait % 60).padStart(2, "0")}
+            </span>
+          )}
+          {status === "ready" && (
+            <button
+              type="button"
+              disabled={pending !== null}
+              onClick={() => void run("graduate")}
+              className={cn(action, "border-[color:var(--m-success)] bg-[color:var(--m-success)] text-[color:var(--m-on-primary)]")}
             >
               {pending === "graduate" ? "Confirming…" : `Graduate ${t.symbol}`}
+            </button>
+          )}
+          <span className="text-[11px] text-[color:var(--m-text-secondary)]">
+            Anyone can graduate it once every step sells. Fee and volatility become yours then.
+          </span>
+        </div>
+      )}
+
+      {status === "graduated" && (
+        <div className="flex flex-col gap-1.5">
+          <span className="font-mono text-[10.5px] text-[color:var(--m-text-secondary-2)]">
+            Taker fee · now {formatTakerFee(s.takerFeeNum)}
+          </span>
+          <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label={`${t.symbol} taker fee`}>
+            {fees.map((tier) => (
+              <button
+                key={tier}
+                type="button"
+                role="radio"
+                aria-checked={chosenFee === feeTierNum(tier)}
+                disabled={!editable}
+                onClick={() => setFeeNum(feeTierNum(tier))}
+                className={chip(chosenFee === feeTierNum(tier))}
+              >
+                {tier}%
+              </button>
+            ))}
+          </div>
+          <span className="font-mono text-[10.5px] text-[color:var(--m-text-secondary-2)]">
+            Volatility · now {(s.slippageLimitBps / 100).toFixed(2)}%
+          </span>
+          <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label={`${t.symbol} volatility`}>
+            {vols.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                role="radio"
+                aria-checked={chosenBps === v.bps}
+                disabled={!editable}
+                onClick={() => setBps(v.bps)}
+                className={chip(chosenBps === v.bps)}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          {editable && (
+            <button
+              type="button"
+              disabled={!dirty}
+              onClick={() => void run("config")}
+              className={cn(
+                "self-end rounded-[9px] border px-3 py-1.5 font-mono text-[11.5px] font-semibold",
+                dirty
+                  ? "border-[color:var(--m-primary)] bg-[color:var(--m-primary)] text-[color:var(--m-on-primary)]"
+                  : "cursor-not-allowed border-[color:var(--m-border)] text-[color:var(--m-text-secondary-2)]",
+              )}
+            >
+              Save
             </button>
           )}
         </div>
       )}
 
-      <p className="m-0 text-[11.5px] text-[color:var(--m-text-secondary)]">
-        {state === "graduated"
-          ? `Choose a protocol preset. You can sponsor a lower trader fee, but cannot raise ${t.symbol} above the ${formatTakerFee(creatorCeiling)} graduated-market ceiling.`
-          : feeControlHelp(t.symbol, live)}
-      </p>
+      {status === "graduated" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--m-border)] pt-2.5">
+          <span className="text-[11.5px] text-[color:var(--m-text-secondary)]">
+            {s.lockMode === "feesOnly"
+              ? "Pool liquidity stays forever. You collect its fees."
+              : `Pool liquidity vests over 12 months: ${(vested / 100).toFixed(1)}% vested, ${(s.releasedBps / 100).toFixed(1)}% released.`}
+          </span>
+          {isCreator && (
+            <span className="flex gap-1.5">
+              <button
+                type="button"
+                disabled={pending !== null}
+                onClick={() => void run("collect")}
+                className="rounded-[9px] border border-[color:var(--m-border)] px-3 py-1.5 font-mono text-[11.5px] text-[color:var(--m-text-primary)]"
+              >
+                {pending === "collect" ? "Confirming…" : "Collect fees"}
+              </button>
+              {s.lockMode === "vest12Months" && (
+                <button
+                  type="button"
+                  disabled={!canReleaseVested(s, nowSec) || pending !== null}
+                  onClick={() => void run("release")}
+                  className={cn(
+                    "rounded-[9px] border px-3 py-1.5 font-mono text-[11.5px]",
+                    canReleaseVested(s, nowSec)
+                      ? "border-[color:var(--m-primary)] text-[color:var(--m-primary)]"
+                      : "cursor-not-allowed border-[color:var(--m-border)] text-[color:var(--m-text-secondary-2)]",
+                  )}
+                >
+                  {pending === "release" ? "Confirming…" : "Release vested"}
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -558,7 +640,7 @@ export function Creator({ data, networkSlug }: { data: IndexerData; networkSlug:
 function TokenIdentity({ token: t }: { token: CreatorToken }) {
   return (
     <div className="flex items-center gap-2.5">
-      <TokenAvatar symbol={t.symbol} />
+      <TokenAvatar symbol={t.symbol} logoURI={t.logoURI} />
       <div className="flex min-w-0 flex-col leading-tight">
         <b className="flex items-center gap-1.5 text-[13px] font-semibold">
           {t.symbol}
@@ -710,7 +792,7 @@ function TokenDetail({ token: t }: { token: CreatorToken }) {
           <DKey>Fee tier</DKey>
           <DVal>
             {t.feeTierPct}%
-            <Est />
+            {!t.feeTierRead && <Est />}
           </DVal>
         </dl>
 
@@ -742,6 +824,7 @@ function TokenDetail({ token: t }: { token: CreatorToken }) {
         </div>
 
         <ListingBlock token={t} />
+        <LaunchControlsBlock token={t} />
 
         {/* Pair-bound links must target Pro and go through buildPageUrl — a
             hand-built /trade URL drops the pair silently. The slug is the
@@ -750,7 +833,7 @@ function TokenDetail({ token: t }: { token: CreatorToken }) {
           <Link
             href={buildPageUrl("trade", {
               pro: true,
-              base: t.symbol,
+              base: marketParam({ id: t.address, symbol: t.symbol }),
               quote: t.quote,
               slug: slugFor(t.network),
             })}
@@ -776,7 +859,7 @@ function CreatorCard({ token: t }: { token: CreatorToken }) {
   return (
     <div className="rounded-[13px] border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)] p-3.5">
       <div className="mb-2.5 flex items-center gap-2.5">
-        <TokenAvatar symbol={t.symbol} size="md" />
+        <TokenAvatar symbol={t.symbol} logoURI={t.logoURI} size="md" />
         <b className="flex items-center gap-1.5 text-sm font-semibold">
           {t.symbol}
           <ChainChip network={t.network} />

@@ -10,7 +10,7 @@
  * on a preview deployment or on localhost must still point at production.
  */
 
-const SHARE_HOST = "iter.cx";
+const SHARE_HOST = "rate.limo";
 
 /**
  * The waitlist's own host, since 2026-08-06.
@@ -24,7 +24,7 @@ const SHARE_HOST = "iter.cx";
  * than shares, so both apps hand out invite links and both must agree;
  * `apps/waitlist/lib/referral/inviteUrlParity.test.ts` fails if they drift.
  */
-const WAITLIST_HOST = "waitlist.iter.cx";
+const WAITLIST_HOST = "waitlist.rate.limo";
 
 /** Display form — no scheme, because it is read before it is clicked. */
 export function referralLink(code: string): string {
@@ -67,7 +67,7 @@ export function waitlistInviteUrl(code: string): string {
  * **The destination every shared link points at right now.** Use this, not the
  * two pairs above, anywhere the app hands a link to a user.
  *
- * Iter is pre-launch: the waitlist is the only thing anyone can actually join, so
+ * Rate is pre-launch: the waitlist is the only thing anyone can actually join, so
  * a link to the app invites someone to a product they cannot use yet and asks
  * them for a wallet on arrival. Every sharing surface therefore points at the
  * waitlist door — the rewards panel, the onboarding flow, the landing page's join

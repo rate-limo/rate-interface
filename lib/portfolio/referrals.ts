@@ -49,7 +49,5 @@ export function toReferralSummary(
     // Zeros, not the schema defaults: a wallet shown "5%" it is not earning is
     // worse than one shown 0% while the terms are genuinely unknown.
     cutPct: num(terms?.cutPct),
-    boostPct: num(terms?.boostPct),
-    maxBoostPct: num(terms?.maxBoostPct),
   };
 }

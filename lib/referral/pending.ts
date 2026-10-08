@@ -17,7 +17,7 @@
  * ## Why stash instead of applying on arrival
  *
  * Applying needs a wallet signature. Prompting for one the moment someone
- * follows a link, before they know what Iter is, is how a referral link becomes
+ * follows a link, before they know what Rate is, is how a referral link becomes
  * a bounce. So the code waits — through the connect round trip, through a page
  * reload — and is offered at a point where the user has context.
  */

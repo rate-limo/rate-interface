@@ -7,7 +7,7 @@ const points = (over: Partial<PublicPoints> = {}): PublicPoints => ({
     refereeCount: 8,
     attestedRefereeCount: 5,
     bySource: { trading: 1200, referral: 2300 },
-    referral: { cutPct: 5, boostPct: 3, maxBoostPct: 30 },
+    referral: { cutPct: 25 },
     ...over,
 });
 
@@ -23,16 +23,13 @@ describe("toReferralSummary", () => {
 
     it("publishes the rates the service served, not a frontend constant", () => {
         const s = toReferralSummary(points(), "HYUNGSU", ORIGIN);
-        expect(s.cutPct).toBe(5);
-        expect(s.boostPct).toBe(3);
-        expect(s.maxBoostPct).toBe(30);
+        expect(s.cutPct).toBe(25);
     });
 
     it("reflects an operator's change rather than a hardcoded default", () => {
-        const changed = points({ referral: { cutPct: 7.5, boostPct: 1, maxBoostPct: 12 } });
+        const changed = points({ referral: { cutPct: 7.5 } });
         const s = toReferralSummary(changed, "HYUNGSU", ORIGIN);
         expect(s.cutPct).toBe(7.5);
-        expect(s.maxBoostPct).toBe(12);
     });
 
     it("builds the share link against the origin it was given", () => {
@@ -62,8 +59,6 @@ describe("toReferralSummary", () => {
         const older = points({ referral: undefined });
         const s = toReferralSummary(older, "HYUNGSU", ORIGIN);
         expect(s.cutPct).toBe(0);
-        expect(s.boostPct).toBe(0);
-        expect(s.maxBoostPct).toBe(0);
     });
 
     it("reports zero referral points for a wallet that has earned none", () => {
@@ -80,8 +75,6 @@ describe("toReferralSummary", () => {
             active: 0,
             earnedPts: 0,
             cutPct: 0,
-            boostPct: 0,
-            maxBoostPct: 0,
         });
     });
 

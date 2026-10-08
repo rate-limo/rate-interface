@@ -1,9 +1,9 @@
 "use client";
 
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { useWalletConnect } from "@/lib/wallet";
-import { Toaster } from "sonner";
 import { indexerData } from "@/lib/portfolio/mock";
 import { useWalletBalances } from "@/lib/portfolio/useBalances";
 import { usePortfolioLive } from "@/hooks/usePortfolioLive";
@@ -56,6 +56,25 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
   // illustrative data. Merging here rather than inside `indexerData()`
   // keeps the mock a pure fixture — the thing to delete a tab at a time as each
   // gets a source, rather than a module that half-fetches.
+  /*
+   * The ROUTE's chain, which `app/[locale]/portfolio/page.tsx` fixes to
+   * `DEFAULT_CHAIN_SLUG`.
+   *
+   * This briefly followed the connected wallet instead. The reasoning still
+   * holds in the abstract — every path that PLACES an order follows the wallet,
+   * so a wallet elsewhere writes to one gateway while this page reads another,
+   * and the miss is silent because an empty answer from the wrong chain is
+   * indistinguishable from an empty chain. What it was NOT is the bug it was
+   * shipped for: the default is Arc, the orders were on Arc, and the page was
+   * already asking the right gateway. That one was `OrderPlaced` never firing
+   * for an order that crossed outright — fixed in the gateway instead.
+   *
+   * Reverted because it changes which chain a connected wallet sees for no
+   * demonstrated gain, and following the wallet makes the portfolio LOSE
+   * activity for anyone whose wallet sits on a chain they did not trade on.
+   * `lib/portfolio/scope.ts` and its tests are deleted with it; restoring the
+   * behaviour means restoring that file, not re-deriving it here.
+   */
   const networkName = slugToNetworkName[networkSlug] ?? networkSlug;
   const balances = useWalletBalances(networkName, address);
   const live = usePortfolioLive(networkName, address);
@@ -79,10 +98,10 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
       lps: live.data.lps,
       rewards: live.data.rewards,
       creator: live.data.creator,
-      // Summary live, rows still illustrative — the referee table wants other
-      // people's wallets and volumes, which no route publishes. Merging at this
-      // level rather than inside the hook keeps that split visible.
-      referrals: { ...mock.referrals, summary: live.data.referralSummary },
+      // Summary live, and NO rows: the referee table wants other people's
+      // wallets and volumes, which no route publishes. It used to keep the
+      // mock's rows, which put invented friends beside a live "0 referred".
+      referrals: { summary: live.data.referralSummary, rows: [] },
     }),
     [mock, live.data],
   );
@@ -104,6 +123,20 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
    * exist.
    */
   const [section, setSection] = useState<SectionKey>(initialSection ?? "orders");
+  /*
+   * ABOVE the `isConnected` gate below, and it has to stay there.
+   *
+   * It used to sit further down, after the early return — so a disconnected
+   * render called 143 hooks and a connected one called 144. Connecting a wallet
+   * with this page open therefore crashed it outright: "Rendered more hooks
+   * than during the previous render." Not a subtle ordering warning, a white
+   * screen on the page that shows somebody their money.
+   *
+   * Every hook in this component must be declared before that return. The gate
+   * is what makes the rule non-obvious: it reads like the top of the component
+   * even though 40 lines of hooks follow it.
+   */
+  const [earningsOpen, setEarningsOpen] = useState(false);
 
   const refresh = () => {
     setDemo("live");
@@ -140,7 +173,22 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
     const symbol = order.side === "Buy" ? order.market.quote : order.market.base;
     return sum + numeric(order.amount) * tokenUsd(symbol);
   }, 0);
+  /*
+   * A band's stake is priced by the gateway; a range's is parsed off its label.
+   *
+   * This summed `provided` for every position, and a band's reads
+   * `5.01P shares · band 0` — `tokenUsd("shares")` is 0, so a wallet whose
+   * liquidity is entirely in bands (which is every LP since 2026-09-05) saw
+   * `$0` on this tile while holding three funded positions. A share count has
+   * no symbol to price and is not ours to convert; `valueUsd` is the figure
+   * `accountLp.ts` already computes in SQL against the band's reserves.
+   *
+   * The string parse stays for ranges, whose label does name token amounts.
+   */
   const inLpUsd = data.lps.reduce((sum, position) => {
+    if (position.valueUsd !== null && position.valueUsd !== undefined) {
+      return sum + position.valueUsd;
+    }
     return sum + position.provided.split(" + ").reduce((positionSum, leg) => {
       const [amount = "0", symbol = ""] = leg.trim().split(/\s+/);
       return positionSum + numeric(amount) * tokenUsd(symbol);
@@ -158,9 +206,21 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
   // Undefined while the read is in flight, so the badge appears with a number
   // rather than claiming zero positions first.
   const tabs = tabDefs(data, positions.isLoading ? undefined : positions.data.positions.length);
-  const desktopSection = section === "assets" ? "orders" : section;
-
-  const [earningsOpen, setEarningsOpen] = useState(false);
+  /*
+   * Assets is a TAB on desktop too, as of 2026-09-18.
+   *
+   * It used to be a 322px sidebar, and it could not hold its own content: a row
+   * is a mark, a symbol, a chain chip, an amount, a USD value and — since the
+   * per-asset actions landed — two buttons. At that width they overlapped the
+   * figure they belong to. Widening the sidebar would take the room from the
+   * activity table, which is the thing people actually came to read.
+   *
+   * The strip already had this shape on mobile, where `assets` has always been
+   * the first tab, and the remap that used to live here (`assets` -> `orders`)
+   * existed only because desktop could not render it. One list of tabs, one
+   * behaviour at every width, and the balances get the full column.
+   */
+  const desktopSection = section;
 
   const tiles = [
     {
@@ -196,7 +256,7 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
 
   return (
     <div className="mx-auto max-w-[1160px] px-5 pb-24 pt-10 text-[color:var(--m-text-primary)]">
-      <Toaster richColors position="bottom-right" />
+      <AppToaster />
 
       <EarningsModal
         data={data}
@@ -215,7 +275,7 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
         netWorthLoading={summaryLoading}
         onRefresh={refresh}
         spinning={spinning}
-        onOpenRewards={() => setSection("rewards")}
+        onOpenReferrals={() => setSection("referrals")}
       />
 
       {/* summary tiles */}
@@ -258,27 +318,33 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
         ))}
       </div>
 
-      {/* ---- desktop: activity + assets sidebar ---- */}
+      {/* ---- desktop: one full-width activity card, Assets included ---- */}
       {/*
-        `minmax(0,1fr)`, NOT `1fr`.
+        `minmax(0,1fr)`, NOT `1fr`, even now that it is a single column.
 
         A bare `1fr` track is `minmax(auto, 1fr)`, and that `auto` minimum is the
         column's MIN-CONTENT width — so a wide child (a table, a long unbroken
-        row) pushes the track past its share instead of scrolling inside it. The
-        grid then overflows its container and drags the fixed sidebar with it: the
-        panel below sat further right than every card above it, which is exactly
-        what "assets are a little off on the width to the upper card layout"
-        describes. Nothing overflows visibly — the sidebar is simply somewhere
-        else than the layout it is meant to line up with.
+        row) pushes the track past its share instead of scrolling inside it, and
+        the grid overflows its container. That used to drag the assets sidebar
+        out of line with the cards above; with one column it is the card itself
+        that widens past the page. `minmax(0,1fr)` lets the track shrink to its
+        share and hands the overflow back to the child, which already scrolls.
 
-        `minmax(0,1fr)` lets the track shrink to its share and hands the overflow
-        back to the child, which already scrolls. Identical rendering whenever the
-        content fits, so it is not a trade.
+        The 322px sidebar that used to sit beside this is gone: it could not hold
+        an asset row once those rows gained per-asset actions, and widening it
+        would have taken the room from the activity table.
       */}
-      <div className="hidden items-start gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_322px]">
+      <div className="hidden items-start gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)]">
         <div className="rounded-[15px] border border-[color:var(--m-border)] bg-[color:var(--m-surface)] shadow-sm">
-          <div className="flex gap-0.5 overflow-x-auto border-b border-[color:var(--m-border)] px-2.5 py-2">
-            {tabs.map((t) => (
+          {/*
+            * `gap-1` with equal button padding, so the rhythm is the SAME
+            * between every pair of tabs. It was `gap-0.5`, which put the whole
+            * burden of separation on each button's own padding — and since only
+            * some tabs carry a count badge, neighbours with and without one sat
+            * at visibly different distances.
+            */}
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-[color:var(--m-border)] px-2 py-2">
+            {[{ key: "assets" as SectionKey, label: "Assets", count: undefined }, ...tabs].map((t) => (
               <TabButton
                 key={t.key}
                 on={desktopSection === t.key}
@@ -288,26 +354,28 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
               />
             ))}
           </div>
-          <ActivityPanelBody
-            view={desktopSection}
-            data={data}
-            positions={{ address: address ?? "", positions: positions.data.positions, totals: positions.data.totals }}
-            positionsLoading={positions.isLoading}
-            networkSlug={networkSlug}
-            loading={live.isLoading}
-          />
+          {desktopSection === "assets" ? (
+            <AssetsPanel
+              balances={balances}
+              demo={demo}
+              setDemo={setDemo}
+              spinning={spinning}
+              onRefresh={refresh}
+              showDemoControl={false}
+              bare
+            />
+          ) : (
+            <ActivityPanelBody
+              view={desktopSection}
+              onOpenReferrals={() => setSection("referrals")}
+              data={data}
+              positions={{ address: address ?? "", positions: positions.data.positions, totals: positions.data.totals }}
+              positionsLoading={positions.isLoading}
+              networkSlug={networkSlug}
+              loading={live.isLoading}
+            />
+          )}
         </div>
-
-        <aside className="sticky top-4">
-          <AssetsPanel
-            balances={balances}
-            demo={demo}
-            setDemo={setDemo}
-            spinning={spinning}
-            onRefresh={refresh}
-            showDemoControl={false}
-          />
-        </aside>
       </div>
 
       {/* ---- mobile: unified scrollable tab bar (Assets + activity) ---- */}
@@ -338,6 +406,7 @@ export function PortfolioView({ networkSlug, initialSection }: { networkSlug: st
             <ActivityPanelBody
               view={section}
               onOpenOrders={() => setSection("orders")}
+              onOpenReferrals={() => setSection("referrals")}
               onRefresh={refresh}
               data={data}
               positions={{ address: address ?? "", positions: positions.data.positions, totals: positions.data.totals }}
@@ -360,6 +429,7 @@ function ActivityPanelBody({
   networkSlug,
   loading,
   onOpenOrders,
+  onOpenReferrals,
   onRefresh,
 }: {
   view: SectionKey;
@@ -371,6 +441,8 @@ function ActivityPanelBody({
   loading: boolean;
   /** Passed straight through to the stop-orders table. See ActivityContent. */
   onOpenOrders?: () => void;
+  /** Rewards' referral card sends the reader to the Referrals tab. */
+  onOpenReferrals?: () => void;
   /** The page's own re-read, offered as the fix on a failed stop-order cancel. */
   onRefresh?: () => void;
 }) {
@@ -378,7 +450,7 @@ function ActivityPanelBody({
   // for any view it does not recognise, so an unhandled key here shows the wrong
   // table under the right tab and nothing throws.
   if (view === "positions") return <PositionsList data={positions} isLoading={positionsLoading} />;
-  if (view === "rewards") return <Rewards data={data} />;
+  if (view === "rewards") return <Rewards data={data} onOpenReferrals={onOpenReferrals} />;
   if (view === "referrals") return <Referrals data={data} />;
   if (view === "creator") return <Creator data={data} networkSlug={networkSlug} />;
   return <ActivityContent view={view} data={data} networkSlug={networkSlug} loading={loading} onOpenOrders={onOpenOrders} onRefresh={onRefresh} />;
@@ -410,7 +482,17 @@ function TabButton({
       {count !== undefined && (
         <span
           className={cn(
-            "rounded-full px-1.5 font-mono text-[10.5px]",
+            /*
+             * A FIXED shape, whatever the number.
+             *
+             * It was `px-1.5` with no minimum, so a badge reading 1 was
+             * narrower than one reading 10 and every tab after it shifted.
+             * `min-w` plus centring keeps the pill identical, `tabular-nums`
+             * keeps the digits from changing width, and `leading-none` stops
+             * the 10.5px text from stretching the 13px row it sits in.
+             */
+            "inline-flex min-w-[18px] items-center justify-center rounded-full px-1 py-0.5",
+            "font-mono text-[10.5px] leading-none tabular-nums",
             on
               ? "bg-[color:var(--m-primary)] text-[color:var(--m-on-primary)]"
               : "bg-[color:var(--m-surface-2)] text-[color:var(--m-text-secondary)]"

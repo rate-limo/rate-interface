@@ -1,5 +1,6 @@
+import type { LpToken } from "@/lib/liquidity/positions";
 import { describe, expect, it } from "vitest";
-import { isoTime, toHistoryRows, toLpPositions, toOpenOrders, toStopOrders, toTradeRows } from "./live";
+import { isoTime, toCreatorTokens, toHistoryRows, toLpPositions, toOpenOrders, toStopOrders, toTradeRows } from "./live";
 
 const NET = "RISE Testnet";
 const ME = "0xAAAAaaaAAAAaaaAAaAaAAAaAAAaaAAAAAAAaAaAa";
@@ -54,6 +55,17 @@ describe("toOpenOrders", () => {
     );
     expect(row.filledPct).toBeLessThan(100);
     expect(row.status).toBe("Partial");
+  });
+
+  it("labels a float-drifted row ≈100%, never 100%, because it is still open on chain", () => {
+    // No exact columns, and float4 `placed` has rounded to 0 while a remainder
+    // still rests: the arithmetic says 100, and the Portfolio tab printed it.
+    const [row] = toOpenOrders(
+      [{ isBid: true, baseSymbol: "ETH", quoteSymbol: "USDC", price: 1, amount: 1, placed: 0 }],
+      NET,
+    );
+    expect(row.fill?.label).toBe("≈100%");
+    expect(row.fill?.title).toMatch(/Still open on chain/);
   });
 
   it("maps isBid to a side and carries the market", () => {
@@ -270,7 +282,9 @@ describe("toLpPositions", () => {
     expect(row.aprPct).toBe(12.5);
   });
 
-  it("keeps fees null — nothing in the stack accrues them per position", () => {
+  it("keeps a RANGE's fees null — no accrual exists for that generation", () => {
+    // Only bands have a fee source. `Pool.sol` positions have none in broker,
+    // gateway or chain view, so null is the honest answer and stays one.
     const [row] = toLpPositions([range], NET, new Map([["ETH/USDC", 12.5]]));
     expect(row.feesEarnedUsd).toBeNull();
   });
@@ -330,61 +344,108 @@ describe("toStopOrders", () => {
   });
 });
 
-describe("toLpPositions — band positions", () => {
-  const band = {
-    pool: "0xpool",
-    positionId: "1",
+describe("toLpPositions — LP tokens (v2: one token, the whole ladder)", () => {
+  const token = (over: Partial<LpToken> = {}): LpToken => ({
     tokenId: "1",
-    band: 0,
-    shares: 0.05,
+    networkName: NET,
+    pool: "0xpool",
     base: "0xbase",
     quote: "0xquote",
-    pairSymbol: "SKHY/USDC",
-    price: 1,
-  };
+    baseSymbol: "SKHY",
+    quoteSymbol: "USDC",
+    baseDecimals: 18,
+    quoteDecimals: 6,
+    active: true,
+    bands: [
+      { band: 0, spreadFrac: 0.2, toleranceBuy: 0.0002, toleranceSell: 0.0002, feeMultiplier: 1, open: true, shares: BigInt(1), sharePct: 50, valueUSD: 5, baseOwned: BigInt(0), quoteOwned: BigInt(0), vestedPct: 100 },
+      { band: 2, spreadFrac: 1, toleranceBuy: 0.001, toleranceSell: 0.001, feeMultiplier: 3, open: true, shares: BigInt(1), sharePct: 50, valueUSD: 5, baseOwned: BigInt(0), quoteOwned: BigInt(0), vestedPct: 100 },
+    ],
+    valueUSD: 10,
+    costUSD: 9,
+    unrealizedPnlUSD: 1,
+    realizedPnlUSD: 0,
+    feesUSD: 0,
+    forfeitedUSD: 0,
+    claimableBase: BigInt(0),
+    claimableQuote: BigInt(0),
+    vestingBase: BigInt(0),
+    vestingQuote: BigInt(0),
+    vestedPct: 100,
+    live: true,
+    mintedAt: 1,
+    snapshotAt: 1,
+    ...over,
+  });
 
-  it("appends bands after ranges and marks which is which", () => {
-    // The two are different generations of pool, and the table renders them
-    // differently — a band has no range to draw and no per-leg amounts.
-    const out = toLpPositions([], NET, new Map(), [band]);
+  it("is ONE row per token, with the token's bands inside it", () => {
+    const out = toLpPositions([], NET, new Map(), [token()]);
     expect(out).toHaveLength(1);
     expect(out[0]!.kind).toBe("band");
+    expect(out[0]!.tokenId).toBe("1");
+    expect(out[0]!.bands?.map((b) => b.band)).toEqual([0, 2]);
+    expect(out[0]!.provided).toBe("#1 · 2 bands");
     expect(out[0]!.market).toEqual({ base: "SKHY", quote: "USDC", network: NET });
   });
 
-  it("labels the stake as SHARES, never as a token amount", () => {
-    // A share count has no decimals of its own — the pool's accounting scale is
-    // what it is — so rendering it as "0.05 SKHY" would be a category error.
-    const out = toLpPositions([], NET, new Map(), [band]);
-    expect(out[0]!.provided).toMatch(/shares/);
-    expect(out[0]!.provided).toContain("band 0");
+  it("carries the distribution by value and the live width", () => {
+    const [row] = toLpPositions([], NET, new Map(), [token()]);
+    expect(row!.bands?.[0]).toEqual({ band: 0, sharePct: 50, width: 0.0002, feeMultiplier: 1 });
   });
 
-  it("abbreviates a raw share count instead of printing 17 digits", () => {
-    // A 0.05 deposit mints 5e16 shares. The exact figure lives in `sharesBN`;
-    // this column has to be readable.
-    const out = toLpPositions([], NET, new Map(), [{ ...band, shares: 5e16 }]);
-    expect(out[0]!.provided).toContain("50P");
-    expect(out[0]!.provided).not.toContain("50000000000000000");
+  it("attaches the POOL's APR, keyed on the pair like a range", () => {
+    // A pool holding both generations must not report two different APRs.
+    const out = toLpPositions([], NET, new Map([["SKHY/USDC", 4.2]]), [token()]);
+    expect(out[0]!.aprPct).toBe(4.2);
   });
 
-  it("reports no APR rather than zero", () => {
-    // Pool-level APR is keyed by pair and band pools are absent from that
-    // source, so there is nothing to look up. Zero would assert the band earned
-    // nothing, which is a measurement nobody took.
-    const out = toLpPositions([], NET, new Map(), [band]);
-    expect(out[0]!.aprPct).toBeNull();
-    expect(out[0]!.feesEarnedUsd).toBeNull();
+  it("reports no APR rather than zero when the pool has no measurable figure", () => {
+    expect(toLpPositions([], NET, new Map(), [token()])[0]!.aprPct).toBeNull();
+    expect(toLpPositions([], NET, new Map([["SKHY/USDC", null]]), [token()])[0]!.aprPct).toBeNull();
   });
 
-  it("falls back to the raw addresses when the pair is unresolved", () => {
-    const out = toLpPositions([], NET, new Map(), [{ ...band, pairSymbol: null }]);
-    expect(out[0]!.market.base).toBe("0xbase");
+  it("distinguishes a measured zero in fees from an unmeasured one", () => {
+    expect(toLpPositions([], NET, new Map(), [token()], new Map([["1", 0]]))[0]!.feesEarnedUsd).toBe(0);
+    expect(toLpPositions([], NET, new Map(), [token()], new Map([["1", null]]))[0]!.feesEarnedUsd).toBeNull();
+    expect(toLpPositions([], NET, new Map(), [token()])[0]!.feesEarnedUsd).toBeNull();
   });
 
-  it("leaves the range half untouched", () => {
-    // Additive: a wallet with only v3 ranges sees exactly what it saw before.
-    const before = toLpPositions([], NET);
-    expect(before).toEqual([]);
+  it("values the token from the gateway's own SQL, summed over its bands", () => {
+    expect(toLpPositions([], NET, new Map(), [token()])[0]!.valueUsd).toBe(10);
+  });
+
+  it("leaves out a closed token -- it is history, not a holding", () => {
+    expect(toLpPositions([], NET, new Map(), [token({ active: false })])).toHaveLength(0);
+  });
+});
+
+describe("toCreatorTokens — seeded liquidity reads the pool, not only the book", () => {
+  const token = { id: "0x399CaD0F90E8b85aA225BB4E6DE648Df656e8f96", symbol: "LQN1TNG", name: "E2E", totalSupply: 1_000_000_000, listingDate: 1790925923 };
+
+  it("before graduation: the ladder's resting asks on the book, empty pool", () => {
+    const pairs = new Map([["LQN1TNG", { id: "0xpair", quoteSymbol: "tUSD", price: 0.000001, dayBaseTvl: 800_000_000, dayBaseTvlUSD: 800, dayQuoteTvlUSD: 0 }]]);
+    const pools = new Map([[token.id.toLowerCase(), { poolBase: 0, poolQuote: 0, valueUsd: 0, takerFeeNum: 1_000_000 }]]);
+    const [row] = toCreatorTokens([token], "RISE Testnet", pairs, pools);
+    expect(row.seededUsd).toBe(800);
+    expect(row.poolPct).toBe(80);
+    expect(row.feeTierPct).toBe(1);
+    expect(row.feeTierRead).toBe(true);
+    expect(row.takerFeeNum).toBe(1_000_000);
+  });
+
+  it("after graduation: the book is empty and the pool holds it all (the $0 bug)", () => {
+    const pairs = new Map([["LQN1TNG", { id: "0xpair", quoteSymbol: "tUSD", price: 0.000005, dayBaseTvl: 0, dayBaseTvlUSD: 0, dayQuoteTvlUSD: 0 }]]);
+    const pools = new Map([[token.id.toLowerCase(), { poolBase: 190_000_000, poolQuote: 2104.4, valueUsd: 3054.4, takerFeeNum: 1_000_000 }]]);
+    const [row] = toCreatorTokens([token], "RISE Testnet", pairs, pools);
+    expect(row.seededUsd).toBeCloseTo(3054.4, 6);
+    expect(row.poolAmount).toBe("190,000,000");
+    expect(row.poolPct).toBe(19);
+  });
+
+  it("no chain read: falls back to the book and marks the fee as a placeholder", () => {
+    const pairs = new Map([["LQN1TNG", { id: "0xpair", quoteSymbol: "tUSD", price: 0.000005, dayBaseTvl: 0, dayBaseTvlUSD: 0, dayQuoteTvlUSD: 0 }]]);
+    const [row] = toCreatorTokens([token], "RISE Testnet", pairs);
+    expect(row.seededUsd).toBe(0);
+    expect(row.feeTierRead).toBe(false);
+    expect(row.takerFeeNum).toBe(100_000);
   });
 });

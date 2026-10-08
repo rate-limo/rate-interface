@@ -1,4 +1,5 @@
 "use client";
+import { chainKeyForUrl, noteFrameWatermark } from "./watermark";
 
 /**
  * Single shared WebSocket for the whole app (orderbook, trades, bars,
@@ -14,6 +15,8 @@ export interface WsBatch {
   ps: number | null;
   s: number;
   d: unknown[][];
+  /** Commit watermark per broker writer (see ./watermark). Absent from older gateways. */
+  w?: Record<string, number>;
 }
 
 export interface WsSnapshot {
@@ -122,12 +125,24 @@ export class SocketManager {
     };
   }
 
+  /**
+   * Close for good and drop this manager from the cache.
+   *
+   * The eviction is the load-bearing half. `closed` is permanent — every path
+   * back to a socket goes through `ensureConnected`, which returns immediately
+   * once it is set — so a destroyed manager left in `managers` would be handed
+   * to the next `getSocketManager(url)` caller as a live one and silently never
+   * connect again. That is a trap rather than a bug today, because nothing calls
+   * this; it is the shape a future "close the old chain's socket on switch"
+   * change walks straight into.
+   */
   destroy(): void {
     this.closed = true;
     if (this.connectTimer) clearTimeout(this.connectTimer);
     this.socket?.close();
     this.socket = null;
     this.topics.clear();
+    if (managers.get(this.url) === this) managers.delete(this.url);
   }
 
   private ensureConnected(): void {
@@ -218,6 +233,8 @@ export class SocketManager {
       this.resyncs += 1;
       for (const h of sub.handlers) h.onResync?.();
     }
+    // Before the handlers: whatever they refetch is judged against this frame.
+    noteFrameWatermark(chainKeyForUrl(this.url), batch.w);
     for (const h of sub.handlers) h.onBatch?.(batch);
   }
 

@@ -320,7 +320,7 @@ describe("feeTierState", () => {
   });
 
   /** graduationUsd of 0 makes graduate() revert GraduationRequirementNotSet. */
-  it("is never eligible while Iter has not set a requirement", () => {
+  it("is never eligible while Rate has not set a requirement", () => {
     expect(canGraduateFeeTier({ ...feeInfo, graduationUsd: 0 })).toBe(false);
     expect(feeTierProgressPct({ ...feeInfo, graduationUsd: 0 })).toBe(0);
   });

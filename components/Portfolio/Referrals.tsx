@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
+import { Share2 } from "lucide-react";
+import { ShareCardModal } from "@/components/Share/ShareCardModal";
+import { referralCardUrl, referralShareText, referralShareUrl } from "@/lib/referral/share";
 import type { IndexerData } from "@/lib/portfolio/types";
 import { ChainChip, Pill, TH, TD, NUM } from "./parts";
 
@@ -14,10 +18,15 @@ function fmt(n: number): string {
 export function Referrals({ data }: { data: IndexerData }) {
   const { summary, rows } = data.referrals;
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const copy = async () => {
     try {
-      await navigator.clipboard?.writeText(`https://${summary.link}`);
+      // The live link is already absolute (`toReferralSummary` builds it from the
+      // page's origin); prefixing it unconditionally copied "https://http://…".
+      await navigator.clipboard?.writeText(
+        /^https?:\/\//.test(summary.link) ? summary.link : `https://${summary.link}`,
+      );
       setCopied(true);
       toast.success("Referral link copied");
     } catch {
@@ -29,13 +38,8 @@ export function Referrals({ data }: { data: IndexerData }) {
     { k: "Referred", v: String(summary.referred), pts: false },
     { k: "Active", v: String(summary.active), pts: false },
     { k: "Earned", v: `${fmt(summary.earnedPts)} pts`, pts: true },
-    // Was "Tier N · X%". There is no tier — tEarnConfig has a per-attested-
-    // referee boost with a ceiling, so the stat names the boost and its cap.
-    {
-      k: "Boost",
-      v: `${summary.boostPct}%${summary.maxBoostPct ? ` of ${summary.maxBoostPct}%` : ""}`,
-      pts: false,
-    },
+    // No "Tier N · X%" and no boost stat: there is one flat share of fees, and
+    // the footnote states it. The per-attested-referee boost was retired.
   ];
 
   return (
@@ -48,14 +52,42 @@ export function Referrals({ data }: { data: IndexerData }) {
             code · {summary.code}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={copy}
-          className="ml-auto rounded-lg border border-[color:var(--m-primary)] bg-[color:var(--m-primary)] px-3 py-1.5 font-mono text-[11.5px] text-[color:var(--m-on-primary)]"
-        >
-          {copied ? "Copied ✓" : "Copy link"}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {/* The card, not just the link: /r/CODE unfurls as "<name> invited you"
+              with the code on it, and the sheet previews exactly that image. No
+              code yet means nothing to share. */}
+          <button
+            type="button"
+            onClick={() => setSharing(true)}
+            disabled={!summary.code}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[color:var(--m-border)] px-3 py-1.5 font-mono text-[11.5px] text-[color:var(--m-text-primary)] transition-colors hover:border-[color:var(--m-primary)] disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            <Share2 size={13} strokeWidth={1.75} aria-hidden />
+            Share
+          </button>
+          <button
+            type="button"
+            onClick={copy}
+            className="rounded-lg border border-[color:var(--m-primary)] bg-[color:var(--m-primary)] px-3 py-1.5 font-mono text-[11.5px] text-[color:var(--m-on-primary)]"
+          >
+            {copied ? "Copied ✓" : "Copy link"}
+          </button>
+        </div>
       </div>
+      {summary.code && (
+        <ShareCardModal
+          open={sharing}
+          onOpenChange={setSharing}
+          title="Share invite"
+          label={`Invite code ${summary.code}`}
+          text={referralShareText(summary.code)}
+          build={(origin) => ({
+            shareUrl: referralShareUrl(summary.code),
+            cardUrl: referralCardUrl(origin, summary.code),
+          })}
+          downloadName={`iter-invite-${summary.code}.png`}
+        />
+      )}
 
       {/* stat row */}
       <div className="flex flex-wrap gap-x-6 gap-y-2 px-4 pb-1 pt-2">
@@ -77,8 +109,22 @@ export function Referrals({ data }: { data: IndexerData }) {
         ))}
       </div>
 
+      {/*
+        No rows is the LIVE state, not an error: /points returns the referral
+        COUNT but withholds who the referees are, and nothing records their
+        volume. The table used to fall back to the mock's four friends beside a
+        live "0 referred", which named wallets that do not exist.
+      */}
+      {rows.length === 0 && (
+        <div data-testid="referrals-empty" className="px-4 pb-1 pt-3 text-[12.5px] text-[color:var(--m-text-secondary)]">
+          {summary.referred === 0
+            ? "No one has joined with your link yet."
+            : `${fmt(summary.referred)} joined with your link. Who they are is not shown — only the count.`}
+        </div>
+      )}
+
       {/* desktop table */}
-      <div className="hidden overflow-x-auto lg:block">
+      <div className={rows.length === 0 ? "hidden" : "hidden overflow-x-auto lg:block"}>
         <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr>
@@ -115,7 +161,7 @@ export function Referrals({ data }: { data: IndexerData }) {
       </div>
 
       {/* mobile cards */}
-      <div className="flex flex-col gap-2.5 p-3.5 lg:hidden">
+      <div className={rows.length === 0 ? "hidden" : "flex flex-col gap-2.5 p-3.5 lg:hidden"}>
         {rows.map((r, i) => (
           <div
             key={i}
@@ -138,8 +184,11 @@ export function Referrals({ data }: { data: IndexerData }) {
       </div>
 
       <div className="px-4 pb-3.5 pt-2 text-[11.5px] text-[color:var(--m-text-secondary-2)]">
-        You earn {summary.cutPct}% of the trading fees your referrals pay, across every chain. Each
-        referral that attests adds to your boost, up to {summary.maxBoostPct}%.
+        You earn {summary.cutPct}% of the order-book fees your referrals pay, as points — paid in $RATE at
+        the end of each season.{" "}
+        <Link href="/affiliate" className="text-[color:var(--m-primary)] hover:underline">
+          Have an audience? Apply for your own link →
+        </Link>
       </div>
     </>
   );

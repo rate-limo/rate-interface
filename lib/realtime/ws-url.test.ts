@@ -15,10 +15,10 @@ describe("realtime URL resolution", () => {
   it("honors the override only as a dev escape hatch for an UNMAPPED network", () => {
     process.env.NEXT_PUBLIC_WS_URL = "wss://dev.local";
     expect(getWsUrl("Unmapped Devnet")).toBe("wss://dev.local");
-    // Monad is unmapped BY DESIGN — its dead gateway host was removed rather than
-    // repointed, because its matching engine has no code on chain. It must take the
-    // escape-hatch path, not resolve to a host.
-    expect(getWsUrl("Monad Testnet")).toBe("wss://dev.local");
+    // Somnia is unmapped BY DESIGN — a registered chain with no gateway. It must take
+    // the escape-hatch path, not resolve to a host. (This used Monad until Monad was
+    // redeployed and mapped on 2026-10-02.)
+    expect(getWsUrl("Somnia Testnet")).toBe("wss://dev.local");
   });
 
   it("returns empty for futures, which is deployed nowhere and mapped nowhere", () => {
