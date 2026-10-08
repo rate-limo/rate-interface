@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Container } from "@components/Landing/ui/Container";
-import { JoinWaitlistButton } from "@components/Landing/JoinWaitlistButton";
+import { EnterAppButton } from "@components/Landing/EnterAppButton";
 import { LogoMarkV2 } from "@components/Atoms/LogoMarkV2";
 import { ThemeToggle } from "@components/ThemeToggle";
 
@@ -18,12 +18,12 @@ export function Nav() {
               rendered ITER; and 0.14em was letterspacing tuned for all-caps —
               left on mixed case it reads as gappy rather than considered. */}
           <span className="font-display text-base font-bold tracking-[0.01em]">
-            Iter
+            Rate
           </span>
         </Link>
         <div className="flex items-center gap-3">
           <ThemeToggle />
-          <JoinWaitlistButton className="text-[11px] md:text-xs" />
+          <EnterAppButton className="text-[11px] md:text-xs" />
         </div>
       </Container>
     </header>

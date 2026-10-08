@@ -174,7 +174,7 @@ export function LineChart({
 
             {/* The wash sits under the emphasised line and runs to the floor of
                 the plot, so how much of the chart it covers depends entirely on
-                where that line sits. On the impermanent-loss chart Iter is the
+                where that line sits. On the impermanent-loss chart Rate is the
                 TOP series, so at 0.1 it tinted essentially the whole plot its
                 own colour and every other series ended up reading as a shade of
                 it. 0.045 still separates "this is the one to watch" without

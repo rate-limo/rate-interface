@@ -15,9 +15,9 @@ import { lpEconomicsData, lvrNetData } from "@/lib/simData";
 const VIEWS = {
   net: {
     label: "Net of a 25% move",
-    title: "Iter LPs still profit after the market moves 25%",
+    title: "Rate LPs still profit after the market moves 25%",
     subtitle:
-      "A pool quotes a stale price until an arbitrageur takes the gap, wiping out Uniswap's and Curve's fees and leaving their LPs negative, while an Iter LP sets their own price — so the worst case is the price they chose, and profit holds even at +100%. CEX makers are counted at gross with inventory cost as zero, and the top tier still trails Iter's thinnest net.",
+      "A pool quotes a stale price until an arbitrageur takes the gap, wiping out Uniswap's and Curve's fees and leaving their LPs negative, while an Rate LP sets their own price — so the worst case is the price they chose, and profit holds even at +100%. CEX makers are counted at gross with inventory cost as zero, and the top tier still trails Rate's thinnest net.",
     data: lvrNetData,
     xLabel: "LP net profit after price move, per $1M matched volume",
   },
@@ -25,7 +25,7 @@ const VIEWS = {
     label: "Gross",
     title: "What liquidity pays, before any loss is counted",
     subtitle:
-      "Gross income per $1M matched, including the professional market makers who quote on centralized exchanges — the job Iter opens to anyone. A top-tier CEX maker keeps a rebate plus the spread they capture; a retail account pays to make a market, so its bar sits left of zero.",
+      "Gross income per $1M matched, including the professional market makers who quote on centralized exchanges — the job Rate opens to anyone. A top-tier CEX maker keeps a rebate plus the spread they capture; a retail account pays to make a market, so its bar sits left of zero.",
     data: lpEconomicsData,
     xLabel: "Gross LP take, per $1M matched volume",
   },

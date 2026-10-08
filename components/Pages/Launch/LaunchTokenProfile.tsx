@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { compactNumber } from "@/lib/format/compact";
 import {
   ChartMetricCaveat,
@@ -26,15 +26,26 @@ import { ActionDock, type DockTab } from "@/components/Explore/ActionDock";
 import { ThesisChart } from "@/components/Chart/ThesisChart";
 import { LiveStat } from "@/components/Atoms/LiveStat";
 import { useLiveTokenStats } from "@/hooks/useLiveTokenStats";
+import { pairSymbols } from "@/hooks/useTradePulse";
 import { ChartOverlays } from "@/components/Chart/ChartOverlays";
 import { CalloutModal } from "@/components/Social/CalloutModal";
-import { useThesisMarks, type MarkFilters } from "@/hooks/useThesisMarks";
+import { marksHorizon, useThesisMarks, type MarkFilters } from "@/hooks/useThesisMarks";
 import type { ThesisMark } from "@/lib/chart/marks";
 import { chainIconFrom, useChainBrand } from "@/lib/chains/useChainBrand";
 import { explorerUrlForNetwork } from "@/lib/search/explorer";
 import { buildPageUrl } from "@/lib/routing/chainParams";
 import { timeframeToInterval, type ChartTimeframeLabel } from "@/lib/profile/chartInterval";
 import { cn } from "@/lib/utils";
+import { GraduationPanel } from "@/components/Launch/GraduationPanel";
+import { TAB_BAR_CLEARANCE } from "@/components/Shell/MobileTabs";
+import { statusBadges, type StatusBadge } from "@/lib/launch/statusBadges";
+
+const BADGE_TONE: Record<StatusBadge["tone"], string> = {
+  success: "bg-[color-mix(in_srgb,var(--m-success)_16%,transparent)] text-[var(--m-success)]",
+  accent: "bg-[color-mix(in_srgb,var(--m-primary)_16%,transparent)] text-[var(--m-primary)]",
+  warning: "bg-[color-mix(in_srgb,var(--m-warning)_16%,transparent)] text-[var(--m-warning)]",
+  muted: "bg-[var(--m-surface-2)] text-[var(--m-text-secondary-2)]",
+};
 
 // Same four windows this panel has always offered -- mapped to the
 // ChartTimeframeLabel/resolution pair timeframeToInterval already defines for
@@ -151,7 +162,14 @@ export function LaunchTokenProfile({
    * anywhere in that chain; the row simply becomes re-readable when its TTL
    * lapses, which is what makes this a poll and not a subscription.
    */
-  const { stats } = useLiveTokenStats({ networkName, address: token.id, initial: token });
+  const { stats, stale } = useLiveTokenStats({
+    networkName,
+    address: token.id,
+    // The markets this page already resolved — so the trade subscription is
+    // this token's handful of pairs, not the venue's whole tape.
+    pairs: pairSymbols(pairs),
+    initial: token,
+  });
 
   const { address: viewer } = useAccount();
   // One query, whose count the overlay label reads and whose rows the chart
@@ -165,13 +183,30 @@ export function LaunchTokenProfile({
     networkName,
     symbol: chart.chartSymbol,
     from: 0,
-    to: Math.floor(Date.now() / 1000) + 86_400,
+    to: marksHorizon(Math.floor(Date.now() / 1000)),
     viewer,
     filters: markFilters,
     enabled: showMarks,
   });
   const [copied, setCopied] = useState(false);
   const [dockTab, setDockTab] = useState<DockTab>("buy");
+  // Below lg the dock sits under the chart, traders, callouts, holders and
+  // About — ~3000px down on a phone. A Buy / Sell pair rides on the tab bar
+  // (as on the Pro terminal) and jumps to it with that side selected; it steps
+  // aside while the dock itself is on screen, so the page never shows two.
+  const dockRef = useRef<HTMLDivElement>(null);
+  const [dockOnScreen, setDockOnScreen] = useState(false);
+  useEffect(() => {
+    const node = dockRef.current;
+    if (!node) return;
+    const io = new IntersectionObserver(([entry]) => setDockOnScreen(entry.isIntersecting), { threshold: 0.15 });
+    io.observe(node);
+    return () => io.disconnect();
+  }, []);
+  const jumpToDock = (side: "buy" | "sell") => {
+    setDockTab(side);
+    dockRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   // Deepest market first — but ALL of them are kept. A token can be quoted in
   // several tokens (USDC, ETH, whatever the generator's admin-approved quote
@@ -208,7 +243,7 @@ export function LaunchTokenProfile({
     () => sortedPairs.find((p) => p.id === pairId) ?? sortedPairs[0],
     [sortedPairs, pairId],
   );
-  // What this profile can honestly show. A token Iter did not launch has no
+  // What this profile can honestly show. A token Rate did not launch has no
   // indexed transfer history, so its holder panels are omitted with a reason
   // rather than rendered empty — see lib/token/coverage.ts.
   const coverage = tokenProfileCoverage(token);
@@ -286,7 +321,7 @@ export function LaunchTokenProfile({
       // `text` is what clients show beside the preview, so it repeats the two
       // numbers the card leads with rather than restating the title.
       await navigator.share({
-        title: `${token.name} (${token.symbol}) on Iter`,
+        title: `${token.name} (${token.symbol}) on Rate`,
         text: shareText,
         url: shareUrl,
       });
@@ -301,11 +336,11 @@ export function LaunchTokenProfile({
 
   return (
     <main className="min-h-full bg-[var(--m-background)] text-[var(--m-text-primary)]">
-      <div className="mx-auto max-w-[1240px] px-4 pb-20 pt-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1240px] px-4 pb-36 pt-6 sm:px-6 lg:px-8 lg:pb-20">
         {/* Carried from /price when it folded into this route: a crawler reading
             this page otherwise finds no navigational context at all, because
             everything above is an icon row. */}
-        <BreadcrumbNav token={token} networkName={networkName} />
+        <BreadcrumbNav label={token.symbol} networkName={networkName} />
         <div className="mb-5 flex items-center justify-between gap-3 text-[11px] font-dm-mono text-[var(--m-text-secondary-2)]">
           <Link href={buildPageUrl("explore")} className="transition-colors hover:text-[var(--m-text-primary)]">← Explore</Link>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--m-border)] px-2.5 py-1">
@@ -335,16 +370,26 @@ export function LaunchTokenProfile({
                           <span className="font-dm-mono text-[var(--m-text-secondary)]">{shortAddress(token.creator)}</span>
                         </>
                       )}
-                      {/* "launching" is a claim about a launch on Iter. Applied to a token
-                          that arrived any other way it contradicts the holder notice further
-                          down the same page, so an off-venue token reads as unlisted instead. */}
-                      {token.verified ? (
-                        <span className="rounded-full bg-[color-mix(in_srgb,var(--m-success)_16%,transparent)] px-2 py-0.5 font-dm-mono text-[9px] uppercase text-[var(--m-success)]">listed</span>
-                      ) : coverage.launchedOnIter ? (
-                        <span className="rounded-full bg-[color-mix(in_srgb,var(--m-warning)_16%,transparent)] px-2 py-0.5 font-dm-mono text-[9px] uppercase text-[var(--m-warning)]">launching</span>
-                      ) : (
-                        <span className="rounded-full bg-[var(--m-surface-2)] px-2 py-0.5 font-dm-mono text-[9px] uppercase text-[var(--m-text-secondary-2)]">unlisted</span>
-                      )}
+                      {/* The ladder chip and the listing chip are separate events (see
+                          lib/launch/statusBadges). An off-venue token reads "unlisted",
+                          never "launching", which would contradict the holder notice below. */}
+                      {statusBadges({
+                        verified: token.verified,
+                        launchedOnIter: coverage.launchedOnIter,
+                        graduatedAt: token.graduatedAt,
+                        ladderState: token.ladder?.state,
+                      }).map((badge) => (
+                        <span
+                          key={badge.label}
+                          data-testid={`coin-status-${badge.label}`}
+                          className={cn(
+                            "rounded-full px-2 py-0.5 font-dm-mono text-[9px] uppercase",
+                            BADGE_TONE[badge.tone],
+                          )}
+                        >
+                          {badge.label}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -372,6 +417,18 @@ export function LaunchTokenProfile({
                 </div>
               </div>
 
+              {/*
+                  A dead poll used to be invisible: every failure returned null,
+                  the seed stayed on screen, and the numbers below sat frozen at
+                  whatever the server rendered — indistinguishable from a quiet
+                  market. The figures still hold (emptying the header over a
+                  missed poll is worse), but they no longer claim to be live.
+              */}
+              {stale && (
+                <p className="mt-4 font-dm-mono text-[10px] tracking-[0.06em] text-[color:var(--m-text-secondary)]">
+                  Live figures unavailable — showing the last values received.
+                </p>
+              )}
               <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <LiveStat
                   label="Price"
@@ -486,7 +543,7 @@ export function LaunchTokenProfile({
                 this shows the relationships a ranking cannot — wallets funded from one
                 source sit in a visible cluster.
 
-                Omitted entirely for a token Iter did not launch. The panel above
+                Omitted entirely for a token Rate did not launch. The panel above
                 already explains why, and a second card saying the same thing would
                 turn one honest limitation into a wall of apology. */}
             {coverage.holderGraph && (
@@ -516,13 +573,32 @@ export function LaunchTokenProfile({
                 above the launch/graduation detail that was already here. */}
             {/* Only shown when there is a choice to make. One market needs no
                 picker, and a single inert chip is noise that implies otherwise. */}
-            <ActionDock
-              pair={pair ?? null}
-              pairs={sortedPairs}
-              onPairChange={setPairId}
-              tab={dockTab}
-              onTabChange={setDockTab}
-            />
+            <div id="token-trade" ref={dockRef} className="scroll-mt-24">
+              <ActionDock
+                pair={pair ?? null}
+                pairs={sortedPairs}
+                onPairChange={setPairId}
+                tab={dockTab}
+                onTabChange={setDockTab}
+              />
+            </div>
+
+            {/* The coin's onchain graduation: its five-step ladder sold out and the
+                raised quote became its locked pool. "Graduated" is the contract's
+                word; the listing chip below is a different event ("List") and a
+                coin can carry either, both or neither. */}
+            {/* Graduation for anyone: arm once the ladder sells out, finish after the
+                wait. Renders nothing for a coin that isn't a ladder launch. */}
+            <GraduationPanel token={token} networkName={networkName} />
+
+            {token.graduatedAt != null && (
+              <p className="-mt-3 px-1 text-[11px] leading-5 text-[color:var(--m-text-secondary-2)]">
+                <span className="mr-1.5 rounded-full border border-[color-mix(in_srgb,var(--m-success)_45%,transparent)] px-2 py-0.5 font-dm-mono text-[10px] uppercase tracking-wide text-[color:var(--m-success)]">
+                  Graduated
+                </span>
+                Its ladder sold out; the raise now backs a locked pool.
+              </p>
+            )}
 
             {/* Unlisted, not hidden — and never unlabelled. This rail can now bind
                 a pre-graduation market (the lookup behind it was listing-gated,
@@ -549,7 +625,7 @@ export function LaunchTokenProfile({
                   No market yet
                 </div>
                 <p className="mt-1.5 text-[11px] leading-5 text-[var(--m-text-secondary)]">
-                  {token.symbol} has no pair to trade in. Markets on Iter can be quoted in{" "}
+                  {token.symbol} has no pair to trade in. Markets on Rate can be quoted in{" "}
                   {listableIn.length === 1
                     ? listableIn[0]
                     : `${listableIn.slice(0, -1).join(", ")} or ${listableIn[listableIn.length - 1]}`}
@@ -607,6 +683,36 @@ export function LaunchTokenProfile({
           </aside>
         </section>
       </div>
+
+      {/* Phone / tablet only: Buy / Sell on the tab bar, jumping to the dock. */}
+      {pair && (
+        <div
+          data-testid="token-trade-bar"
+          aria-hidden={dockOnScreen || undefined}
+          className={cn(
+            "fixed inset-x-2.5 z-40 flex gap-2 rounded-2xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)]/95 p-1.5 shadow-xl backdrop-blur-xl transition-[transform,opacity] duration-300 motion-reduce:transition-none lg:hidden",
+            dockOnScreen && "pointer-events-none translate-y-4 opacity-0",
+          )}
+          style={{ bottom: TAB_BAR_CLEARANCE }}
+        >
+          <button
+            type="button"
+            tabIndex={dockOnScreen ? -1 : undefined}
+            onClick={() => jumpToDock("buy")}
+            className="flex-1 rounded-xl bg-green-400 py-3 text-sm font-semibold text-white"
+          >
+            Buy
+          </button>
+          <button
+            type="button"
+            tabIndex={dockOnScreen ? -1 : undefined}
+            onClick={() => jumpToDock("sell")}
+            className="flex-1 rounded-xl bg-red-400 py-3 text-sm font-semibold text-white"
+          >
+            Sell
+          </button>
+        </div>
+      )}
     </main>
   );
 }

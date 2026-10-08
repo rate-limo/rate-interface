@@ -6,6 +6,7 @@
 // come across. Port from here rather than rebuilding if any of those are wanted
 // on the token page.
 
+import { marketParam } from "@/lib/routing/proMarket";
 import { useState } from "react";
 import {
   ChartMetricCaveat,
@@ -167,7 +168,7 @@ export function ProfileDesktopPage({
     <div className="bg-neutral-dark-default w-full">
       <div className="mx-auto max-w-7xl px-4 py-6">
         <BreadcrumbNav
-          token={token}
+          label={token.symbol}
           networkName={displayNetworkName}
         />
 
@@ -758,7 +759,7 @@ export function ProfileDesktopPage({
                       </summary>
                       <div className="border-t p-4">
                         <p className="text-gray-500">
-                          Iter provides real-time USD price updates for{" "}
+                          Rate provides real-time USD price updates for{" "}
                           {token.name} ({token.symbol}). {token.name} price is
                           affected by supply and demand, as well as market
                           sentiment.
@@ -821,7 +822,7 @@ export function ProfileDesktopPage({
                             key={pair.id}
                           >
                             <Link
-                              href={`/trade/pro?chain=${displayNetworkSlug}&base=${pair.baseSymbol}&quote=${pair.quoteSymbol}`}
+                              href={`/trade/pro?chain=${displayNetworkSlug}&base=${encodeURIComponent(marketParam({ id: pair.base, symbol: pair.baseSymbol }))}&quote=${encodeURIComponent(marketParam({ id: pair.quote, symbol: pair.quoteSymbol }))}`}
                             >
                               <div className="border-neutral-light-white-12 hover:bg-neutral-dark-500 flex items-center justify-between rounded-[16px] border p-3">
                                 <div>

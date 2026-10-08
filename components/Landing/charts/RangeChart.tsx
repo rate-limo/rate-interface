@@ -39,7 +39,7 @@ const BAR_H = 24;
 const X_TICKS = 4;
 // left holds the row labels, drawn end-anchored at x=-14, so the usable label
 // width is left-14. At 11px mono (~0.6em advance) the longest label in use
-// ("Iter, s = 0 (any depth)", 23 chars) needs ~152px; the previous 168
+// ("Rate, s = 0 (any depth)", 23 chars) needs ~152px; the previous 168
 // gave only 154 and ran the label into the plot.
 //
 // `right` is a floor only — the real gutter is derived per chart from the

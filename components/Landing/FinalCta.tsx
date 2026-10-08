@@ -1,6 +1,7 @@
 import { Container } from "@components/Landing/ui/Container";
 import { Reveal } from "@components/Landing/ui/Reveal";
-import { JoinWaitlistButton } from "@components/Landing/JoinWaitlistButton";
+import { EnterAppButton } from "@components/Landing/EnterAppButton";
+import { Button } from "@components/Landing/ui/Button";
 
 export function FinalCta() {
   return (
@@ -8,17 +9,21 @@ export function FinalCta() {
       <Container>
         <Reveal>
           <div className="flex flex-col items-center rounded-3xl border border-purple-700 bg-gradient-to-b from-purple-100 to-black-300 px-6 py-16 text-center sm:px-16 dark:from-purple-800">
-            <span className="font-mono-brand text-xs tracking-[0.16em] text-purple-700 dark:text-purple-300 uppercase">
-              Beyond the grid
-            </span>
-            <h2 className="font-display mt-4 max-w-xl text-3xl font-medium tracking-tight text-balance text-white sm:text-4xl">
-              Find your way in.
+            <h2 className="font-display max-w-xl text-3xl font-medium tracking-tight text-balance text-white sm:text-4xl">
+              Make your money work. Let the traders pay you.
             </h2>
             <p className="mt-4 max-w-md text-base leading-relaxed text-dark-grey-1">
-              Join the waitlist. Trade the way markets should move.
+              And when you do move, move at your rate: every fill on an open
+              onchain book, at a price you chose.
             </p>
-            <div className="mt-10">
-              <JoinWaitlistButton />
+            <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+              <EnterAppButton />
+              <Button
+                href="https://github.com/rate-limo/rate-research/blob/main/iter-whitepaper.md"
+                variant="outline"
+              >
+                Read the paper
+              </Button>
             </div>
           </div>
         </Reveal>

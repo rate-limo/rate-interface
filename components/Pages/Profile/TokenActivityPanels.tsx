@@ -12,6 +12,7 @@ import { useThesesFeed } from "@/hooks/useThesesFeed";
 import { useIdentities } from "@/hooks/useIdentities";
 import { profileImageUrl } from "@/lib/portfolio/profile";
 import { CalloutCard } from "@/components/Social/CalloutCard";
+import { ThesisComposer } from "@/components/Pages/Profile/ThesisComposer";
 import { UNTRACKED_LABEL, UNTRACKED_TITLE } from "@/lib/portfolio/positions";
 import { ProfileAvatar } from "@/components/Profile/ProfileAvatar";
 import { signedMoney } from "@/components/Social/PositionMiniCard";
@@ -60,7 +61,7 @@ export function TokenActivityPanels({
   pair: SpotPair | null;
   symbol: string;
   /**
-   * False for a token Iter did not launch — see lib/token/coverage.ts. The tape
+   * False for a token Rate did not launch — see lib/token/coverage.ts. The tape
    * then takes the full width rather than sitting beside a panel that would be
    * explaining itself, because a half-page apology next to real data reads as
    * something being broken.
@@ -78,7 +79,9 @@ export function TokenActivityPanels({
   }
 
   return (
-    <div className={cn("grid items-start gap-5 lg:grid-cols-2", className)}>
+    // minmax(0,1fr): a bare grid column sized to its widest content, and the
+    // callouts card ran ~30px past a phone's edge, clipping its own text.
+    <div className={cn("grid grid-cols-[minmax(0,1fr)] items-start gap-5 lg:grid-cols-[repeat(2,minmax(0,1fr))]", className)}>
       <TradersTable networkName={networkName} address={address} symbol={symbol} />
       <ActivityPanel networkName={networkName} address={address} pair={pair} symbol={symbol} />
     </div>
@@ -91,7 +94,7 @@ export function TokenActivityPanels({
  * Stated rather than left as an absence. A reader who has seen a launched coin's
  * profile will notice two missing panels, and silence invites the wrong
  * conclusion — that the data is loading, or broken, or that nobody holds this
- * token. The real reason is narrow and worth saying: Iter indexes the full
+ * token. The real reason is narrow and worth saying: Rate indexes the full
  * transfer history of coins it launched, and cannot for one it did not.
  */
 function OffVenueNotice({ symbol }: { symbol: string }) {
@@ -101,13 +104,13 @@ function OffVenueNotice({ symbol }: { symbol: string }) {
         Holder data is not available for {symbol}
       </h2>
       <p className="mt-2 max-w-[70ch] text-[12.5px] leading-5 text-[color:var(--m-text-secondary)]">
-        {symbol} was not launched on Iter. Holder balances and the holder map are reconstructed
-        from a coin&apos;s full transfer history, which Iter indexes only for coins launched here —
+        {symbol} was not launched on Rate. Holder balances and the holder map are reconstructed
+        from a coin&apos;s full transfer history, which Rate indexes only for coins launched here —
         so for {symbol} there is no complete picture of who holds it, and showing a partial one
         would misrepresent the distribution.
       </p>
       <p className="mt-2 max-w-[70ch] text-[12.5px] leading-5 text-[color:var(--m-text-secondary)]">
-        Everything below is measured directly from trades on Iter and is exact.
+        Everything below is measured directly from trades on Rate and is exact.
       </p>
     </div>
   );
@@ -224,7 +227,7 @@ function TradersTable({
           it belongs to the panel. Left outside it was unowned text sitting on the
           page background. */}
       <p className="mt-3 border-t border-[color:var(--m-border)] pt-3 text-[10.5px] leading-4 text-[color:var(--m-text-secondary-2)]">
-        Positions are derived from trades on Iter, not from wallet balances. Tokens received by
+        Positions are derived from trades on Rate, not from wallet balances. Tokens received by
         transfer, airdrop or LP withdrawal are not counted, so these shares do not add up to the
         full supply.
       </p>
@@ -466,7 +469,35 @@ function ActivityPanel({
       </div>
 
       {tab === "callouts" ? (
-        <CalloutsFeed networkName={networkName} address={address} symbol={symbol} />
+        <>
+          {/*
+           * The composer sits with the feed it writes into, and that is a
+           * REGRESSION being closed rather than a new idea.
+           *
+           * `ux-flows.spec.ts` records the original: "the callout composer
+           * existed but was mounted only on the retired /price page, so the
+           * chart drew callouts nobody on /token could write". `/price` has
+           * since been deleted outright — `app/[locale]/price` does not exist —
+           * which left `DesktopProfilePage` unreachable and took the only mount
+           * with it. The chart's marks, the Callouts tab and this panel all
+           * survived; the one control that produces a callout did not.
+           *
+           * Here rather than beside the chart, because writing one is the same
+           * act as reading them: a reader who can see what others staked is the
+           * reader with something to say. The composer gates itself — it needs a
+           * connected wallet and a qualifying fill, and says which is missing —
+           * so it is safe to render unconditionally.
+           */}
+          {address ? (
+            <ThesisComposer
+              tokenAddress={address}
+              tokenSymbol={symbol}
+              networkName={networkName}
+              className="mb-4 mt-0"
+            />
+          ) : null}
+          <CalloutsFeed networkName={networkName} address={address} symbol={symbol} />
+        </>
       ) : (
         <TradesTable
           networkName={networkName}

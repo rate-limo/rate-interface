@@ -100,7 +100,7 @@ export function TokenStatsPanel({
             No audit on file
           </p>
           <p className="mx-auto mt-1.5 max-w-[38ch] text-[12px] leading-5 text-[color:var(--m-text-secondary)]">
-            Iter does not audit tokens, and nothing here records third-party audits yet. Anyone
+            Rate does not audit tokens, and nothing here records third-party audits yet. Anyone
             can launch a coin on this venue — read the contract yourself before trading.
           </p>
           <p className="mt-3 text-[11px] text-[color:var(--m-text-secondary-2)]">

@@ -10,7 +10,7 @@ const SPRING = { type: "spring" as const, stiffness: 260, damping: 30 };
 const ROW_COLORS: Record<string, string> = {
   "Uniswap v2 / v3": CHART_SERIES.v2.color,
   Curve: CHART_SERIES.curve.color,
-  "Iter": CHART_SERIES.iter.color,
+  "Rate": CHART_SERIES.iter.color,
 };
 
 // Compact K-notation for chart axis ticks, where space is tight.
@@ -49,7 +49,7 @@ function FeeChart({ amount }: { amount: number }) {
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       className="w-full overflow-visible"
       role="img"
-      aria-label="Fee earned vs. liquidity provided, for Uniswap, Curve, and Iter"
+      aria-label="Fee earned vs. liquidity provided, for Uniswap, Curve, and Rate"
     >
       <g transform={`translate(${PAD.left},${PAD.top})`}>
         {yTicks.map((tv, i) => (
@@ -240,11 +240,11 @@ export function FeeCalculator() {
 
       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-dark-grey-1">
         Uniswap and Curve charge a protocol-fixed rate, same for every LP,
-        every pair, regardless of how they quote. Iter&apos;s LP pays no
+        every pair, regardless of how they quote. Rate&apos;s LP pays no
         fee at all &mdash; they earn the spread they quoted themselves, plus
         the fee the trader&apos;s own membership tier pays; the rate above is
         the top tolerance tier on a thin book, the same one behind the
-        &ldquo;Iter, thin market&rdquo; row on the charts above. This
+        &ldquo;Rate, thin market&rdquo; row on the charts above. This
         assumes your liquidity gets matched dollar-for-dollar &mdash; real
         turnover varies by pair and venue, and it&apos;s the same simplifying
         assumption the net-of-price-risk chart above already uses. Open the

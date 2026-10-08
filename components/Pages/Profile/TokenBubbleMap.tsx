@@ -48,7 +48,7 @@ export function TokenBubbleMap({
   address: string | undefined;
   symbol: string;
   /**
-   * Whether this coin came from Iter's AssetGenerator — `creator` on the token
+   * Whether this coin came from Rate's AssetGenerator — `creator` on the token
    * row. It separates the two reasons `covered` can be false, which otherwise
    * collapse into one message that is wrong for half of them.
    */
@@ -112,12 +112,12 @@ export function TokenBubbleMap({
         {launchedHere ? (
           <Empty
             title="Holder graph not available yet"
-            body={`${symbol} was launched on Iter, but its transfer log has not been indexed on ${networkName} yet. This is a data-coverage gap, not a statement about who holds it.`}
+            body={`${symbol} was launched on Rate, but its transfer log has not been indexed on ${networkName} yet. This is a data-coverage gap, not a statement about who holds it.`}
           />
         ) : (
           <Empty
             title="No holder graph for this token"
-            body={`Balances are reconstructed from each coin's transfer log since launch, which covers coins launched on Iter. ${symbol} was not launched here, so there is nothing to map.`}
+            body={`Balances are reconstructed from each coin's transfer log since launch, which covers coins launched on Rate. ${symbol} was not launched here, so there is nothing to map.`}
           />
         )}
       </Frame>
@@ -217,7 +217,7 @@ function Canvas({ data, symbol }: { data: TokenBubblesResponse; symbol: string }
      * every edge — so an unlabelled graph says "one whale distributes to
      * everyone" when what actually happened is "people traded".
      */
-    const creatorInk = styles.getPropertyValue("--m-accent").trim() || "#c4a96a";
+    const creatorInk = styles.getPropertyValue("--m-accent").trim() || "#e85d2a";
     const marketInk = styles.getPropertyValue("--m-text-secondary-2").trim() || "#8b8b93";
     const inkFor = (n: { isCreator?: boolean; isMarket?: boolean }) =>
       n.isCreator ? creatorInk : n.isMarket ? marketInk : accent;
@@ -655,14 +655,17 @@ function HolderList({
     );
   }
   return (
+    // On a phone the four columns needed 440px of a ~358px card and the last one
+    // sat off-screen behind a scroll nobody could see. Value is the one to drop
+    // there: % supply already says how big the holding is.
     <div className="-mx-4 overflow-x-auto sm:-mx-6">
-      <table className="w-full min-w-[440px] border-collapse text-[13px]">
+      <table className="w-full border-collapse text-[13px] sm:min-w-[440px]">
         <thead>
           <tr className="border-b border-[color:var(--m-border)] text-left text-[12px] text-[color:var(--m-text-secondary)]">
             <th className="px-4 py-3 font-normal">Holder</th>
             <th className="px-3 py-3 text-right font-normal">Balance</th>
             <th className="px-3 py-3 text-right font-normal">% supply</th>
-            <th className="px-4 py-3 text-right font-normal">Value</th>
+            <th className="hidden px-4 py-3 text-right font-normal sm:table-cell">Value</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[color:var(--m-border)]">
@@ -707,7 +710,7 @@ function HolderList({
                     ? "—"
                     : `${formatSubscriptDecimal(n.pctSupply) ?? n.pctSupply.toFixed(2)}%`}
                 </td>
-                <td className="px-4 py-2.5 text-right font-dm-mono tabular-nums text-[color:var(--m-text-secondary)]">
+                <td className="hidden px-4 py-2.5 text-right font-dm-mono tabular-nums text-[color:var(--m-text-secondary)] sm:table-cell">
                   {n.valueUSD === null ? "—" : `$${compact(n.valueUSD)}`}
                 </td>
               </tr>

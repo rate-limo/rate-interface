@@ -35,7 +35,7 @@ const ROWS = [
     formula: "0.04% fee + price impact",
   },
   {
-    venue: "Iter",
+    venue: "Rate",
     key: "iter" as const,
     color: CHART_SERIES.iter.color,
     formula: `${(traderFeeRates.iter * 100).toFixed(2)}% taker fee + price impact`,
@@ -75,7 +75,7 @@ function TradeChart({ amount }: { amount: number }) {
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       className="w-full overflow-visible"
       role="img"
-      aria-label="Total trading cost vs. trade size, for Uniswap, Curve, and Iter"
+      aria-label="Total trading cost vs. trade size, for Uniswap, Curve, and Rate"
     >
       <g transform={`translate(${PAD.left},${PAD.top})`}>
         {yTicks.map((tv, i) => (
@@ -267,7 +267,7 @@ export function TraderCalculator() {
         Price impact between the chart&apos;s grid points is linearly
         interpolated from the same simulation as the slippage chart above,
         on the same $1M pool-depth basis; it isn&apos;t re-simulated for your
-        exact number. Iter&apos;s cost stays near zero until your trade
+        exact number. Rate&apos;s cost stays near zero until your trade
         starts walking into wider-tolerance depth &mdash; if the book can&apos;t
         fill you at all, your money comes back instead of filling at a worse
         price.

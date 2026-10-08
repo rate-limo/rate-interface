@@ -39,7 +39,7 @@ export function TwoProblems() {
 
         <Reveal delay={0.12}>
           <p className="mt-16 max-w-2xl text-lg leading-relaxed text-white sm:text-xl">
-            Iter answers both{" "}
+            Rate answers both{" "}
             <span className="text-purple-400">— in the open.</span>
           </p>
         </Reveal>

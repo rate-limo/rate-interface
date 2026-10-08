@@ -1,6 +1,7 @@
 import Image from "next/image";
 
 import { DepthColonnade } from "@components/Graphics/DepthColonnade";
+import { OrderLadder } from "@components/Graphics/OrderLadder";
 
 /**
  * Hero background texture, swapped per theme -- Monet's "Cliff Walk at
@@ -45,6 +46,17 @@ const LIGHT_SCRIM_CENTERED =
 const DARK_SCRIM_CENTERED =
   "radial-gradient(46% 62% at 50% 38%, var(--m-background) 0%, color-mix(in srgb, var(--m-background) 74%, transparent) 52%, color-mix(in srgb, var(--m-background) 22%, transparent) 80%, transparent 100%), linear-gradient(0deg, var(--m-background) 0%, transparent 20%)";
 
+/**
+ * The film's day plate is a clear blue sky, not a busy canvas, so the dark
+ * headline already reads on it. The painting scrim above (opaque
+ * --m-background at the centre) bleached that sky into a white blob behind the
+ * copy, and Hero's two light-mode halos stacked on top of it. This keeps only a
+ * thin veil, enough to quiet the clouds under the subline, and leaves the hour
+ * visible.
+ */
+const LIGHT_SCRIM_FILM =
+  "radial-gradient(40% 46% at 50% 30%, color-mix(in srgb, var(--m-background) 38%, transparent) 0%, color-mix(in srgb, var(--m-background) 14%, transparent) 60%, transparent 100%), linear-gradient(0deg, var(--m-background) 0%, transparent 20%)";
+
 export function HeroBackdrop({
   variant = "left",
   art = "painting",
@@ -62,9 +74,40 @@ export function HeroBackdrop({
    * generated from `--m-background` outward, so its contrast under the headline
    * is a gain parameter instead of a gradient fighting an image.
    */
-  art?: "painting" | "colonnade";
+  /**
+   * `ladder` is the order-ladder graphic (Rate rebrand, 2026-09-30): price
+   * levels meeting at one orange line, the rate. Like the colonnade it is drawn
+   * from the theme's own tokens, so it needs only a soft radial behind the
+   * centred copy and the bottom fade, not the painting scrims.
+   */
+  /**
+   * `film` is the solarpunk village from the "At Your Rate" music video
+   * (2026-10-04): the place Mio builds her shop after she walks off the trading
+   * floor, painted as a day/night pair in the film's 1991 cel style. The two
+   * plates share one composition — open sky in the centre for the headline,
+   * the village along the edges — so the theme swap changes the hour, not the
+   * picture. They are photographs as far as the scrims are concerned, so this
+   * takes the painting path below with its own sources.
+   */
+  art?: "painting" | "colonnade" | "ladder" | "film";
 }) {
   const centered = variant === "centered";
+  const film = art === "film";
+
+  if (art === "ladder") {
+    return (
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden bg-black-400">
+        <OrderLadder />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "radial-gradient(42% 52% at 50% 40%, color-mix(in srgb, var(--m-background) 94%, transparent) 0%, color-mix(in srgb, var(--m-background) 70%, transparent) 55%, transparent 100%), linear-gradient(0deg, var(--m-background) 0%, transparent 20%)",
+          }}
+        />
+      </div>
+    );
+  }
 
   if (art === "colonnade") {
     return (
@@ -86,30 +129,53 @@ export function HeroBackdrop({
 
   return (
     <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden bg-black-400">
-      {/* Light -- Monet, "Cliff Walk at Pourville" */}
+      {/* The film plates are held to the FIRST SCREEN, not the section. The
+          hero is far taller than a viewport (headline, card, CTAs, stat strip),
+          so a plate covering the whole section is scaled to it and the village
+          along its bottom edge lands below the fold — at 1440×900 only a corner
+          showed. Pinned to 100svh the village sits at the bottom of what the
+          visitor first sees, and the fade below hands over to the page colour. */}
+      <div className={film ? "absolute inset-x-0 top-0 h-[100svh] max-h-full overflow-hidden" : "contents"}>
+      {/* Light -- Monet, "Cliff Walk at Pourville"; film: the village by day */}
       <Image
-        src="/images/hero-cliff.jpg"
+        src={film ? "/images/hero-solarpunk-day.jpg" : "/images/hero-cliff.jpg"}
         alt=""
         fill
         priority
         sizes="100vw"
-        className="hero-drift object-cover object-[58%_18%] opacity-50 dark:opacity-0"
+        className={
+          film
+            ? "hero-drift object-cover object-[50%_72%] opacity-90 dark:opacity-0"
+            : "hero-drift object-cover object-[58%_18%] opacity-50 dark:opacity-0"
+        }
       />
-      {/* Dark -- Whistler, "A Seascape, Shipping by Moonlight" */}
+      {/* Dark -- Whistler, "A Seascape, Shipping by Moonlight"; film: the
+          same village at night, the neon city faint on the horizon */}
       <Image
-        src="/images/hero-nocturne.jpg"
+        src={film ? "/images/hero-solarpunk-night.jpg" : "/images/hero-nocturne.jpg"}
         alt=""
         fill
         priority
         sizes="100vw"
-        className="hero-drift object-cover object-[55%_45%] opacity-0 dark:opacity-55"
+        className={
+          film
+            ? "hero-drift object-cover object-[50%_72%] opacity-0 dark:opacity-75"
+            : "hero-drift object-cover object-[55%_45%] opacity-0 dark:opacity-55"
+        }
       />
+      {film && (
+        <div
+          className="absolute inset-0"
+          style={{ backgroundImage: "linear-gradient(0deg, var(--m-background) 0%, transparent 18%)" }}
+        />
+      )}
+      </div>
       {/* Scrim over the painting -- lighter in light mode so more of the
           canvas shows through; the left edge stays opaque enough for the
           headline. Toggled by the same class, so no flash. */}
       <div
         className="absolute inset-0 dark:hidden"
-        style={{ backgroundImage: centered ? LIGHT_SCRIM_CENTERED : LIGHT_SCRIM }}
+        style={{ backgroundImage: film ? LIGHT_SCRIM_FILM : centered ? LIGHT_SCRIM_CENTERED : LIGHT_SCRIM }}
       />
       <div
         className="absolute inset-0 hidden dark:block"

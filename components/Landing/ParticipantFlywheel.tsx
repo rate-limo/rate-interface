@@ -76,9 +76,9 @@ const SEATS: readonly Seat[] = [
     chip: "Trader",
     hub: "TRADER",
     tone: "success",
-    steps: [["You trade"], ["You get", "$ITER"], ["You trade", "more"], ["The book", "deepens"]],
+    steps: [["You trade"], ["You get", "$RATE"], ["You trade", "more"], ["The book", "deepens"]],
     give: "One taker fee per fill — the same rate on the order book and in the pool, so there is no cheaper door.",
-    get: "$ITER rewards on what you trade, and tighter spreads as the fee you paid funds the depth sitting in front of you.",
+    get: "$RATE rewards on what you trade, and tighter spreads as the fee you paid funds the depth sitting in front of you.",
     note: "The fee is charged once, on the quote side, and it is the only thing you pay.",
   },
   {
@@ -96,24 +96,24 @@ const SEATS: readonly Seat[] = [
     chip: "Pass holder",
     hub: "PASS",
     tone: "accent",
-    steps: [["You buy", "$ITER"], ["You mint", "the pass"], ["$ITER is", "locked"], ["Your fee drops,", "rewards rise"]],
-    give: "$ITER bought on the open market and locked for the term of the pass. There is no other route to the lower rate.",
+    steps: [["You buy", "$RATE"], ["You mint", "the pass"], ["$RATE is", "locked"], ["Your fee drops,", "rewards rise"]],
+    give: "$RATE bought on the open market and locked for the term of the pass. There is no other route to the lower rate.",
     get: "A reduced fee and a higher reward multiplier, held in a capped and transferable pass.",
     note: "Supply is capped, so the pass has a market price rather than being handed out.",
   },
   {
     key: "holder",
-    chip: "$ITER holder",
-    hub: "$ITER",
+    chip: "$RATE holder",
+    hub: "$RATE",
     tone: "primary",
     steps: [
-      ["Fees collected", "with $ITER reward"],
-      ["The router buys", "back $ITER", "and burns it"],
-      ["$ITER supply", "decreases"],
+      ["Fees collected", "with $RATE reward"],
+      ["The router buys", "back $RATE", "and burns it"],
+      ["$RATE supply", "decreases"],
       ["The exchange", "grows"],
     ],
     give: "Nothing locked, nothing to vote on.",
-    get: "The protocol's share is routed into buybacks that burn $ITER, so every fee the exchange earns takes supply out of circulation.",
+    get: "The protocol's share is routed into buybacks that burn $RATE, so every fee the exchange earns takes supply out of circulation.",
     note: "How much goes to buybacks versus buying depth is set by a published ratio, not by discretion.",
   },
   {
@@ -127,7 +127,7 @@ const SEATS: readonly Seat[] = [
      * does. The two lists have to agree — someone meets this seat here and then
      * picks it again during onboarding.
      *
-     * The second step said "You seed the depth with $ITER", which is the
+     * The second step said "You seed the depth with $RATE", which is the
      * fiction the launch spec deleted an entire step for: `launch()` places no
      * orders and opens no position. Listing creates a market, not liquidity.
      * `give` said the same thing and is corrected with it.
@@ -263,17 +263,14 @@ export function ParticipantFlywheel() {
     >
       <Container>
         <Reveal>
-          <span className="font-mono-brand text-xs tracking-[0.16em] text-purple-700 uppercase dark:text-purple-300">
-            Who gets paid, and for what
-          </span>
           <h2
             id="participant-flywheel-heading"
-            className="font-display mt-4 max-w-2xl text-3xl font-medium tracking-tight text-white sm:text-4xl md:text-5xl"
+            className="font-display max-w-2xl text-3xl font-medium tracking-tight text-white sm:text-4xl md:text-5xl"
           >
             Whichever seat you take, it&rsquo;s the same wheel to earn.
           </h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-dark-grey-1">
-            Every payout on Iter traces back to one event: someone got filled.
+            Every payout on Rate traces back to one event: someone got filled.
             Nothing here is funded by issuing tokens against a promise. Pick a
             seat and follow it round.
           </p>

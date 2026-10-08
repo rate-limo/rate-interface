@@ -1,5 +1,6 @@
 'use client';
 
+import { chartTicker } from "@/lib/chart/ticker";
 import dynamic from 'next/dynamic';
 import { useMarketPageContext } from '@/contexts/MarketPageProvider';
 import { useTradePageContext } from '@/contexts/TradePageProvider';
@@ -30,7 +31,7 @@ export function TradeDesktopPage() {
         <section className="min-w-0 border-b border-r border-[color:var(--m-border)] bg-[color:var(--m-background)]">
           <TerminalHeading title="Price chart" />
           <div className="h-[calc(100%-39px)] w-full">
-            <TradingViewChart networkName={displayNetworkName} symbol={pair.symbol} interval="2" />
+            <TradingViewChart networkName={displayNetworkName} symbol={chartTicker(pair)} interval="2" />
           </div>
         </section>
 

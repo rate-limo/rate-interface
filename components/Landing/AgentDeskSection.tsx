@@ -6,10 +6,17 @@ import { Container } from "@components/Landing/ui/Container";
 import { Reveal } from "@components/Landing/ui/Reveal";
 import { cn } from "@/lib/utils";
 
+/*
+ * Told as the brand line (brand book v1): "Don't trade." Most bots exist to
+ * trade more; this one is pitched as the thing that lets a holder NOT watch the
+ * screen — it waits for the owner's rate and otherwise does nothing. The mode
+ * and limit copy below is unchanged, and it is what makes that true: every
+ * order is bounded by owner-set pairs, size, slippage and cadence.
+ */
 const MODES = ["Paper", "Approval required", "Guarded live"] as const;
 
 const MODE_COPY = {
-  Paper: "Test a frozen strategy against live Iter market data. No wallet authority and no assets at risk.",
+  Paper: "Test a frozen strategy against live Rate market data. No wallet authority and no assets at risk.",
   "Approval required": "The agent proposes a complete order. You inspect the policy result and sign each transaction.",
   "Guarded live": "Later release. A dedicated vault executes only inside owner-set, deterministic limits.",
 };
@@ -27,17 +34,17 @@ export function AgentDeskSection() {
               OG Pass early access
             </div>
             <h2 className="font-display mt-5 max-w-lg text-3xl font-medium tracking-tight text-white sm:text-4xl md:text-5xl">
-              Put an agent on a mandate, not on your wallet.
+              Don&apos;t trade. Let an agent wait for your rate.
             </h2>
             <p className="mt-5 max-w-lg text-base leading-relaxed text-dark-grey-1">
-              Research can be probabilistic. Risk cannot. Iter Agent Desk keeps models behind explicit limits, approvals, and a reconstructable execution record.
+              Most bots are built to trade more. Agent Desk is built to trade less: it waits for the price you set, acts only inside limits you signed, and does nothing the rest of the time. You hold; it watches. And the agent is on a mandate, never on your wallet.
             </p>
 
             <div className="mt-8 space-y-5 border-l border-dark-grey-3 pl-5">
               {[
                 [ShieldCheck, "Limits enforced before execution", "Pairs, size, exposure, slippage, cadence, loss and expiry."],
                 [Activity, "A track record with receipts", "Every live result links to its strategy version, proposal, transaction, fill, fees and cash flows."],
-                [Pause, "Pause stays with the owner", "The agent cannot widen policy, withdraw capital, or hide a rejected action."],
+                [Pause, "Doing nothing is the default", "No price, no trade. The agent cannot widen policy, withdraw capital, or hide a rejected action, and pause stays with you."],
               ].map(([Icon, title, body]) => (
                 <div key={String(title)} className="grid grid-cols-[24px_1fr] gap-3">
                   <Icon className="mt-0.5 h-5 w-5 text-purple-400" aria-hidden="true" />

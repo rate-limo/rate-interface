@@ -8,7 +8,7 @@ const USES = [
   },
   {
     title: "Futures",
-    body: "Already live: Iter's own perpetuals read their mark price straight from this same book, not a separate oracle.",
+    body: "A perpetual's mark price can read straight from this same book instead of a separate oracle, so the price that liquidates you is one a flash loan can't move.",
   },
   {
     title: "Options",
@@ -25,10 +25,7 @@ export function Primitives() {
     <section className="border-t border-white/5 py-24 md:py-32">
       <Container>
         <Reveal>
-          <span className="font-mono-brand text-xs tracking-[0.16em] text-purple-700 dark:text-purple-300 uppercase">
-            Beyond spot
-          </span>
-          <h2 className="font-display mt-4 max-w-2xl text-3xl font-medium tracking-tight text-white sm:text-4xl md:text-5xl">
+          <h2 className="font-display max-w-2xl text-3xl font-medium tracking-tight text-white sm:text-4xl md:text-5xl">
             A price that survives someone trying to move it.
           </h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-dark-grey-1">

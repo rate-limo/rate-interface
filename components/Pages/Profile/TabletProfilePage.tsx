@@ -6,6 +6,7 @@
 // come across. Port from here rather than rebuilding if any of those are wanted
 // on the token page.
 
+import { chartTicker } from "@/lib/chart/ticker";
 import { useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
@@ -28,7 +29,7 @@ export function ProfileTabletPage({ token }: { token: SpotToken }) {
   return (
     <div className="w-full">
       <div className="max-w-4xl mx-auto px-4 py-6">
-        <BreadcrumbNav token={token} networkName={displayNetworkName} />
+        <BreadcrumbNav label={token.symbol} networkName={displayNetworkName} />
 
         <div className="grid grid-cols-1 gap-6">
           {/* Header Section */}
@@ -94,7 +95,7 @@ export function ProfileTabletPage({ token }: { token: SpotToken }) {
             <div className="h-72 w-full bg-white border rounded-lg overflow-hidden">
               <TokenProfileChart
                 networkName={displayNetworkName}
-                symbol={token.symbol}
+                symbol={chartTicker(token)}
                 interval={timeframeToInterval(timeframe)}
                 onAvailabilityChange={(a) =>
                   setChartAvailable(a === "checking" ? null : a === "available")

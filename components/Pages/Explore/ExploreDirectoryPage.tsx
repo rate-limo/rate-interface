@@ -12,7 +12,9 @@ export async function ExploreDirectoryPage({ section, network }: { section: Expl
     <MarketPageProvider networkSlugInput={network}>
       <AppShell>
         <div className="relative isolate min-h-full">
-          <div className="hidden w-full min-[1200px]:block">
+          {/* Every width: below 1200px this rendered NOTHING (no fallback at all),
+              so /explore/tokens and friends were blank pages on a phone. */}
+          <div className="w-full">
             <HomeDesktopPage thresholdUsd={thresholdUsd} initialDirectoryTab={tabForSection(section) as "tokens" | "auction" | "launches" | "pools" | "transactions"} />
           </div>
         </div>

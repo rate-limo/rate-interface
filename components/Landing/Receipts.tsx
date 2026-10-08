@@ -26,7 +26,7 @@ const STATS = [
   {
     value: "Positive",
     label: "LP take, every tier",
-    body: "When the market moves 25%, Uniswap and Curve's own impermanent loss wipes out their fee income and goes net negative. Iter's loss is capped at the price the LP quoted, so its LPs stay profitable no matter how far the market moves.",
+    body: "In the simulation, a 25% move turns Uniswap and Curve LPs net negative: their impermanent loss outruns the fees. A Rate LP only ever fills at the fair price plus its own quoted tolerance, so every tier stays net positive.",
   },
 ];
 
@@ -35,12 +35,13 @@ export function Receipts() {
     <section className="border-t border-white/5 py-24 md:py-32">
       <Container>
         <Reveal>
-          <span className="font-mono-brand text-xs tracking-[0.16em] text-purple-700 dark:text-purple-300 uppercase">
-            Measured results
-          </span>
-          <h2 className="font-display mt-4 max-w-2xl text-3xl font-medium tracking-tight text-white sm:text-4xl md:text-5xl">
-            Every fill, at a price you chose. On-chain to check.
+          <h2 className="font-display max-w-2xl text-3xl font-medium tracking-tight text-white sm:text-4xl md:text-5xl">
+            Lose less on every trade.
           </h2>
+          {/* The one word that must stay: these figures come from a simulation. */}
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-dark-grey-1">
+            Simulated results. Rerun every number yourself.
+          </p>
         </Reveal>
 
         <div className="mt-14 grid grid-cols-1 gap-x-12 gap-y-12 md:grid-cols-3">
@@ -94,7 +95,7 @@ export function Receipts() {
               // assets, and iter_il_bound clips that same formula at the LP's
               // own tolerance. Worth stating: it is what makes the LVR note under
               // the next chart able to say the two are one channel.
-              subtitle="Impermanent loss — how far a position ends up behind simply holding the two assets, once the price has moved — at Iter's widest tolerance vs. passive AMM liquidity."
+              subtitle="Impermanent loss — how far a position ends up behind simply holding the two assets, once the price has moved — at Rate's widest tolerance vs. passive AMM liquidity."
               data={ilData}
               series={COMPARISON_SERIES}
               format="pct"
@@ -112,7 +113,7 @@ export function Receipts() {
             <p className="mt-3 max-w-2xl text-base leading-relaxed text-dark-grey-1">
               Every number on this page comes from the same simulation we use
               to build the product, not a highlight reel: every chart plots
-              the full data grid, including the regimes where Iter
+              the full data grid, including the regimes where Rate
               doesn&apos;t win. We once caught a pricing bug of our own with
               it, one that was quietly losing money on the safest position,
               before it touched a dollar, and published that too. We do
@@ -127,7 +128,7 @@ export function Receipts() {
             </div>
 
             <a
-              href="https://github.com/iter-cx/iter-research"
+              href="https://github.com/rate-limo/rate-research"
               className="mt-6 inline-block font-mono-brand text-xs font-medium tracking-[0.14em] text-purple-700 dark:text-purple-300 uppercase transition-colors hover:text-purple-600 dark:hover:text-purple-400"
             >
               Try to benchmark us

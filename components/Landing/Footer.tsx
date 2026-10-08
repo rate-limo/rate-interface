@@ -7,15 +7,16 @@ const LINKS: { label: string; href: string; i18nKey?: "terms" | "privacy" | "coo
   { label: "Twitter/X", href: "https://x.com/off____grid" },
   {
     label: "GitHub",
-    href: "https://github.com/iter-cx/iter-monorepo",
+    href: "https://github.com/rate-limo/rate-monorepo",
   },
   {
     label: "Whitepaper",
-    href: "https://github.com/iter-cx/iter-research/blob/main/iter-whitepaper.md",
+    href: "https://github.com/rate-limo/rate-research/blob/main/iter-whitepaper.md",
   },
   // The consent banner links to /cookies, but a user who already answered it
   // needs a standing route back to the legal pages — this is it on the landing
   // side, mirroring the StatusBar links inside the app.
+  { label: "Fees", href: "/fees" },
   { label: "Terms", href: "/terms", i18nKey: "terms" as const },
   { label: "Privacy", href: "/privacy", i18nKey: "privacy" as const },
   { label: "Cookies", href: "/cookies", i18nKey: "cookies" as const },

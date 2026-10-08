@@ -4,15 +4,15 @@ import { Reveal } from "@components/Landing/ui/Reveal";
 const LINKS = [
   {
     label: "Whitepaper",
-    href: "https://github.com/iter-cx/iter-research/blob/main/iter-whitepaper.md",
+    href: "https://github.com/rate-limo/rate-research/blob/main/iter-whitepaper.md",
   },
   {
     label: "Simulation",
-    href: "https://github.com/iter-cx/iter-research/tree/main/experiments",
+    href: "https://github.com/rate-limo/rate-research/tree/main/experiments",
   },
   {
     label: "Contracts",
-    href: "https://github.com/iter-cx/iter-contracts",
+    href: "https://github.com/rate-limo/rate-contracts",
   },
 ];
 
