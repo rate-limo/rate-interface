@@ -62,8 +62,18 @@ import {
 	spotFillSummaryStreamSchema,
 	summarizeFills,
 	expandFillSummary,
+	collapseFillSummary,
 	type SpotFillSummaryEvent,
 } from "./trades/summary";
+import { makerOrderIdFromWire } from "./trades/makerOrderId";
+import {
+	eventToSpotOrderCloseSummaryStream,
+	streamToSpotOrderCloseSummaryEvent,
+	spotOrderCloseSummaryStreamSchema,
+	summarizeOrderCloses,
+	expandOrderCloseSummary,
+	type SpotOrderCloseSummaryEvent,
+} from "./orders/closeSummary";
 import {
 	eventToSpotBarStream,
 	streamToSpotBarEvent,
@@ -165,6 +175,7 @@ function testCase<E extends StreamableObject, S>(c: Case<E, S>): Check {
 const trade: SpotTradeEvent = {
 	eventId: "spotTrade",
 	orderId: 7,
+	makerOrderId: 7,
 	base: "0xbase",
 	quote: "0xquote",
 	baseSymbol: "NOVA",
@@ -196,7 +207,7 @@ const trade: SpotTradeEvent = {
  * the folder actually produces from real trades. */
 const fillSummary = summarizeFills([
 	trade,
-	{ ...trade, orderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
+	{ ...trade, orderId: 8, makerOrderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
 ]) as SpotFillSummaryEvent;
 
 const order: SpotOrderEvent = {
@@ -263,6 +274,12 @@ const deleted: SpotDeleteOrderItemEvent = {
 	status: "canceled",
 	updatedAt: 1785600001,
 };
+
+/** Two orders of one maker cleared by one sweep, as the folder builds it. */
+const closeSummary = summarizeOrderCloses([
+	{ ...deleted, eventId: "deleteSpotOrderHistory", status: "filled" },
+	{ ...deleted, eventId: "deleteSpotOrderHistory", status: "filled", orderId: 45, isBid: true, updatedAt: 1785600002 },
+]) as SpotOrderCloseSummaryEvent;
 
 const history: SpotOrderHistoryEvent = {
 	eventId: "spotOrderHistory",
@@ -387,6 +404,13 @@ const cases = [
 		schema: spotDeleteOrderItemStreamSchema,
 	}),
 	testCase({
+		name: "spotOrderCloseSummary",
+		event: closeSummary,
+		encode: eventToSpotOrderCloseSummaryStream,
+		decode: streamToSpotOrderCloseSummaryEvent,
+		schema: spotOrderCloseSummaryStreamSchema,
+	}),
+	testCase({
 		name: "spotFillSummary",
 		event: fillSummary,
 		encode: eventToSpotFillSummaryStream,
@@ -485,7 +509,7 @@ describe("spotFillSummary is a lossless stand-in for the frames it replaces", ()
 	it("expands back to exactly the trades it was folded from", () => {
 		const trades = [
 			trade,
-			{ ...trade, orderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
+			{ ...trade, orderId: 8, makerOrderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
 		];
 		assert.deepEqual(expandFillSummary(summarizeFills(trades) as SpotFillSummaryEvent), trades);
 	});
@@ -493,7 +517,7 @@ describe("spotFillSummary is a lossless stand-in for the frames it replaces", ()
 	it("survives the wire, not just the fold", () => {
 		const trades = [
 			trade,
-			{ ...trade, orderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
+			{ ...trade, orderId: 8, makerOrderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
 		];
 		const onWire = eventToSpotFillSummaryStream(summarizeFills(trades) as SpotFillSummaryEvent);
 		const decoded = streamToEvent(onWire) as SpotFillSummaryEvent;
@@ -504,7 +528,7 @@ describe("spotFillSummary is a lossless stand-in for the frames it replaces", ()
 		// 12.5 @ 1635.11 and 4 @ 1636.5 -> the small fill must not pull it halfway.
 		const s = summarizeFills([
 			trade,
-			{ ...trade, orderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
+			{ ...trade, orderId: 8, makerOrderId: 8, price: 1636.5, amount: 4, valueUSD: 6546, maker: "0xmaker2" },
 		]) as SpotFillSummaryEvent;
 		const expected = (12.5 * 1635.11 + 4 * 1636.5) / 16.5;
 		assert.ok(Math.abs(s.avgPrice - expected) < 1e-9);
@@ -521,6 +545,119 @@ describe("spotFillSummary is a lossless stand-in for the frames it replaces", ()
 
 	it("returns null for no fills rather than an envelope describing nothing", () => {
 		assert.equal(summarizeFills([]), null);
+	});
+});
+
+/** The wire spells "no resting order" (a pool fill) as orderId 0, because the
+ * column is NOT NULL and the slot a plain number. The decoders translate it, so
+ * no reader compares against 0 — and REST does the same translation, so a live
+ * row and a fetched row for the same fill agree. */
+describe("makerOrderId: the wire's 0 becomes null at decode", () => {
+	const poolFill: SpotTradeEvent = { ...trade, orderId: 0, makerOrderId: null, maker: "0xpool" };
+
+	it("a per-fill pool frame decodes to makerOrderId null, keeping the legacy orderId 0", () => {
+		const decoded = streamToSpotTradeEvent(eventToSpotTradeStream(poolFill));
+		assert.equal(decoded.makerOrderId, null);
+		assert.equal(decoded.orderId, 0);
+	});
+
+	it("a book fill decodes to its resting order's id", () => {
+		assert.equal(streamToSpotTradeEvent(eventToSpotTradeStream(trade)).makerOrderId, 7);
+	});
+
+	it("expanding an envelope translates each fill on its own", () => {
+		const out = expandFillSummary(summarizeFills([trade, poolFill]) as SpotFillSummaryEvent);
+		assert.deepEqual(
+			out.map((t) => t.makerOrderId),
+			[7, null],
+		);
+	});
+
+	it("collapsing takes MIN over every fill, the pool's 0 included, like the SQL", () => {
+		// `groupedTradeSelection.orderId` is `min(spotTrades.orderId)`. If this side
+		// skipped the 0, a mixed sweep would key differently live and on refetch.
+		const mixed = collapseFillSummary(summarizeFills([trade, poolFill]) as SpotFillSummaryEvent);
+		assert.equal(mixed.orderId, 0);
+		assert.equal(mixed.makerOrderId, null);
+
+		const book = collapseFillSummary(
+			summarizeFills([trade, { ...trade, orderId: 3, makerOrderId: 3 }]) as SpotFillSummaryEvent,
+		);
+		assert.equal(book.orderId, 3);
+		assert.equal(book.makerOrderId, 3);
+	});
+
+	it("makerOrderIdFromWire refuses everything that is not an engine id", () => {
+		for (const v of [0, "0", null, undefined, "", -1, 1.5, Number.NaN]) {
+			assert.equal(makerOrderIdFromWire(v as never), null, String(v));
+		}
+		assert.equal(makerOrderIdFromWire(1), 1);
+		assert.equal(makerOrderIdFromWire("12"), 12);
+		assert.equal(makerOrderIdFromWire(BigInt(9)), 9);
+	});
+});
+
+/** A maker's closures from one sweep: replacing the frames is only allowed because
+ * the envelope gives back exactly what they decode to. */
+describe("spotOrderCloseSummary is a lossless stand-in for the frames it replaces", () => {
+	const closure = (over: Partial<SpotDeleteOrderItemEvent>): SpotDeleteOrderItemEvent => ({
+		...deleted,
+		eventId: "deleteSpotOrderHistory",
+		status: "filled",
+		...over,
+	});
+	const frames = [
+		closure({ orderId: 44 }),
+		closure({ orderId: 45, isBid: true, updatedAt: 1785600002 }),
+		closure({ orderId: 46, updatedAt: 1785600003 }),
+	].map(eventToSpotDeleteOrderItemStream);
+	const perOrder = frames.map((f) => streamToEvent(f as never) as SpotDeleteOrderItemEvent);
+
+	it("expands back to exactly the per-order closures, in arrival order, through the wire", () => {
+		assert.equal(perOrder.length, 3);
+		const summary = summarizeOrderCloses(perOrder) as SpotOrderCloseSummaryEvent;
+		const decoded = streamToEvent(
+			JSON.parse(JSON.stringify(eventToSpotOrderCloseSummaryStream(summary))),
+		) as SpotOrderCloseSummaryEvent;
+		assert.equal(decoded.eventId, "spotOrderCloseSummary");
+		assert.deepEqual(expandOrderCloseSummary(decoded), perOrder);
+	});
+
+	it("keeps side and updatedAt per row — a cancel-all closes both sides", () => {
+		const summary = summarizeOrderCloses(perOrder) as SpotOrderCloseSummaryEvent;
+		assert.deepEqual(summary.rows, [
+			[44, false, 1785600001],
+			[45, true, 1785600002],
+			[46, false, 1785600003],
+		]);
+	});
+
+	it("declines rather than hoist a field that differs, or fold a deleteSpotOrder", () => {
+		assert.equal(summarizeOrderCloses([closure({}), closure({ status: "canceled" })]), null);
+		assert.equal(summarizeOrderCloses([closure({}), closure({ timestamp: 1 })]), null);
+		assert.equal(summarizeOrderCloses([deleted, { ...deleted, orderId: 45 }]), null);
+		assert.equal(summarizeOrderCloses([]), null);
+	});
+
+	it("drops a malformed envelope rather than decoding garbage", () => {
+		assert.equal(streamToEvent(["spotOrderCloseSummary", "0xhash"] as never), null);
+	});
+});
+
+/** The fill envelope on a MAKER's topic: the same transaction's fills, every one
+ * against a different resting order of theirs. Exact means each row keeps its own
+ * maker order id, so the maker's per-order rows survive the fold. */
+describe("spotFillSummary carries a maker's fills without merging their orders", () => {
+	it("expands to the per-fill events, each keeping its own order id and price", () => {
+		const fills = [
+			{ ...trade, orderId: 9, makerOrderId: 9, price: 5e-6, maker: "0xmaker" },
+			{ ...trade, orderId: 10, makerOrderId: 10, price: 5.01e-6, maker: "0xmaker" },
+		];
+		const frames = fills.map((t) => streamToEvent(eventToSpotTradeStream(t) as never) as SpotTradeEvent);
+		const onWire = JSON.parse(JSON.stringify(eventToSpotFillSummaryStream(summarizeFills(frames) as SpotFillSummaryEvent)));
+		const out = expandFillSummary(streamToEvent(onWire) as SpotFillSummaryEvent);
+		assert.deepEqual(out, frames);
+		assert.deepEqual(out.map((t) => [t.makerOrderId, t.price]), [[9, 5e-6], [10, 5.01e-6]]);
 	});
 });
 
@@ -554,5 +691,75 @@ describe("order frames survive a broker and a client at different versions", () 
 		const back = streamToSpotOrderEvent(eventToSpotOrderStream(withNulls));
 		assert.equal(back.amountBN, null);
 		assert.equal(back.placedBN, null);
+	});
+});
+
+import {
+	eventToSpotAccountActivityStream,
+	streamToSpotAccountActivityEvent,
+	spotAccountActivityStreamSchema,
+	type SpotAccountActivityEvent,
+} from "./account/spot";
+
+describe("spotAccountActivity", () => {
+	it("round-trips, and the decoded kind is what was encoded", () => {
+		const event: SpotAccountActivityEvent = {
+			eventId: "spotAccountActivity",
+			kind: "bandLiquidityAdded",
+			account: "0x1A00000000000000000000000000000000000E01",
+			ref: "0x1a00000000000000000000000000000000000f01",
+			txHash: "0xabc",
+			timestamp: 1_789_700_000,
+			updatedAt: 1_789_700_000_123,
+		};
+		const wire = eventToSpotAccountActivityStream(event);
+		const back = streamToSpotAccountActivityEvent(spotAccountActivityStreamSchema.parse(wire));
+		assert.deepEqual(back, event);
+	});
+});
+
+import {
+	eventToSpotLaunchStream,
+	streamToSpotLaunchEvent,
+	spotLaunchStreamSchema,
+	type SpotLaunchEvent,
+} from "./launches/spot";
+
+describe("spotLaunch", () => {
+	const event: SpotLaunchEvent = {
+		eventId: "spotLaunch",
+		coin: "0x1A00000000000000000000000000000000000C01",
+		symbol: "NOVA",
+		name: "Nova Point",
+		creator: "0x1A00000000000000000000000000000000000E01",
+		quote: "0x3600000000000000000000000000000000000000",
+		txHash: "0xabc",
+		timestamp: 1_789_700_000,
+		updatedAt: 1_789_700_000_123,
+	};
+
+	it("round-trips every field", () => {
+		const wire = eventToSpotLaunchStream(event);
+		assert.deepEqual(streamToSpotLaunchEvent(spotLaunchStreamSchema.parse(wire)), event);
+	});
+
+	/*
+	 * The dispatcher is the half that has gone wrong before: `spotOrderMatched`
+	 * went unpublished for months because the broker drops any frame whose
+	 * eventId has no encoder, and nothing said so. A frame that survives its own
+	 * codec but not `eventToStream` is invisible in exactly that way.
+	 */
+	it("survives the generic dispatcher in both directions", () => {
+		const wire = eventToStream(event);
+		assert.deepEqual(streamToEvent(wire as never), event);
+	});
+
+	/* Address casing crosses this wire unchanged: the gateway sends checksummed
+	   ids and consumers lower-case to compare, so a codec that normalised would
+	   make one of those two wrong. */
+	it("does not touch address casing", () => {
+		const back = streamToSpotLaunchEvent(spotLaunchStreamSchema.parse(eventToSpotLaunchStream(event)));
+		assert.equal(back.coin, event.coin);
+		assert.equal(back.creator, event.creator);
 	});
 });

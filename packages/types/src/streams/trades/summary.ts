@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { makerOrderIdFromWire } from "./makerOrderId";
 import type { SpotTradeEvent } from "./spot";
 
 /**
@@ -171,6 +172,7 @@ export function expandFillSummary(
 	return summary.fills.map((row) => ({
 		eventId: "spotTrade" as const,
 		orderId: row[0],
+		makerOrderId: makerOrderIdFromWire(row[0]),
 		base: summary.base,
 		quote: summary.quote,
 		baseSymbol: summary.baseSymbol,
@@ -224,19 +226,14 @@ export function expandFillSummary(
  *
  * ## TAKER PERSPECTIVE ONLY — do not use this for a maker's own fills
  *
- * The envelope is keyed on `(txHash, pair, isBid, account)`, and `account` is the
- * TAKER. That is right for every topic it reaches today: `Trade.ts` publishes to
- * `spotAccount:{sender}` and the two public feeds, so a maker never receives one.
- *
- * If a trade frame is ever published to `spotAccount:{maker}` — the obvious fix
- * for maker rows not arriving live, now that `/api/tradehistory` matches on
- * `maker` too — this function must NOT be pointed at it unchanged. A taker
- * sweeping five of one maker's resting orders produces five frames sharing that
- * taker, so folding them would report the maker's five separate orders, placed at
- * five different prices on purpose, as one line averaging a price they never
- * quoted. The server already refuses that: `makerOrderKey` in the gateway's
- * api/tradeGrouping.ts appends the viewer's own order id when the viewer is the
- * maker. The wire would need the same split before this could be used there.
+ * The header's `account` and `taker` are the TAKER. Since 2026-10-04 the gateway
+ * also envelopes the per-fill frames on `spotAccount:{maker}` (ws/fillSummary.ts,
+ * keyed with the maker's side of the trade), and every fill there is against a
+ * different resting order of that maker, placed at its own price. Folding them
+ * reports the maker's separate orders as one line averaging a price they never
+ * quoted — which the REST side refuses too (`makerOrderKey`, gateway
+ * api/tradeGrouping.ts). So a consumer whose viewer is not `summary.taker` must
+ * use `expandFillSummary`, whose rows keep each fill's own maker order id.
  */
 export function collapseFillSummary(
 	summary: SpotFillSummaryEvent,
@@ -245,9 +242,13 @@ export function collapseFillSummary(
 	const sum = (pick: (r: SpotFillRow) => number) =>
 		rows.reduce((total, r) => total + pick(r), 0);
 
+	// MIN including the pool's 0, exactly as the SQL's `min(orderId)` — the
+	// REST row and this one must key the same, see makerOrderId.ts.
+	const orderId = rows.reduce((m, r) => (r[0] < m ? r[0] : m), rows[0]?.[0] ?? 0);
 	return {
 		eventId: "spotTrade" as const,
-		orderId: rows.reduce((m, r) => (r[0] < m ? r[0] : m), rows[0]?.[0] ?? 0),
+		orderId,
+		makerOrderId: makerOrderIdFromWire(orderId),
 		base: summary.base,
 		quote: summary.quote,
 		baseSymbol: summary.baseSymbol,

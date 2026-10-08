@@ -10,123 +10,6 @@
 export const BandPositionManagerABI = [
   {
     "type": "function",
-    "name": "addLiquidity",
-    "inputs": [
-      {
-        "name": "pool",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "band",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "baseAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "quoteAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "shares",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "addLiquidityAcross",
-    "inputs": [
-      {
-        "name": "pool",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "bands",
-        "type": "uint8[]",
-        "internalType": "uint8[]"
-      },
-      {
-        "name": "baseAmounts",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "quoteAmounts",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "tokenIds",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "addLiquiditySingleSided",
-    "inputs": [
-      {
-        "name": "pool",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "band",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "amountIn",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "inputIsBase",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "minShares",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "shares",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "balanceOf",
     "inputs": [
       {
@@ -203,12 +86,12 @@ export const BandPositionManagerABI = [
     ],
     "outputs": [
       {
-        "name": "vestedBase",
+        "name": "base",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "vestedQuote",
+        "name": "quote",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -230,7 +113,121 @@ export const BandPositionManagerABI = [
         "internalType": "address"
       }
     ],
-    "outputs": [],
+    "outputs": [
+      {
+        "name": "base",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "quote",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "decreaseBand",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "band",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "shares",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "minBase",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minQuote",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "baseOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quoteOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "decreaseLiquidity",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "minBase",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minQuote",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "baseOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quoteOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
@@ -264,6 +261,50 @@ export const BandPositionManagerABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "increaseLiquidity",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "bands",
+        "type": "uint8[]",
+        "internalType": "uint8[]"
+      },
+      {
+        "name": "baseAmounts",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "quoteAmounts",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "minShares",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "shares",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -301,6 +342,180 @@ export const BandPositionManagerABI = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "mint",
+    "inputs": [
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct IBandPositionManager.MintParams",
+        "components": [
+          {
+            "name": "pool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "bands",
+            "type": "uint8[]",
+            "internalType": "uint8[]"
+          },
+          {
+            "name": "baseAmounts",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          },
+          {
+            "name": "quoteAmounts",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          },
+          {
+            "name": "minShares",
+            "type": "uint128[]",
+            "internalType": "uint128[]"
+          },
+          {
+            "name": "recipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "mintSingleSided",
+    "inputs": [
+      {
+        "name": "pool",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "bands",
+        "type": "uint8[]",
+        "internalType": "uint8[]"
+      },
+      {
+        "name": "amountsIn",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "inputIsBase",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "minShares",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "shares",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "moveLiquidity",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "fromBand",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "toBand",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "shares",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "minSharesIn",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "refundTo",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "sharesIn",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "baseRefund",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quoteRefund",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -343,6 +558,25 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "function",
+    "name": "poolOf",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "portfolio",
     "inputs": [
       {
@@ -355,7 +589,7 @@ export const BandPositionManagerABI = [
       {
         "name": "rows",
         "type": "tuple[]",
-        "internalType": "struct BandPositionManager.PortfolioRow[]",
+        "internalType": "struct IBandPositionManager.PositionView[]",
         "components": [
           {
             "name": "tokenId",
@@ -378,9 +612,24 @@ export const BandPositionManagerABI = [
             "internalType": "address"
           },
           {
-            "name": "position",
-            "type": "tuple",
-            "internalType": "struct BandPool.PositionView",
+            "name": "holder",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "mintedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "bandMask",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "bands",
+            "type": "tuple[]",
+            "internalType": "struct IBandPool.BandView[]",
             "components": [
               {
                 "name": "band",
@@ -388,19 +637,34 @@ export const BandPositionManagerABI = [
                 "internalType": "uint8"
               },
               {
-                "name": "tolerance",
+                "name": "spreadFrac",
                 "type": "uint32",
                 "internalType": "uint32"
               },
               {
-                "name": "bandOpen",
+                "name": "toleranceBuy",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "toleranceSell",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeMultiplier",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "open",
                 "type": "bool",
                 "internalType": "bool"
               },
               {
                 "name": "shares",
-                "type": "uint256",
-                "internalType": "uint256"
+                "type": "uint128",
+                "internalType": "uint128"
               },
               {
                 "name": "bandShares",
@@ -423,6 +687,16 @@ export const BandPositionManagerABI = [
                 "internalType": "uint256"
               },
               {
+                "name": "pendingBase",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "pendingQuote",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
                 "name": "vestedBase",
                 "type": "uint256",
                 "internalType": "uint256"
@@ -433,12 +707,155 @@ export const BandPositionManagerABI = [
                 "internalType": "uint256"
               },
               {
-                "name": "forfeitBase",
+                "name": "vestedNum",
+                "type": "uint32",
+                "internalType": "uint32"
+              }
+            ]
+          },
+          {
+            "name": "owedBase",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "owedQuote",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "positionOf",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "v",
+        "type": "tuple",
+        "internalType": "struct IBandPositionManager.PositionView",
+        "components": [
+          {
+            "name": "tokenId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pool",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "base",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "quote",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "holder",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "mintedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "bandMask",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "bands",
+            "type": "tuple[]",
+            "internalType": "struct IBandPool.BandView[]",
+            "components": [
+              {
+                "name": "band",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "spreadFrac",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "toleranceBuy",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "toleranceSell",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "feeMultiplier",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "open",
+                "type": "bool",
+                "internalType": "bool"
+              },
+              {
+                "name": "shares",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "bandShares",
                 "type": "uint256",
                 "internalType": "uint256"
               },
               {
-                "name": "forfeitQuote",
+                "name": "createdAt",
+                "type": "uint64",
+                "internalType": "uint64"
+              },
+              {
+                "name": "baseOwned",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "quoteOwned",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "pendingBase",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "pendingQuote",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "vestedBase",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "vestedQuote",
                 "type": "uint256",
                 "internalType": "uint256"
               },
@@ -448,6 +865,16 @@ export const BandPositionManagerABI = [
                 "internalType": "uint32"
               }
             ]
+          },
+          {
+            "name": "owedBase",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "owedQuote",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -456,27 +883,54 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "function",
-    "name": "removeLiquidity",
+    "name": "redistribute",
     "inputs": [
       {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "recipient",
-        "type": "address",
-        "internalType": "address"
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct IBandPositionManager.RedistributeParams",
+        "components": [
+          {
+            "name": "tokenId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "bands",
+            "type": "uint8[]",
+            "internalType": "uint8[]"
+          },
+          {
+            "name": "targetBps",
+            "type": "uint16[]",
+            "internalType": "uint16[]"
+          },
+          {
+            "name": "minSharesAfter",
+            "type": "uint128[]",
+            "internalType": "uint128[]"
+          },
+          {
+            "name": "refundTo",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "outputs": [
       {
-        "name": "baseOut",
+        "name": "baseRefund",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "quoteOut",
+        "name": "quoteRefund",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -621,30 +1075,6 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "function",
-    "name": "tokenPosition",
-    "inputs": [
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "pool",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "positionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -702,86 +1132,6 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "event",
-    "name": "BandLiquidityAdded",
-    "inputs": [
-      {
-        "name": "pool",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "owner",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "positionId",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "band",
-        "type": "uint8",
-        "indexed": false,
-        "internalType": "uint8"
-      },
-      {
-        "name": "shares",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "BandLiquidityRemoved",
-    "inputs": [
-      {
-        "name": "pool",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "recipient",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "baseOut",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "quoteOut",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "DescriptorSet",
     "inputs": [
       {
@@ -821,6 +1171,31 @@ export const BandPositionManagerABI = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Redistributed",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "bands",
+        "type": "uint8[]",
+        "indexed": false,
+        "internalType": "uint8[]"
+      },
+      {
+        "name": "targetBps",
+        "type": "uint16[]",
+        "indexed": false,
+        "internalType": "uint16[]"
       }
     ],
     "anonymous": false
@@ -920,6 +1295,22 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "error",
+    "name": "AmountBelowMinimum",
+    "inputs": [
+      {
+        "name": "baseOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "quoteOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ApproveFailed",
     "inputs": [
       {
@@ -941,20 +1332,31 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "error",
-    "name": "BandsAndAmountsMismatch",
+    "name": "BadBps",
     "inputs": [
       {
-        "name": "bands",
+        "name": "bps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "BandsNotAscending",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DeadlinePassed",
+    "inputs": [
+      {
+        "name": "deadline",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "baseAmounts",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "quoteAmounts",
+        "name": "nowTs",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1069,6 +1471,11 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "error",
+    "name": "LengthMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotInitializing",
     "inputs": []
   },
@@ -1077,14 +1484,14 @@ export const BandPositionManagerABI = [
     "name": "NotOwnerOrApproved",
     "inputs": [
       {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
         "name": "caller",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
@@ -1123,15 +1530,52 @@ export const BandPositionManagerABI = [
   },
   {
     "type": "error",
-    "name": "TooFewShares",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeCastOverflowedUintDowncast",
     "inputs": [
       {
-        "name": "got",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "bits",
+        "type": "uint8",
+        "internalType": "uint8"
       },
       {
-        "name": "min",
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SharesBelowMinimum",
+    "inputs": [
+      {
+        "name": "band",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "minted",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "minimum",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TargetsNotWhole",
+    "inputs": [
+      {
+        "name": "sumBps",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1207,6 +1651,17 @@ export const BandPositionManagerABI = [
         "name": "value",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownPool",
+    "inputs": [
+      {
+        "name": "pool",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   }

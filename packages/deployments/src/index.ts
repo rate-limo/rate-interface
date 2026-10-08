@@ -49,6 +49,29 @@ export const CONTRACT_NAMES = [
    * — the same as `swapRouter`, and for the same reason.
    */
   "batchExecutor",
+  /**
+   * Batch ERC-20 payout: `disperseToken(token, recipients[], amounts[])`,
+   * pulling from the caller with transferFrom. Used by apps/admin to pay a
+   * closed season's ITER. Protocol infrastructure, so it lives here; the ITER
+   * token itself is a multichain ASSET and resolves through identity-service's
+   * catalog instead (admin-service `resolveRewardToken`).
+   *
+   * Like `batchExecutor`, nothing indexes it or holds its address on chain.
+   */
+  "disperse",
+  /**
+   * Role-less helper behind the app's Buy/Sell on a launch ladder: one call sends
+   * up to five taker orders, one per ladder step, and returns whatever cannot fill.
+   * Holds nothing; nothing indexes it (fills are the engine's own events).
+   */
+  "ladderBuyer",
+  /**
+   * The gas coin as a plain 1:1 ERC-20 (WrappedNative), for launches quoted in the
+   * gas coin. NOT the engine's WETH: on an unwrapping chain that one gets no band
+   * pool and settles as native coin. Absent on chains whose gas coin is already an
+   * ERC-20 (Arc).
+   */
+  "wrappedNative",
 ] as const;
 
 export type ContractName = (typeof CONTRACT_NAMES)[number];
@@ -84,6 +107,15 @@ export interface ChainConfig {
   makerFee?: number;
   takerFee?: number;
   poolFeeShare?: number;
+  /**
+   * Launch quote tokens that exist only for testing — the mock quote
+   * `verify:backend` graduates coins against. Written by the verify run when it
+   * deploys the mock; the app's launch picker hides every address listed here,
+   * and the admin Launch quotes page labels them "test". Lower-case or checksum,
+   * compared case-insensitively.
+   */
+  testQuoteTokens?: `0x${string}`[];
+  testQuoteTokensNote?: string;
 }
 
 export interface ChainGeneration {
@@ -249,6 +281,17 @@ export function previousGenerations(idOrName: number | string): ChainGeneration[
   return findChain(idOrName)?.previous ?? [];
 }
 
+/** Test-only launch quote tokens for a chain (see `ChainConfig.testQuoteTokens`). */
+export function testQuoteTokens(idOrName: number | string): readonly `0x${string}`[] {
+  return findChain(idOrName)?.config?.testQuoteTokens ?? [];
+}
+
+/** Whether `address` is a test-only launch quote on that chain. */
+export function isTestQuoteToken(idOrName: number | string, address: string): boolean {
+  const a = address.toLowerCase();
+  return testQuoteTokens(idOrName).some((t) => t.toLowerCase() === a);
+}
+
 /** True when the swap system is present and wired enough to index. */
 export function hasSwapSystem(idOrName: number | string): boolean {
   const chain = findChain(idOrName);
@@ -273,18 +316,29 @@ export function hasSwapSystem(idOrName: number | string): boolean {
  * all iterate it, and the admin surfaces will need the same answer. A second copy is how
  * a chain ends up served in one place and absent in another.
  *
- * Monad Testnet was previously listed and should not be restored without redeploying it:
- * `missing["10143"]` records that its matching engine address returns `0x` from
- * eth_getCode with nonce 0 and balance 0 — the app was offering a trading route to a
- * contract that has never existed.
+ * Monad Testnet was once listed with a matching engine that had never been deployed
+ * (`0x` from eth_getCode). It was redeployed for real on 2026-10-02 and returned here
+ * the same day, together with Robinhood Chain Testnet, in the order below: contracts
+ * verified by verify.mjs, gateways answering (200 on gateway-api-monad/-robinhood, a
+ * real websocket CONNECTED on gateway-ws-monad/-robinhood), then this line.
  *
  * To add a chain: deploy its stack, record it in deployments.json, give it PonderLinks /
  * PonderWssLinks entries in the frontend, then add its network name here. Arc Testnet
  * was added on 2026-08-27 in exactly that order — the gateways at
  * gateway-api-arc / gateway-ws-arc answered (200, and a real 101 upgrade on /ws) before
  * this line changed, which is the check that distinguishes it from the Monad entry.
+ *
+ * Tempo Testnet (2026-10-07) followed the same order, with one Tempo-only step: the
+ * indexer needs the ponder patch in patches/ (Tempo's 0x76 transactions carry `calls`,
+ * not `to`, and stock ponder refuses every block containing one).
  */
-export const SUPPORTED_CHAINS: readonly string[] = ["RISE Testnet", "Arc Testnet"];
+export const SUPPORTED_CHAINS: readonly string[] = [
+  "RISE Testnet",
+  "Arc Testnet",
+  "Monad Testnet",
+  "Robinhood Chain Testnet",
+  "Tempo Testnet",
+];
 
 /**
  * Whether the app SHOWS a chain, given an operator's stored override.

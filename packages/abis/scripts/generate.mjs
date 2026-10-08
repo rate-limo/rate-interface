@@ -54,7 +54,19 @@ const TARGETS = {
   ERC20ABI: ["erc20.ts", "MockToken.sol/MockToken.json"],
   PerpEngineABI: ["perpEngine.ts", "PerpEngine.sol/PerpEngine.json"],
   PerpPoolABI: ["perpPool.ts", "PerpPool.sol/PerpPool.json"],
-  AssetGeneratorABI: ["assetGenerator.ts", "AssetGenerator.sol/AssetGenerator.json"],
+  // LadderStep is declared and emitted in AssetLaunchLib (delegatecall), so it comes
+  // from the generator's address but is absent from its own artifact.
+  AssetGeneratorABI: ["assetGenerator.ts", "AssetGenerator.sol/AssetGenerator.json", "AssetLaunchLib.sol/AssetLaunchLib.json"],
+  // Tempo's copy (contracts/src/tempo). Same ABI as AssetGenerator -- the indexer and app
+  // read Tempo through AssetGeneratorABI -- and generated so the registry sync can record
+  // it and a drift between the two shows up as a diff here.
+  TempoAssetGeneratorABI: [
+    "tempoAssetGenerator.ts",
+    "TempoAssetGenerator.sol/TempoAssetGenerator.json",
+    "TempoAssetLaunchLib.sol/TempoAssetLaunchLib.json",
+  ],
+  LadderBuyerABI: ["ladderBuyer.ts", "LadderBuyer.sol/LadderBuyer.json"],
+  WrappedNativeABI: ["wrappedNative.ts", "WrappedNative.sol/WrappedNative.json"],
   // The band pool generation. These were hand-maintained and went stale within a
   // day: widening reserves and shares to uint256 changed BandLiquidityAdded's
   // signature, and the shipped copy still said uint128 -- a different topic0, which
@@ -64,6 +76,9 @@ const TARGETS = {
   BandPoolFactoryABI: ["bandPoolFactory.ts", "BandPoolFactory.sol/BandPoolFactory.json"],
   BandPositionManagerABI: ["bandPositionManager.ts", "BandPositionManager.sol/BandPositionManager.json"],
   BandSwapRouterABI: ["bandSwapRouter.ts", "BandSwapRouter.sol/BandSwapRouter.json"],
+  // Season ITER payouts: the indexer records `Dispersed` / `DispersedBatch`, so
+  // the event signatures must track the contract like the band pool's do.
+  DisperseABI: ["disperse.ts", "Disperse.sol/Disperse.json"],
 };
 
 /**

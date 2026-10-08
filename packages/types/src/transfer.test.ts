@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   TRANSFER_TOPIC,
+  depositCredits,
   verifyDeposit,
   verifyWithdrawal,
   type ReceiptLike,
@@ -179,5 +180,77 @@ describe("verifyWithdrawal", () => {
     // would report money leaving a wallet that in fact received some.
     const receipt: ReceiptLike = { status: "success", logs: [transferLog(THEM, ME, BigInt(100))] };
     assert.equal(verifyWithdrawal({ to: TOKEN, from: ME, value: BigInt(0) }, receipt, ME).ok, false);
+  });
+});
+
+/*
+ * One movement, several logs.
+ *
+ * Measured on Arc, transaction 0x66b081…: a 0.05 USDC deposit emitted a
+ * `Transfer` from the canonical USDC at 0x3600…0000 (6 decimals) AND one from
+ * the system predeploy at 0xff…fe, the 18-decimal gas view of the same funds.
+ * Only one of those contracts answers `symbol()`, and taking the receipt's
+ * first log took the other — which is how a deposit came to render as
+ * "Received 0.05 —".
+ */
+describe("depositCredits", () => {
+  const account = "0xefd77a44a8dd7543b8c3bad1d63f396cfd239a23";
+  const pad = (a: string) => `0x${"0".repeat(24)}${a.slice(2)}`;
+  const transferLog = (address: string, value: bigint) => ({
+    address,
+    topics: [TRANSFER_TOPIC, pad("0xf8fb4672170607c95663f4cc674ddb1386b7cfe0"), pad(account)],
+    data: `0x${value.toString(16).padStart(64, "0")}`,
+  });
+
+  const receipt = {
+    status: "success" as const,
+    logs: [
+      // The predeploy mirror comes FIRST in the real receipt.
+      transferLog("0xfffffffffffffffffffffffffffffffffffffffe", 50_000_000_000_000_000n),
+      transferLog("0x3600000000000000000000000000000000000000", 50_000n),
+    ],
+  };
+  const tx = { to: "0x3600000000000000000000000000000000000000", from: "0xf8fb", value: 0n };
+
+  it("returns BOTH views, in receipt order, so a caller can pick the real token", () => {
+    const credits = depositCredits(tx, receipt, account);
+    assert.equal(credits.length, 2);
+    assert.deepEqual(credits[0], {
+      kind: "erc20",
+      token: "0xfffffffffffffffffffffffffffffffffffffffe",
+      amount: 50_000_000_000_000_000n,
+    });
+    assert.deepEqual(credits[1], {
+      kind: "erc20",
+      token: "0x3600000000000000000000000000000000000000",
+      amount: 50_000n,
+    });
+  });
+
+  it("still puts the native credit last, behind any token log", () => {
+    const credits = depositCredits(
+      { to: account, from: "0xf8fb", value: 7n },
+      receipt,
+      account,
+    );
+    assert.equal(credits.length, 3);
+    assert.deepEqual(credits[2], { kind: "native", amount: 7n });
+  });
+
+  it("is empty for a reverted transaction, whatever it logged", () => {
+    assert.deepEqual(depositCredits(tx, { ...receipt, status: "reverted" }, account), []);
+  });
+
+  it("ignores logs crediting somebody else", () => {
+    const other = "0x1111111111111111111111111111111111111111";
+    assert.deepEqual(depositCredits(tx, receipt, other), []);
+  });
+
+  it("leaves verifyDeposit's answer unchanged — it is still the first credit", () => {
+    const result = verifyDeposit(tx, receipt, account);
+    assert.equal(result.ok, true);
+    if (result.ok && result.kind === "erc20") {
+      assert.equal(result.token, "0xfffffffffffffffffffffffffffffffffffffffe");
+    }
   });
 });

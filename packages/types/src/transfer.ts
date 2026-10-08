@@ -80,15 +80,48 @@ function topicIs(topic: string | undefined, address: string): boolean {
  * A reverted transaction is refused before anything else. It appears on an
  * explorer, has a hash, and moved nothing.
  */
-export function verifyDeposit(
+/** One way a transaction credited an account. */
+export type Credit =
+  | { kind: "erc20"; token: string; amount: bigint }
+  | { kind: "native"; amount: bigint };
+
+/**
+ * EVERY credit in a receipt, not just the first.
+ *
+ * ## One movement can emit several logs, and the first is not the best one
+ *
+ * Measured on Arc, transaction `0x66b081…`: a 0.05 USDC deposit emitted TWO
+ * `Transfer` logs for the SAME movement — one from the canonical USDC at
+ * `0x3600…0000` (6 decimals) and one from the system predeploy at `0xff…fe`
+ * (the 18-decimal gas view of the same funds). `verifyDeposit` returned
+ * whichever came first in the receipt, which was the predeploy.
+ *
+ * That predeploy does not answer `symbol()`, so the recorded row had no asset
+ * name and rendered as "Received 0.05 —". The AMOUNT was right purely by
+ * coincidence: the mirror's own 18 decimals matched its own 18-decimal value.
+ * A chain whose two views disagreed by a factor of 10^12 — which is exactly
+ * what Arc's 18-vs-6 split is — would have written a wrong number with no
+ * error, and that is the 10^12 class of bug this repo has been bitten by
+ * before.
+ *
+ * So the choice cannot be made here. Which log is canonical is an ON-CHAIN
+ * fact — the contract that answers `symbol()` and `decimals()` is the real
+ * token — and this module is pure by design, with no client to ask. It returns
+ * the candidates in receipt order and lets a caller that HAS a client pick the
+ * one that identifies itself.
+ *
+ * The native credit comes last: a token transfer's own `tx.to` is the contract,
+ * so a receipt carrying token logs is a token transfer, and the native entry is
+ * the fallback for a plain value send.
+ */
+export function depositCredits(
   tx: TransactionLike,
   receipt: ReceiptLike,
   account: string,
-): ClaimResult {
-  if (receipt.status !== "success") return { ok: false, reason: "reverted" };
+): Credit[] {
+  if (receipt.status !== "success") return [];
 
-  // ERC-20 first: a token transfer's own `to` is the CONTRACT, so checking the
-  // native recipient first would answer "not yours" for every token deposit.
+  const credits: Credit[] = [];
   for (const log of receipt.logs) {
     if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) continue;
     if (!topicIs(log.topics[2], account)) continue;
@@ -99,16 +132,36 @@ export function verifyDeposit(
       continue;
     }
     if (amount <= BigInt(0)) continue;
-    return { ok: true, kind: "erc20", token: log.address, amount };
+    credits.push({ kind: "erc20", token: log.address, amount });
   }
 
+  if (tx.to && tx.to.toLowerCase() === account.toLowerCase() && tx.value > BigInt(0)) {
+    credits.push({ kind: "native", amount: tx.value });
+  }
+  return credits;
+}
+
+export function verifyDeposit(
+  tx: TransactionLike,
+  receipt: ReceiptLike,
+  account: string,
+): ClaimResult {
+  if (receipt.status !== "success") return { ok: false, reason: "reverted" };
+
+  const credits = depositCredits(tx, receipt, account);
+  const first = credits[0];
+  if (first) {
+    return first.kind === "erc20"
+      ? { ok: true, kind: "erc20", token: first.token, amount: first.amount }
+      : { ok: true, kind: "native", amount: first.amount };
+  }
+
+  // Reached the account but moved nothing: a contract interaction, or a wallet
+  // probing the address. Distinguished from "not yours" because the two send a
+  // reader to different places.
   if (tx.to && tx.to.toLowerCase() === account.toLowerCase()) {
-    // A zero-value call to the account is not a deposit — a contract
-    // interaction, or a wallet probing the address.
-    if (tx.value <= BigInt(0)) return { ok: false, reason: "no-value" };
-    return { ok: true, kind: "native", amount: tx.value };
+    return { ok: false, reason: "no-value" };
   }
-
   return { ok: false, reason: "not-yours" };
 }
 

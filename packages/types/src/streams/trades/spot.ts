@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { makerOrderIdFromWire } from "./makerOrderId";
 
 export const spotTradeStreamSchema = z.tuple([
 	z.string(), // eventId
@@ -33,7 +34,13 @@ export type SpotTradeStream = z.infer<typeof spotTradeStreamSchema>;
 
 export type SpotTradeEvent = {
 	eventId: "spotTrade";
+	/** Deprecated for readers: the wire's spelling, where 0 means "the pool".
+	 *  Read `makerOrderId`. Kept because it is what the tuple carries. */
 	orderId: number;
+	/** The resting order this fill consumed; null for a pool fill. Set by the
+	 *  decoders from `orderId` — see makerOrderId.ts. Optional so a producer
+	 *  (broker, gateway) building an event need not compute it. */
+	makerOrderId?: number | null;
 	base: string;
 	quote: string;
 	baseSymbol: string;
@@ -95,6 +102,7 @@ export function streamToSpotTradeEvent(data: SpotTradeStream): SpotTradeEvent {
 	return {
 		eventId: data[0] as "spotTrade",
 		orderId: data[1],
+		makerOrderId: makerOrderIdFromWire(data[1]),
 		base: data[2],
 		quote: data[3],
 		baseSymbol: data[4],

@@ -17,9 +17,17 @@ export * from "./transfer";
 export * from "./transferRoutes";
 
 // Earn-config defaults — shared by the broker's accrual, admin-service's
-// missing-row fallback and packages/db's column defaults. Flat, like ./support:
-// every consumer imports the constant directly. See ./earn for why one copy.
+// missing-row fallback and packages/db's column defaults — and the referral
+// fee → points formula, shared by the accrual and admin-service's live
+// referral report. Flat, like ./support: every consumer imports these
+// directly. See ./earn for why one copy.
 export * from "./earn";
+
+// ITER season payouts — the budget split and the Disperse matcher, shared by the
+// broker (which records Disperse events) and admin-service (manual verify), and
+// the reward-asset lookup through identity-service. One implementation, or the
+// two paths disagree about who has been paid.
+export * from "./rewardPayout";
 
 // User profiles — the generated default identity + shape rules, shared by
 // apps/gateway (generates on first read) and apps/admin-service (validates

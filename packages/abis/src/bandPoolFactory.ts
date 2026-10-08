@@ -76,6 +76,11 @@ export const BandPoolFactoryABI = [
         "name": "orderbook_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "creator_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [
@@ -128,7 +133,7 @@ export const BandPoolFactoryABI = [
   },
   {
     "type": "function",
-    "name": "defaultTolerances",
+    "name": "defaultSpreadFracs",
     "inputs": [],
     "outputs": [
       {
@@ -265,18 +270,17 @@ export const BandPoolFactoryABI = [
         "internalType": "address"
       },
       {
+        "name": "impl_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "defaultCreator_",
         "type": "address",
         "internalType": "address"
       }
     ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -362,7 +366,7 @@ export const BandPoolFactoryABI = [
         "internalType": "uint64"
       },
       {
-        "name": "tolerances_",
+        "name": "spreadFracs_",
         "type": "uint32[]",
         "internalType": "uint32[]"
       },
@@ -396,16 +400,21 @@ export const BandPoolFactoryABI = [
   },
   {
     "type": "function",
-    "name": "version",
-    "inputs": [],
-    "outputs": [
+    "name": "syncLimit",
+    "inputs": [
       {
-        "name": "",
-        "type": "uint32",
-        "internalType": "uint32"
+        "name": "base",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "quote",
+        "type": "address",
+        "internalType": "address"
       }
     ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "event",
@@ -424,7 +433,7 @@ export const BandPoolFactoryABI = [
         "internalType": "uint64"
       },
       {
-        "name": "tolerances",
+        "name": "spreadFracs",
         "type": "uint32[]",
         "indexed": false,
         "internalType": "uint32[]"
@@ -609,10 +618,10 @@ export const BandPoolFactoryABI = [
   },
   {
     "type": "error",
-    "name": "BadTolerance",
+    "name": "BadSpreadFrac",
     "inputs": [
       {
-        "name": "tolerance",
+        "name": "spreadFrac",
         "type": "uint32",
         "internalType": "uint32"
       }
@@ -644,7 +653,7 @@ export const BandPoolFactoryABI = [
     "name": "MultipliersLengthMismatch",
     "inputs": [
       {
-        "name": "tolerances",
+        "name": "spreadFracs",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -683,7 +692,7 @@ export const BandPoolFactoryABI = [
   },
   {
     "type": "error",
-    "name": "TolerancesNotAscending",
+    "name": "SpreadFracsNotAscending",
     "inputs": []
   },
   {

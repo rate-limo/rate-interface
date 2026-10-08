@@ -35,7 +35,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -91,6 +91,70 @@ function readBroadcast(script, chain) {
     );
   }
   return { path, run: JSON.parse(readFileSync(path, "utf8")) };
+}
+
+/**
+ * Fill in receipts the broadcast is missing, from the chain.
+ *
+ * A `forge script --broadcast` that aborts part way — Arc rejects a whole batch
+ * with `txpool is full`, and a retry then aborts on a nonce that moved under it —
+ * saves its transactions WITH hashes but with no receipts. The contracts are
+ * deployed and correct; only the record is short. `findDeployment` then refuses,
+ * and the registry cannot be written for a deployment that actually exists.
+ *
+ * Refetching by hash is exact: the receipt names the block the contract was
+ * created in, which is precisely what the registry's `startBlock` has to be.
+ * The alternative people reach for is editing `deployments.json` by hand, and a
+ * start block guessed too early makes the indexer backfill from nothing while
+ * one guessed too late means it never sees the deployment's own events.
+ *
+ * Only CREATEs are repaired, and only ones still missing — a complete record
+ * costs nothing here. A hash that has no receipt on chain is left alone so the
+ * existing refusal still fires: that one really was never mined.
+ */
+async function repairMissingReceipts(run, chainId, registryText) {
+  const creates = (run.transactions ?? []).filter(
+    (t) => String(t.transactionType).toUpperCase().startsWith("CREATE") && t.hash,
+  );
+  const have = new Set((run.receipts ?? []).map((r) => r.transactionHash));
+  const missing = creates.filter((t) => !have.has(t.hash));
+  if (missing.length === 0) return false;
+
+  const urls = rpcUrlsFor(registryText, chainId);
+  if (urls.length === 0) {
+    note(`${missing.length} receipt(s) missing and chain ${chainId} has no rpcUrls to refetch them from`);
+    return false;
+  }
+
+  note(`${missing.length} CREATE receipt(s) missing from the broadcast — refetching from chain`);
+  run.receipts = run.receipts ?? [];
+  let repaired = 0;
+  for (const tx of missing) {
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "eth_getTransactionReceipt",
+            params: [tx.hash],
+          }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        const receipt = (await res.json())?.result;
+        if (!receipt?.blockNumber) continue;
+        run.receipts.push(receipt);
+        repaired++;
+        ok(`recovered ${tx.contractName ?? "CREATE"} @ block ${toNumber(receipt.blockNumber)}`);
+        break;
+      } catch {
+        /* try the next endpoint */
+      }
+    }
+  }
+  return repaired > 0;
 }
 
 /** The CREATE transaction for a contract, joined to its receipt for the block number. */
@@ -198,14 +262,50 @@ function upsertContract(text, chainId, registryKey, entry) {
   // Insert as the last entry inside `contracts`.
   const head = text.slice(0, contractsEnd).replace(/\s*$/, "");
   const tail = text.slice(contractsEnd);
-  return { text: `${head},\n${indent}"${registryKey}": ${body}\n${closeIndent}${tail}`, previous: null };
+  // A chain's first contract goes into an empty `{}`: no comma after the brace.
+  const sep = head.endsWith("{") ? "" : ",";
+  return { text: `${head}${sep}\n${indent}"${registryKey}": ${body}\n${closeIndent}${tail}`, previous: null };
 }
 
 /* --------------------------------- abi output --------------------------------- */
 
 const camel = (name) => name.charAt(0).toLowerCase() + name.slice(1);
 
+/**
+ * The generator in packages/abis is the ONLY thing that writes an ABI module.
+ *
+ * This used to build the file here, from `contracts/out/<Name>.sol/<Name>.json`
+ * alone — and that artifact does not contain events declared in a LIBRARY. Solidity
+ * emits such an event from the CALLING contract's address but files the fragment
+ * under the library's own artifact, which is the failure apps/broker/CLAUDE.md
+ * records for `MatchingHaltedForGas`: the event fires on chain and nothing
+ * downstream can decode it.
+ *
+ * `packages/abis/scripts/generate.mjs` merges those library artifacts (its `TARGETS`
+ * name them) and `abiArtifactDrift.test.ts` expects the merged set. Writing the file
+ * a second way here meant two writers disagreeing, and the loser was whichever ran
+ * last — so a post-deploy sync silently replaced the merged ABI with an unmerged one.
+ *
+ * It did, on 2026-09-24: syncing the RISE redeploy dropped `MatchingHaltedForGas`
+ * from `matchingEngine.ts`, and ponder refused to boot — "Event name for event
+ * 'MatchingHaltedForGas' not found in the contract ABI" — crash-looping the indexer
+ * on a venue that had just been redeployed, where every other explanation looks more
+ * likely than the ABI having been rewritten by the sync step itself.
+ *
+ * So this delegates. It regenerates every target rather than one, which is both
+ * cheap and the point: the generator owns the merge rules, and a second copy of them
+ * here is how they drift apart again.
+ */
 function writeAbi(solidityName, dryRun) {
+  const file = join(ABIS_SRC, `${camel(solidityName)}.ts`);
+  const before = existsSync(file) ? readFileSync(file, "utf8") : null;
+
+  if (!dryRun) {
+    execFileSync("node", [join(REPO, "packages", "abis", "scripts", "generate.mjs")], {
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+  }
+
   const artifact = join(REPO, "contracts", "out", `${solidityName}.sol`, `${solidityName}.json`);
   if (!existsSync(artifact)) die(`no forge artifact at ${artifact} — run \`forge build\` in contracts/`);
   const { abi } = JSON.parse(readFileSync(artifact, "utf8"));
@@ -217,26 +317,17 @@ function writeAbi(solidityName, dryRun) {
     console.log(`      ${sig}${indexed.length ? `  indexed: ${indexed.join(", ")}` : ""}`);
   }
 
-  const file = join(ABIS_SRC, `${camel(solidityName)}.ts`);
-  // NB: no glob in this header. `src/**/` contains `*/`, which closes the block comment
-  // early and leaves the file unparseable — which is exactly how this was found.
-  const header =
-    `/**\n * ${solidityName} ABI, generated by packages/deployments/scripts/sync-deployment.mjs\n` +
-    ` * from the forge artifact for ${solidityName}.sol. Do not hand-edit.\n *\n` +
-    ` * The indexer builds its topic filter from these entries, and an event's topic0 is\n` +
-    ` * keccak256 of the canonical signature using the EXACT Solidity types — so a stale\n` +
-    ` * copy here means the deployed contract's logs carry a topic0 nothing ever matches.\n */\n`;
-  const body = `${header}export const ${solidityName}ABI = ${JSON.stringify(abi, null, 2)} as const;\n`;
-
-  const unchanged = existsSync(file) && readFileSync(file, "utf8") === body;
+  const after = existsSync(file) ? readFileSync(file, "utf8") : null;
+  const unchanged = before !== null && before === after;
   if (dryRun) {
-    console.log(`      would ${unchanged ? "leave unchanged" : existsSync(file) ? "rewrite" : "create"} ${file}`);
-    return { events: events.length, unchanged };
+    console.log(`      would regenerate ${file} via packages/abis/scripts/generate.mjs`);
+    return { events: events.length, unchanged: false };
   }
-  mkdirSync(ABIS_SRC, { recursive: true });
-  writeFileSync(file, body);
+  if (after === null) die(`the generator wrote no ${file} — is ${solidityName} in its TARGETS?`);
 
-  // Export it, if it is not exported already.
+  // Export it, if it is not exported already. The generator writes the module; the
+  // barrel is this script's business, because a newly synced contract may be one the
+  // generator already emitted but nothing had imported yet.
   const indexPath = join(ABIS_SRC, "index.ts");
   const exportLine = `export { ${solidityName}ABI } from "./${camel(solidityName)}.js";`;
   const index = existsSync(indexPath) ? readFileSync(indexPath, "utf8") : "";
@@ -245,6 +336,81 @@ function writeAbi(solidityName, dryRun) {
     console.log(`      + ${exportLine}`);
   }
   return { events: events.length, unchanged };
+}
+
+/* --------------------------------- derived keys -------------------------------- */
+
+/**
+ * Registry keys a deploy produces but no broadcast artifact names.
+ *
+ * Syncing `BandPoolFactory=bandPoolFactory` used to leave TWO entries describing
+ * the previous generation, and both are read in production:
+ *
+ * - **`poolFactory`** is the same contract under its older name — apps/web's
+ *   `poolFactoryAddress`, `ponder.config.ts` and `verify.mjs` all read it, and
+ *   `chainAudit.test.ts` asserts the two keys SHARE an address. Nothing derived
+ *   it, so a redeploy left it pointing at the retired factory.
+ * - **`poolImplementation`** is created INSIDE `BandPoolFactory.initialize`, by
+ *   the factory rather than by a transaction of its own, so it appears in no
+ *   broadcast at all and could only ever be filled in by hand.
+ *
+ * Both had to be corrected manually on RISE and Arc during the 2026-09-24
+ * redeploy. The engine itself is wired correctly — `setPoolFactory` runs — so
+ * `engine.poolFactory()` is right while the registry is wrong, and the only
+ * thing that compares them is the seed. On Arc that is loud: `seed-arc.sh`
+ * refuses with "registry poolFactory (…) disagrees with the engine (…)". On
+ * RISE nothing checks, so it is silent until something reads the dead factory
+ * and finds the previous generation's pools.
+ *
+ * `mirror` copies the entry as-is. `call` reads a zero-argument address getter
+ * off the freshly synced contract, over the registry's own RPC — the same plain
+ * JSON-RPC `verify.mjs` uses, so this needs no node RPC dependency.
+ */
+const DERIVED = {
+  bandPoolFactory: [
+    { key: "poolFactory", from: "mirror" },
+    { key: "poolImplementation", from: "call", selector: "0x8abf6077", what: "impl()" },
+  ],
+};
+
+async function rpcCall(url, to, data) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message ?? "eth_call failed");
+  return json.result;
+}
+
+/** The chain's configured endpoints, as the registry records them. */
+function rpcUrlsFor(registryText, chainId) {
+  try {
+    const chain = JSON.parse(registryText).chains?.[String(chainId)];
+    return chain?.rpcUrls ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function resolveDerived(spec, entry, registryText, chainId) {
+  if (spec.from === "mirror") return { ...entry };
+
+  for (const url of rpcUrlsFor(registryText, chainId)) {
+    try {
+      const word = await rpcCall(url, entry.address, spec.selector);
+      if (typeof word !== "string" || word.length < 66) continue;
+      const addr = checksum(`0x${word.slice(-40)}`);
+      if (/^0x0{40}$/i.test(addr)) continue;
+      // The implementation exists from the factory's constructor, so it shares
+      // the factory's block — there is no earlier one to scan from.
+      return { address: addr, startBlock: entry.startBlock };
+    } catch {
+      // A dead endpoint is not a bad deployment. Try the next one.
+    }
+  }
+  return null;
 }
 
 /* ------------------------------------ main ------------------------------------ */
@@ -258,6 +424,13 @@ if (run.chain !== undefined && String(run.chain) !== String(args.chain)) {
 console.log(`\n${args.script} → chain ${args.chain}\n  ${broadcastPath}\n`);
 
 let registryText = readFileSync(REGISTRY, "utf8");
+
+// Before anything is resolved: a part-broadcast record is repairable, and a
+// refusal here would send the operator to hand-edit start blocks instead.
+if (await repairMissingReceipts(run, args.chain, registryText)) {
+  writeFileSync(broadcastPath, `${JSON.stringify(run, null, 2)}\n`);
+  ok(`broadcast record repaired in place: ${broadcastPath}`);
+}
 // Read the names out of CONTRACT_NAMES, the array ContractName is derived from.
 // This used to match a hand-written `| "name"` union; when that was replaced by
 // the array the regex silently matched NOTHING, so every --contract was
@@ -265,7 +438,10 @@ let registryText = readFileSync(REGISTRY, "utf8");
 // omission, failing silently itself. The union form is still accepted so an
 // older checkout keeps working.
 const indexSource = readFileSync(join(PKG, "src", "index.ts"), "utf8");
-const arrayBlock = indexSource.match(/CONTRACT_NAMES\s*=\s*\[([\s\S]*?)\]/);
+// Up to `] as const`, not the first `]`: the entries carry doc comments, and a
+// comment mentioning `recipients[]` ended the match early and silently dropped
+// every name after it.
+const arrayBlock = indexSource.match(/CONTRACT_NAMES\s*=\s*\[([\s\S]*?)\]\s*as\s+const/);
 const known = new Set(
   [
     ...(arrayBlock ? [...arrayBlock[1].matchAll(/"([a-zA-Z]+)"/g)] : []),
@@ -302,6 +478,19 @@ for (const { solidity, registryKey } of args.contracts) {
 
   const abi = writeAbi(solidity, args.dryRun);
   ok(`abi        ${abi.events} events${abi.unchanged ? " (unchanged)" : ""}`);
+
+  for (const spec of DERIVED[registryKey] ?? []) {
+    if (!known.has(spec.key)) continue;
+    const value = await resolveDerived(spec, entry, registryText, args.chain);
+    if (!value) {
+      note(`could not derive ${spec.key} from ${spec.what ?? "the synced entry"} — set it by hand and re-run verify`);
+      continue;
+    }
+    const before = upsertContract(registryText, args.chain, spec.key, value);
+    registryText = before.text;
+    const how = spec.from === "mirror" ? `mirrors ${registryKey}` : `read from ${registryKey}.${spec.what}`;
+    ok(`derived    ${spec.key} ${value.address}  (${how})`);
+  }
 }
 
 if (args.dryRun) {
@@ -309,6 +498,45 @@ if (args.dryRun) {
 } else {
   writeFileSync(REGISTRY, registryText);
   console.log(`\nWrote ${REGISTRY}`);
-  console.log("Next: pnpm --filter @iter/abis build && pnpm --filter @iter/deployments build");
-  console.log("      node scripts/verify.mjs " + args.chain + "   # confirms the address has code on chain\n");
+
+  /*
+   * BUILD IT HERE, rather than printing the command.
+   *
+   * `deployments.json` is the source and nothing reads it at runtime: apps/web
+   * and every service import `@iter/deployments`, which tsup INLINES the JSON
+   * into — so writing the registry without rebuilding leaves a second, older
+   * set of addresses wearing the same import, and every consumer keeps using
+   * the old one.
+   *
+   * That is not hypothetical. On 2026-09-18 the registry held Arc's live
+   * band-pool factory while `dist` held the retired generation's, and the swap
+   * card reported "No band pool is listed for USDC/TITER yet" — true from where
+   * it was looking, and four layers from the cause. The instruction to rebuild
+   * was printed right here, in this script, and being printed is not being run.
+   *
+   * Non-fatal: the registry is already written and correct, so a build failure
+   * must not read as a failed sync. It says exactly what to run instead.
+   */
+  const build = (filter) => {
+    process.stdout.write(`Building ${filter}… `);
+    try {
+      execFileSync("pnpm", ["--filter", filter, "build"], { stdio: ["ignore", "pipe", "pipe"] });
+      console.log("ok");
+      return true;
+    } catch (error) {
+      console.log("FAILED");
+      console.error(String(error.stderr ?? error.message).trim().split("\n").slice(-3).join("\n"));
+      return false;
+    }
+  };
+  const built = [build("@iter/abis"), build("@iter/deployments")].every(Boolean);
+  if (!built) {
+    console.log("\nThe registry is written and correct. Finish the rebuild by hand:");
+    console.log("  pnpm --filter @iter/abis build && pnpm --filter @iter/deployments build");
+  }
+
+  console.log("\nNext: node scripts/verify.mjs " + args.chain + "   # confirms the address has code on chain");
+  console.log("      node ../../scripts/verify-redeploy.mjs <chainId>   # the five things a redeploy does not carry");
+  console.log("\nA dev server started BEFORE this must be restarted — Turbopack caches");
+  console.log("node_modules dependencies, so a reload keeps serving the old addresses.\n");
 }

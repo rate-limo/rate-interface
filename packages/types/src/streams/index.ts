@@ -7,8 +7,29 @@ import {
 import { spotBarsStreamSchema } from "./bars/spot";
 import { spotTradeStreamSchema as tradeSchema } from "./trades/spot";
 import { spotFillSummaryStreamSchema as fillSummarySchema } from "./trades/summary";
+import {
+	spotOrderCloseSummaryStreamSchema as closeSummarySchema,
+	eventToSpotOrderCloseSummaryStream,
+	streamToSpotOrderCloseSummaryEvent,
+	type SpotOrderCloseSummaryEvent,
+	type SpotOrderCloseSummaryStream,
+} from "./orders/closeSummary";
 import { spotOrderHistoryStreamSchema as historySchema } from "./orderhistories/spot";
 import { futuresMarkStreamSchema } from "./futures/mark";
+import {
+	eventToSpotAccountActivityStream,
+	streamToSpotAccountActivityEvent,
+	spotAccountActivityStreamSchema,
+	type SpotAccountActivityEvent,
+	type SpotAccountActivityStream,
+} from "./account/spot";
+import {
+	eventToSpotLaunchStream,
+	streamToSpotLaunchEvent,
+	spotLaunchStreamSchema,
+	type SpotLaunchEvent,
+	type SpotLaunchStream,
+} from "./launches/spot";
 import { futuresPositionStreamSchema } from "./futures/position";
 import { futuresLiquidationStreamSchema } from "./futures/liquidation";
 import {
@@ -76,15 +97,19 @@ export * from "./orders";
 export * from "./trades";
 export * from "./orderhistories";
 export * from "./futures";
+export * from "./launches";
 export type StreamableObject =
 	| SpotOrderBlockEvent
 	| SpotBarEvent
 	| SpotOrderEvent
 	| SpotOrderMatchedEvent
+	| SpotOrderCloseSummaryEvent
 	| SpotDeleteOrderItemEvent
 	| SpotTradeEvent
 	| SpotFillSummaryEvent
 	| SpotOrderHistoryEvent
+	| SpotAccountActivityEvent
+	| SpotLaunchEvent
 	| FuturesMarkEvent
 	| FuturesPositionEvent
 	| FuturesLiquidationEvent;
@@ -93,10 +118,13 @@ export type stream =
 	| SpotBarStream
 	| SpotOrderStream
 	| SpotOrderMatchedStream
+	| SpotOrderCloseSummaryStream
 	| SpotDeleteOrderItemStream
 	| SpotTradeStream
 	| SpotFillSummaryStream
 	| SpotOrderHistoryStream
+	| SpotAccountActivityStream
+	| SpotLaunchStream
 	| FuturesMarkStream
 	| FuturesPositionStream
 	| FuturesLiquidationStream;
@@ -118,6 +146,9 @@ export function eventToStream<T extends StreamableObject>(
 		// unreachable and a partially-filled resting order stale until the next refetch.
 		case "spotOrderMatched":
 			return eventToSpotOrderMatchedStream(obj as SpotOrderMatchedEvent);
+		// Synthesized by the gateway coalescer, like spotFillSummary below.
+		case "spotOrderCloseSummary":
+			return eventToSpotOrderCloseSummaryStream(obj as SpotOrderCloseSummaryEvent);
 		case "spotTrade":
 			return eventToSpotTradeStream(obj as SpotTradeEvent);
 		// Synthesized by the gateway coalescer, never by the broker. It still needs a
@@ -131,6 +162,10 @@ export function eventToStream<T extends StreamableObject>(
 			return eventToSpotDeleteOrderItemStream(obj as SpotDeleteOrderItemEvent);
 		case "spotOrderHistory":
 			return eventToSpotOrderHistoryStream(obj as SpotOrderHistoryEvent);
+		case "spotAccountActivity":
+			return eventToSpotAccountActivityStream(obj as SpotAccountActivityEvent);
+		case "spotLaunch":
+			return eventToSpotLaunchStream(obj as SpotLaunchEvent);
 		case "futuresMark":
 			return eventToFuturesMarkStream(obj as FuturesMarkEvent);
 		case "futuresPosition":
@@ -187,12 +222,23 @@ export function streamToEvent(stream: stream): StreamableObject | null {
 			return wrap(orderSchema, stream, "spotOrder", streamToSpotOrderEvent);
 		case "spotOrderMatched":
 			return wrap(matchedSchema, stream, "spotOrderMatched", streamToSpotOrderMatchedEvent);
+		case "spotOrderCloseSummary":
+			return wrap(
+				closeSummarySchema,
+				stream,
+				"spotOrderCloseSummary",
+				streamToSpotOrderCloseSummaryEvent,
+			);
 		case "spotTrade":
 			return wrap(tradeSchema, stream, "spotTrade", streamToSpotTradeEvent);
 		case "spotFillSummary":
 			return wrap(fillSummarySchema, stream, "spotFillSummary", streamToSpotFillSummaryEvent);
 		case "spotOrderHistory":
 			return wrap(historySchema, stream, "spotOrderHistory", streamToSpotOrderHistoryEvent);
+		case "spotAccountActivity":
+			return wrap(spotAccountActivityStreamSchema, stream, "spotAccountActivity", streamToSpotAccountActivityEvent);
+		case "spotLaunch":
+			return wrap(spotLaunchStreamSchema, stream, "spotLaunch", streamToSpotLaunchEvent);
 		// Both ids share one tuple shape, hence one schema.
 		case "deleteSpotOrder":
 			return wrap(deleteSchema, stream, "deleteSpotOrder", streamToSpotDeleteOrderItemEvent);
@@ -222,6 +268,14 @@ export function streamToEvent(stream: stream): StreamableObject | null {
 // The matched-order event and the raw schemas were declared in ./orders but never
 // re-exported here, so consumers of the package could not reach them — which is part of
 // why apps/web kept its own copy. Re-exported now that the web imports this surface.
+export {
+	eventToSpotAccountActivityStream,
+	streamToSpotAccountActivityEvent,
+	spotAccountActivityStreamSchema,
+	type SpotAccountActivityEvent,
+	type SpotAccountActivityKind,
+	type SpotAccountActivityStream,
+} from "./account/spot";
 export {
 	eventToSpotOrderMatchedStream,
 	streamToSpotOrderMatchedEvent,

@@ -2614,6 +2614,16 @@ export const MatchingEngineABI = [
   },
   {
     "type": "error",
+    "name": "InsufficientGasToMatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientLiquidity",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidFeeClass",
     "inputs": [
       {
