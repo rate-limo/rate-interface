@@ -155,7 +155,7 @@ function PairCell({ pool }: { pool: PoolRow }) {
  * The second is the live situation today: `spotPairs` exists and is queryable,
  * but the indexer that populates it is down, so it comes back empty. Showing
  * "can't reach the source" there would be wrong, and showing a bare empty table
- * would read as "Iter has no liquidity", which is wrong in the other direction.
+ * would read as "Rate has no liquidity", which is wrong in the other direction.
  */
 function NoPools({
   slug,
@@ -257,7 +257,7 @@ export function LiquidityOverview({
             <Tile
               label="Median LP APR"
               value={pct(data.medianAprPct)}
-              // The Iter dashboard advertises "net of estimated impermanent
+              // The Rate dashboard advertises "net of estimated impermanent
               // loss"; this figure is not that, and says so rather than
               // implying a number nobody has modelled.
               detail="gross of impermanent loss"
@@ -307,7 +307,7 @@ export function LiquidityOverview({
                 <b className="text-[color:var(--m-text-primary)]">
                   Launch pools — not listed.
                 </b>{" "}
-                Anyone can deploy a token and open a market; Iter has reviewed none of these.
+                Anyone can deploy a token and open a market; Rate has reviewed none of these.
                 Providing <b className="text-[color:var(--m-text-primary)]">quote</b> liquidity is
                 what lists one — at {usd(thresholdUsd, { compact: true })} it graduates and joins
                 the main table. Base-side liquidity does not count toward the threshold.

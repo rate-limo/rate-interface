@@ -62,3 +62,21 @@ export function resolveRate(
    */
   return 0;
 }
+
+/**
+ * A rate, at a precision that suits its magnitude. Never a USD figure — the
+ * liquidity and launch specs both require quote-per-base, and this venue's
+ * pairs are frequently not quoted in dollars.
+ *
+ * It lives here rather than in a component because several surfaces print the
+ * same number: the pair step's "Current rate", the deposit ratio, and the band
+ * chart's edge labels. The band table (since removed) once used `toFixed(0)` for
+ * its bounds, which on a pair anchored at 1.0125 rendered a band as "1-1" — a
+ * range of zero width on the control whose entire job was showing width.
+ */
+export function formatRate(p: number): string {
+  if (!Number.isFinite(p)) return "—";
+  if (p >= 1000) return Math.round(p).toLocaleString();
+  if (p >= 1) return p.toFixed(4);
+  return p.toPrecision(4);
+}

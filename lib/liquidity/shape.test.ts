@@ -2,12 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BandSet } from "./bands";
 import { allocateShaped, shapeWeights } from "./bands";
 import { autoWeights, type PairStats } from "./auto";
-import {
-  allocateByShape,
-  depositUnits,
-  formatDepositUnits,
-  resolveDepositShape,
-} from "./shape";
+import { allocateByShape, depositUnits, formatDepositUnits, resolveDepositShape, reallocate } from "./shape";
 
 /** The ladder BandPoolFactory seeds, with depth so exhaustion has something to chew. */
 const ladder = (reach: number): BandSet => ({
@@ -126,5 +121,76 @@ describe("allocateByShape", () => {
   it("is exact on a total too small to reach every band", () => {
     const amounts = allocateByShape(BigInt(2), ladder(0.01), ALL, [1, 1, 1]);
     expect(amounts.reduce((a, b) => a + b, BigInt(0))).toBe(BigInt(2));
+  });
+});
+
+/*
+ * The split the chart's drag and the sliders both write.
+ *
+ * Every one of these is a way to misallocate someone's money without throwing:
+ * a remainder spread evenly instead of proportionally flattens the curve they
+ * chose, a share that does not total one deposits less than they typed, and an
+ * emptied vector leaves a Review button that silently stops working.
+ */
+describe("reallocate", () => {
+  const CURVE = [3, 2, 1];
+
+  it("always totals one", () => {
+    for (const pos of [0, 1, 2]) {
+      for (const share of [0, 0.15, 0.5, 0.83, 1]) {
+        const next = reallocate(CURVE, pos, share);
+        if (!next) continue;
+        const sum = next.reduce((a, b) => a + b, 0);
+        expect(sum).toBeCloseTo(1, 10);
+      }
+    }
+  });
+
+  it("gives the band exactly the share asked for", () => {
+    expect(reallocate(CURVE, 1, 0.4)![1]).toBeCloseTo(0.4, 10);
+  });
+
+  // The failure an even split of the remainder produces: nudging one band
+  // quietly turns the curve the LP picked into something else.
+  it("keeps the other bands in their existing balance", () => {
+    const next = reallocate(CURVE, 0, 0.4)!;
+    // The others were 2:1 and must still be 2:1 across the remaining 0.6.
+    expect(next[1]! / next[2]!).toBeCloseTo(2, 10);
+    expect(next[1]! + next[2]!).toBeCloseTo(0.6, 10);
+  });
+
+  it("empties a band to zero and gives its share to the rest", () => {
+    const next = reallocate(CURVE, 2, 0)!;
+    expect(next[2]).toBe(0);
+    expect(next[0]! + next[1]!).toBeCloseTo(1, 10);
+  });
+
+  it("takes everything when a band is pulled to 100%", () => {
+    expect(reallocate(CURVE, 2, 1)).toEqual([0, 0, 1]);
+  });
+
+  it("gives the remainder to the band that fills first when nothing else holds any", () => {
+    // Coming back from an all-in position: there is no proportion to preserve,
+    // so the tightest band takes it rather than an arbitrary neighbour.
+    const next = reallocate([0, 0, 1], 2, 0.25)!;
+    expect(next[0]).toBeCloseTo(0.75, 10);
+    expect(next[1]).toBe(0);
+  });
+
+  it("refuses a move that would empty the deposit", () => {
+    // One band at zero leaves nothing to deposit; the gesture is refused, not
+    // applied as a split that sums to nothing.
+    expect(reallocate([1], 0, 0)).toBeNull();
+  });
+
+  it("refuses a position that is not a band", () => {
+    expect(reallocate(CURVE, -1, 0.5)).toBeNull();
+    expect(reallocate(CURVE, 3, 0.5)).toBeNull();
+  });
+
+  it("clamps a share outside 0–1 and treats a non-number as zero", () => {
+    expect(reallocate(CURVE, 0, 2)).toEqual([1, 0, 0]);
+    expect(reallocate(CURVE, 0, -1)![0]).toBe(0);
+    expect(reallocate(CURVE, 0, Number.NaN)![0]).toBe(0);
   });
 });

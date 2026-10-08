@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateAcross, allocateShaped, bandReachable, mockBandSet, selectableBands, shapeWeights, stepIntoBandBps, type Band, type BandSet } from "./bands";
+import { allocateAcross, allocateShaped, bandReachable, dropEmptyBands, mockBandSet, selectableBands, shapeWeights, splitByWeights, stepIntoBandBps, type Band, type BandSet } from "./bands";
 
 describe("allocateAcross", () => {
   it("splits evenly when it divides", () => {
@@ -241,5 +241,123 @@ describe("allocateShaped", () => {
     const shut = ladder(0.005);
     shut.bands = shut.bands.map((b) => ({ ...b, open: false }));
     expect(allocateShaped(T, shut, ALL, "curve")).toEqual({ bands: [], amounts: [] });
+  });
+});
+
+describe("splitByWeights", () => {
+  const CURVE = [3, 2, 1];
+
+  it("always sums to the total", () => {
+    for (const total of [BigInt(1), BigInt(7), BigInt(1000), BigInt("1234567890123456789")]) {
+      for (const weights of [[1], [1, 1], CURVE, [1, 2, 3, 4], [0.41, 0.33, 0.26]]) {
+        const parts = splitByWeights(total, weights);
+        expect(parts).toHaveLength(weights.length);
+        expect(parts.reduce((a, b) => a + b, BigInt(0))).toBe(total);
+      }
+    }
+  });
+
+  /*
+   * The property the multi-band deposit bug turned on. The range step splits at
+   * a fixed 4-decimal display precision to draw the picker bars and the
+   * receipt; the transaction splits the same shape at the token's own decimals.
+   * If those two disagreed, the screen and the chain would again describe
+   * different deposits — which is what shipped when the write ignored the split
+   * entirely.
+   */
+  it("produces the same shape at display precision and at token precision", () => {
+    const display = splitByWeights(BigInt(100 * 10 ** 4), CURVE);
+    const chain = splitByWeights(BigInt("100000000000000000000"), CURVE);
+    const share = (parts: bigint[]) =>
+      parts.map((p) => Number((p * BigInt(10000)) / parts.reduce((a, b) => a + b, BigInt(0))));
+    expect(share(chain)).toEqual(share(display));
+    // Curve is 3:2:1, so the tightest band takes half.
+    expect(share(chain)).toEqual([5000, 3333, 1666]);
+  });
+
+  it("gives the remainder to the tightest band, which fills first", () => {
+    // 3:2:1 of 100 is 50 / 33.33 / 16.66; the dust belongs where it earns most.
+    const parts = splitByWeights(BigInt(100), CURVE);
+    expect(parts).toEqual([BigInt(51), BigInt(33), BigInt(16)]);
+  });
+
+  /*
+   * `addLiquidityAcross` takes three arrays that must stay aligned with each
+   * other. The side the LP did not bring is a full row of zeros, never an empty
+   * array, or the quote amounts would be read against the wrong bands.
+   */
+  it("returns a full-length row of zeros for the side that was not brought", () => {
+    expect(splitByWeights(BigInt(0), CURVE)).toEqual([BigInt(0), BigInt(0), BigInt(0)]);
+  });
+
+  it("quantises the float weights `auto` produces rather than throwing on them", () => {
+    const parts = splitByWeights(BigInt(1_000_000), [0.5, 0.3, 0.2]);
+    expect(parts.reduce((a, b) => a + b, BigInt(0))).toBe(BigInt(1_000_000));
+    expect(parts[1]).toBe(BigInt(300_000));
+    expect(parts[2]).toBe(BigInt(200_000));
+  });
+
+  it("splits evenly rather than misallocating when every weight is zero", () => {
+    expect(splitByWeights(BigInt(300), [0, 0, 0])).toEqual([BigInt(100), BigInt(100), BigInt(100)]);
+  });
+
+  it("treats a non-finite weight as zero instead of poisoning the whole split", () => {
+    const parts = splitByWeights(BigInt(300), [1, Number.NaN, 1]);
+    expect(parts.reduce((a, b) => a + b, BigInt(0))).toBe(BigInt(300));
+    expect(parts[1]).toBe(BigInt(0));
+  });
+
+  it("has nothing to split across no bands", () => {
+    expect(splitByWeights(BigInt(100), [])).toEqual([]);
+  });
+});
+
+describe("dropEmptyBands", () => {
+  const B = (n: number) => BigInt(n);
+
+  it("leaves a deposit that funds every band alone", () => {
+    const out = dropEmptyBands([0, 1, 2], [[B(0), B(0), B(0)], [B(500100), B(333300), B(166600)]]);
+    expect(out.bands).toEqual([0, 1, 2]);
+    expect(out.dropped).toEqual([]);
+    expect(out.amounts[1]).toEqual([B(500100), B(333300), B(166600)]);
+  });
+
+  /*
+   * The revert this exists to prevent: a band at 0% mints nothing, and the pool
+   * refuses a zero with `ZeroLiquidity()` — taking the OTHER two bands down with
+   * it, because it is one call.
+   */
+  it("drops a band the shape left at nothing, and keeps both sides aligned", () => {
+    const out = dropEmptyBands(
+      [0, 1, 2],
+      [
+        [B(10), B(0), B(30)],
+        [B(11), B(0), B(33)],
+      ],
+    );
+    expect(out.bands).toEqual([0, 2]);
+    expect(out.dropped).toEqual([1]);
+    expect(out.amounts).toEqual([
+      [B(10), B(30)],
+      [B(11), B(33)],
+    ]);
+  });
+
+  /*
+   * A single-sided deposit is all-zero on the side it is not bringing. That is the
+   * normal state, not an empty band — so a band counts as funded if EITHER side
+   * has something in it.
+   */
+  it("keeps a band funded on one side only", () => {
+    const out = dropEmptyBands([0], [[B(0)], [B(25)]]);
+    expect(out.bands).toEqual([0]);
+    expect(out.dropped).toEqual([]);
+  });
+
+  it("returns no bands when the whole deposit rounds away", () => {
+    const out = dropEmptyBands([0, 1], [[B(0), B(0)], [B(0), B(0)]]);
+    expect(out.bands).toEqual([]);
+    expect(out.dropped).toEqual([0, 1]);
+    expect(out.amounts).toEqual([[], []]);
   });
 });

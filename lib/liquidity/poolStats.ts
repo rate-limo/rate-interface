@@ -1,3 +1,4 @@
+import { gatewayFetch } from "@/lib/realtime/watermark";
 import "server-only";
 import { derivePools, poolTotals, splitPools, type PoolRow } from "./derive";
 import { PonderLinks, defaultConnectedChain } from "@/consts";
@@ -12,7 +13,7 @@ const DEFAULT_THRESHOLD_USD = 100_000;
  * Market-wide liquidity stats for the /pool overview.
  *
  * Same contract as lib/iter/protocolMetrics.ts: one query, and a zero-state with
- * `isFallback` on throw. That flag matters — an empty pool table reads as "Iter
+ * `isFallback` on throw. That flag matters — an empty pool table reads as "Rate
  * has no liquidity", a very different claim from "we can't reach the indexer", so
  * the component has to be able to tell them apart.
  *
@@ -25,10 +26,10 @@ const DEFAULT_THRESHOLD_USD = 100_000;
  *   spotPairs. Rendering the flat protocol rate on every row would be a column
  *   of identical values pretending to be a differentiator.
  * - **Depth ±2%**: comes off the order book, one query per pair. It's the column
- *   that makes this page Iter's rather than a generic AMM's, so it's worth
+ *   that makes this page Rate's rather than a generic AMM's, so it's worth
  *   adding — as its own change, not behind a fabricated number.
  *
- * The APR is also gross. The Iter dashboard advertises LP yield "net of estimated
+ * The APR is also gross. The Rate dashboard advertises LP yield "net of estimated
  * impermanent loss"; that estimate is a modelling decision nobody has made yet,
  * so the UI labels this one honestly instead.
  */
@@ -67,8 +68,8 @@ export async function getLiquidityOverview(networkName = defaultConnectedChain):
     const gateway = PonderLinks[networkName];
     if (!gateway) throw new Error(`No gateway configured for ${networkName}`);
     const [listedResponse, launchesResponse] = await Promise.all([
-      fetch(`${gateway}/api/pairs/1000/1`, { cache: "no-store" }),
-      fetch(`${gateway}/api/pairs/unlisted/1000/1`, { cache: "no-store" }),
+      gatewayFetch(`${gateway}/api/pairs/1000/1`, { cache: "no-store" }),
+      gatewayFetch(`${gateway}/api/pairs/unlisted/1000/1`, { cache: "no-store" }),
     ]);
     if (!listedResponse.ok || !launchesResponse.ok) {
       throw new Error(`Pair gateway returned ${listedResponse.status}/${launchesResponse.status}`);

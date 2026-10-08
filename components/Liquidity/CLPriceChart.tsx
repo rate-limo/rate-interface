@@ -514,6 +514,71 @@ export function CLPriceChart({
             );
           })}
 
+          {/*
+            Each band's own price, on the price axis.
+            
+            These lived in the step beside the chart as a "Where it fills" panel
+            of two cells — printing the bounds of ONE band, the widest selected,
+            under a heading, while the picker rows printed their own bounds too.
+            A price belongs on the axis that measures price, and every selected
+            band gets one here rather than a single band getting one there.
+
+            Only SELECTED bands are labelled. An unselected band is not part of
+            the deposit, and filling the axis with prices for bands the money
+            will never sit in is what turns an axis into noise.
+          */}
+          {(() => {
+            const rows = bandZones
+              .filter((z) => z.selected)
+              .flatMap((z) => [
+                { y: clamp(priceToY(rate * (1 + z.tolerance), b, CH)), price: rate * (1 + z.tolerance), tol: z.tolerance },
+                { y: clamp(priceToY(rate * (1 - z.tolerance), b, CH)), price: rate * (1 - z.tolerance), tol: z.tolerance },
+              ])
+              // Outermost first, so a tight band's label is the one dropped when
+              // two collide — it sits nearest the rate pill, which already
+              // states the price it would be repeating.
+              .sort((p1, p2) => Math.abs(p2.price - rate) - Math.abs(p1.price - rate));
+
+            const placed: number[] = [priceToY(rate, b, CH)];
+            const keep = rows.filter((r) => {
+              if (placed.some((y) => Math.abs(y - r.y) < 11)) return false;
+              placed.push(r.y);
+              return true;
+            });
+
+            return keep.map((r, i) => (
+              <g key={`band-label-${i}`}>
+                <line
+                  x1={PLOT_W - 5}
+                  y1={r.y}
+                  x2={PLOT_W + 2}
+                  y2={r.y}
+                  stroke="var(--m-primary)"
+                  strokeOpacity={0.7}
+                  strokeWidth={1}
+                />
+                <text
+                  x={PLOT_W + 5}
+                  y={r.y + 3}
+                  fill="var(--m-primary)"
+                  fontSize={9}
+                  className="font-mono"
+                >
+                  {fmt(r.price)}
+                </text>
+                <text
+                  x={PLOT_W + 5}
+                  y={r.y + 12}
+                  fill="var(--m-text-secondary-2)"
+                  fontSize={8}
+                  className="font-mono"
+                >
+                  ±{(r.tol * 100).toFixed(2)}%
+                </text>
+              </g>
+            ));
+          })()}
+
           {!isLaunch && !readOnly && dp && (
             <>
               <path d={dp} fill="var(--m-text-secondary-2)" fillOpacity={0.28} stroke="var(--m-text-secondary-2)" strokeWidth={1} strokeOpacity={0.5} />

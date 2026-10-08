@@ -11,10 +11,23 @@ const TOKENS: Record<string, LiqToken> = {
   WBTC: { symbol: "WBTC", name: "Wrapped Bitcoin", priceUsd: 82306, color: "#c98500" },
   USDC: { symbol: "USDC", name: "USD Coin", priceUsd: 1, color: "var(--m-logo)" },
   USDT: { symbol: "USDT", name: "Tether USD", priceUsd: 1, color: "var(--m-logo)" },
-  MON: { symbol: "MON", name: "Monad", priceUsd: 2.05, color: "var(--m-primary)" },
 };
 
-export const LIQ_UNIVERSE = ["ETH", "WBTC", "USDC", "USDT", "MON"];
+/**
+ * `LIQ_UNIVERSE` was here and is DELETED, along with the MON entry above it.
+ *
+ * It was the liquidity token picker's list — five symbols, one of them Monad,
+ * a chain removed from `SUPPORTED_CHAINS` because its matching engine returns
+ * `0x`. The picker reads the deployment's own token list now; see
+ * `components/Liquidity/TokenModal.tsx`. Do not reintroduce a static universe:
+ * the failure it produced was a pool offered on a chain the app does not serve,
+ * and it looked completely correct on screen.
+ *
+ * What survives is `liqToken`, and only for a per-symbol COLOUR and display
+ * name — never for a price. `priceUsd` here is a placeholder, which is why
+ * `lib/liquidity/rate.ts` stopped calling `pairRate` and returns 0 for an
+ * unknown market instead of a fabricated one.
+ */
 
 export function liqToken(symbol: string): LiqToken {
   return TOKENS[symbol] ?? { symbol, name: symbol, priceUsd: 1, color: "var(--m-primary)" };

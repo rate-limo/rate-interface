@@ -22,8 +22,32 @@ import { autoWeights, describeAuto, type AutoVerdict, type PairStats } from "./a
 /**
  * `auto` is not a `BandShape`: the three presets are fixed weight vectors, and auto
  * is a measurement of the pair, so it is computed per pair and can be UNAVAILABLE.
+ *
+ * `custom` is not one either, and for the opposite reason: it carries no rule at
+ * all. It is whatever the LP dragged, so the weights travel beside it rather
+ * than being derivable from the name. Every other shape can be recomputed from
+ * the band count; this one cannot, which is why `resolveDepositShape` takes the
+ * vector as an argument instead of looking it up.
  */
-export type DepositShape = BandShape | "auto";
+export type DepositShape = BandShape | "auto" | "custom";
+
+/**
+ * Every shape a deposit can be ASKED for, as a value — so a caller reading one
+ * out of a URL can check it against the type instead of re-listing the members
+ * and drifting from them.
+ *
+ * `custom` is in it because a URL could legitimately carry one, and excluding it
+ * here would silently downgrade a custom deposit to the default; what `custom`
+ * cannot do is arrive WITHOUT its weight vector, which is `resolveDepositShape`'s
+ * problem and not this list's.
+ */
+export const DEPOSIT_SHAPES: readonly DepositShape[] = [
+  "auto",
+  "spot",
+  "curve",
+  "wide",
+  "custom",
+];
 
 export interface ResolvedShape {
   /**
@@ -81,16 +105,33 @@ export function resolveDepositShape(
   total: bigint,
   shape: DepositShape,
   stats?: PairStats,
+  /**
+   * The LP's own split, aligned with the USABLE bands. Only read when `shape`
+   * is `custom`, and only when it lines up: a vector of the wrong length is a
+   * stale drag from a different band set — most likely the pair changed under
+   * it — and applying it would put someone's ±0.50% allocation on a band that
+   * is now ±0.02%. Falling back to `curve` there loses a drag; using it would
+   * lose money.
+   */
+  customWeights?: number[],
 ): ResolvedShape {
   const bands = selectableBands(set, selected);
   const verdict = stats ? describeAuto(set, selected, stats) : null;
   const autoReady = Boolean(stats && verdict?.available);
-  const active: DepositShape = shape === "auto" && !autoReady ? "curve" : shape;
+  const customUsable =
+    shape === "custom" &&
+    Array.isArray(customWeights) &&
+    customWeights.length === bands.length &&
+    customWeights.some((w) => w > 0);
+  const active: DepositShape =
+    shape === "auto" && !autoReady ? "curve" : shape === "custom" && !customUsable ? "curve" : shape;
 
   const weights =
-    active === "auto" && stats
-      ? autoWeights(set, selected, stats)
-      : shapeWeights(active as BandShape, bands.length);
+    active === "custom" && customWeights
+      ? customWeights.slice(0, bands.length)
+      : active === "auto" && stats
+        ? autoWeights(set, selected, stats)
+        : shapeWeights(active as BandShape, bands.length);
 
   return {
     active,
@@ -130,4 +171,50 @@ export function depositUnits(raw: string, decimals: number): bigint {
   const value = Number.parseFloat(String(raw).replace(/,/g, "")) || 0;
   if (!Number.isFinite(value) || value <= 0) return BigInt(0);
   return BigInt(Math.round(value * 10 ** decimals));
+}
+
+/**
+ * Set one band's share and spread the remainder over the others.
+ *
+ * Proportionally, in their existing balance, so moving one band never silently
+ * rewrites the ones the LP was happy with — the failure a naive "even split of
+ * the rest" produces, where nudging the tightest band quietly flattens a curve
+ * into a spot.
+ *
+ * Returns null rather than an all-zero vector when the move would empty the
+ * deposit. An empty split has no valid transaction, and the UI's only honest
+ * response is to refuse the gesture: zeroing it would leave a Review button
+ * that stops working with nothing on screen saying why.
+ *
+ * `position` indexes the USABLE bands — the same array `ResolvedShape.bands`
+ * carries — because every caller is drawn from a resolved split and refused
+ * bands are not in it.
+ */
+export function reallocate(
+  weights: readonly number[],
+  position: number,
+  share: number,
+): number[] | null {
+  const n = weights.length;
+  if (position < 0 || position >= n) return null;
+
+  const sum = weights.reduce((a, w) => a + Math.max(0, w), 0);
+  const norm = sum > 0 ? weights.map((w) => Math.max(0, w) / sum) : weights.map(() => 0);
+  const target = Math.min(1, Math.max(0, Number.isFinite(share) ? share : 0));
+  const rest = 1 - target;
+  const otherSum = norm.reduce((a, w, i) => (i === position ? a : a + w), 0);
+
+  const next = new Array<number>(n).fill(0);
+  next[position] = target;
+  if (rest > 0) {
+    if (otherSum > 0) {
+      for (let i = 0; i < n; i++) if (i !== position) next[i] = (norm[i]! / otherSum) * rest;
+    } else if (n > 1) {
+      // Nothing to preserve a proportion of. The remainder goes to the band
+      // that fills first, which is the tightest — where liquidity does the most
+      // work when nobody has said otherwise.
+      next[position === 0 ? 1 : 0] = rest;
+    }
+  }
+  return next.some((w) => w > 0) ? next : null;
 }

@@ -31,6 +31,17 @@ export interface Band {
   feesQuote: number;
   /** Premium over the engine's taker fee, as a multiple. 1 = no premium. */
   feeMultiplier: number;
+  /**
+   * `bandReserves(i)`, raw and exact — NOT the priced `liquidityUSD` above.
+   *
+   * Carried because whether a band can take one token on its own is decided by
+   * which of its two reserves are non-zero, and that is an exact question the
+   * chain answers. `undefined` means not read (the illustrative ladder, or a read
+   * still in flight), which `lib/liquidity/wall.ts` treats as "not known" rather
+   * than as empty.
+   */
+  baseReserve?: bigint;
+  quoteReserve?: bigint;
 }
 
 export interface BandSet {
@@ -250,31 +261,58 @@ export function allocateShaped(
     return { bands, amounts: bands.map(() => zero) };
   }
 
-  // Explicit weights come from `autoWeights`, which scores bands by expected fee
-  // revenue and so returns floats. Quantise to per-million before they meet bigint:
-  // rounding at the weight is a rounding of the SHAPE, where rounding inside the
-  // division below would be a rounding of the money.
-  const raw = Array.isArray(shape) ? shape : shapeWeights(shape, bands.length);
-  const weights = Array.isArray(shape)
-    ? raw.slice(0, bands.length).map((w) => Math.max(0, Math.round(w * 1e6)))
-    : raw;
-  if (weights.length !== bands.length || weights.every((w) => w === 0)) {
+  const weights = Array.isArray(shape) ? shape.slice(0, bands.length) : shapeWeights(shape, bands.length);
+  if (weights.length !== bands.length) {
     // A caller-supplied vector that does not line up with the usable bands is a bug
     // upstream; splitting evenly is the one answer that cannot silently misallocate.
-    const even = allocateAcross(total, bands.length);
-    return { bands, amounts: even };
+    return { bands, amounts: allocateAcross(total, bands.length) };
   }
-  const totalWeight = BigInt(weights.reduce((a, b) => a + b, 0));
-  const amounts = new Array<bigint>(bands.length).fill(zero);
+  return { bands, amounts: splitByWeights(total, weights) };
+}
+
+/**
+ * Split one total across a weight vector, exactly.
+ *
+ * Extracted from `allocateShaped` because the same split has to happen TWICE at
+ * different scales and the two must not be separate implementations. The range
+ * step allocates at a fixed 4-decimal display precision to draw the picker bars
+ * and the receipt; the deposit has to allocate the identical shape at the
+ * token's real decimals, because those display units are 10^14 short of what an
+ * 18-decimal ERC-20 expects. One function, called twice, is what stops the
+ * receipt and the transaction drifting apart — which is the failure this whole
+ * module already exists to prevent.
+ *
+ * Weights are quantised to per-million on the way in. `autoWeights` scores bands
+ * by expected fee revenue and so returns floats, and rounding at the WEIGHT is a
+ * rounding of the shape, where rounding inside the division below would be a
+ * rounding of the money. Integer preset weights survive it unchanged: scaling a
+ * weight vector by a constant cannot move a floored share.
+ *
+ * Exact by construction — the amounts always sum to `total`.
+ */
+export function splitByWeights(total: bigint, weights: readonly number[]): bigint[] {
+  const zero = BigInt(0);
+  const n = weights.length;
+  if (n === 0) return [];
+  // A zero total is the normal state of the side the LP is NOT bringing, so it
+  // returns a full-length row of zeros rather than an empty one: the arrays
+  // `addLiquidityAcross` takes must stay aligned with its band list.
+  if (total <= zero) return new Array<bigint>(n).fill(zero);
+
+  const quantised = weights.map((w) => (Number.isFinite(w) ? Math.max(0, Math.round(w * 1e6)) : 0));
+  const totalWeight = quantised.reduce((a, b) => a + b, 0);
+  if (totalWeight <= 0) return allocateAcross(total, n);
+
+  const amounts = new Array<bigint>(n).fill(zero);
   let assigned = zero;
-  for (let i = 1; i < bands.length; i++) {
-    amounts[i] = (total * BigInt(weights[i]!)) / totalWeight;
+  for (let i = 1; i < n; i++) {
+    amounts[i] = (total * BigInt(quantised[i]!)) / BigInt(totalWeight);
     assigned += amounts[i]!;
   }
   // The tightest usable band absorbs the remainder: it fills first and does the most
   // volume, so dust is worth the most there -- the same rule allocateAcross follows.
   amounts[0] = total - assigned;
-  return { bands, amounts };
+  return amounts;
 }
 
 /**
@@ -329,9 +367,63 @@ export function selectableBands(set: BandSet, selected: number[]): number[] {
   return selected.filter((i) => usable.has(i)).sort((a, b) => a - b);
 }
 
+/**
+ * Every band a deposit could actually enter, tightest first.
+ *
+ * This is what a PRESET selects. Before it existed as its own export, choosing
+ * a shape only reweighted whatever the LP had already ticked — and the flow
+ * opens with a single band ticked, so Spot, Curve and Wide all produced a
+ * byte-identical deposit and the control appeared to do nothing. A distribution
+ * needs something to distribute across; the preset is what provides it.
+ *
+ * Refused bands are excluded rather than zero-weighted, for the reason
+ * `allocateShaped` records: `addLiquidityAcross` rejects a band by INDEX before
+ * it reads the amount, so a zero for an out-of-reach band does not deposit less
+ * there — it reverts the whole batch.
+ */
+export function usableBands(set: BandSet): number[] {
+  return set.bands
+    .filter((b) => b.open && bandReachable(set, b))
+    .map((b) => b.index)
+    .sort((a, b) => a - b);
+}
+
 /** `600` → `10 minutes`. Vesting copy reads worse in seconds. */
 export function formatMaturity(sec: number): string {
   if (sec % 3600 === 0) return `${sec / 3600} hour${sec === 3600 ? "" : "s"}`;
   if (sec % 60 === 0) return `${sec / 60} minutes`;
   return `${sec} seconds`;
+}
+
+/**
+ * Drop the bands this deposit would put nothing into.
+ *
+ * A band that receives zero mints zero shares, and `BandPool` refuses that with
+ * `ZeroLiquidity()` — reverting the WHOLE deposit, not just that band. It is easy
+ * to reach without doing anything unusual: a shape that leaves one band at 0%, or
+ * a deposit small enough that one band's slice rounds away at the token's
+ * decimals (1 USDC across three bands is fine; 0.000002 USDC is not).
+ *
+ * Reverting is the right answer for the contract and the wrong one for the person:
+ * they asked to spread money across bands, and a band getting nothing is the same
+ * deposit minus one band, not a broken deposit. So the empty bands are dropped
+ * here and the rest goes through. Returning an EMPTY band list is the caller's
+ * signal that there is nothing left to deposit at all.
+ */
+export function dropEmptyBands(
+  bands: readonly number[],
+  amounts: readonly (readonly bigint[])[],
+): { bands: number[]; amounts: bigint[][]; dropped: number[] } {
+  const zero = BigInt(0);
+  const kept: number[] = [];
+  const dropped: number[] = [];
+  bands.forEach((band, i) => {
+    if (amounts.some((row) => (row[i] ?? zero) > zero)) kept.push(i);
+    else dropped.push(band);
+  });
+  return {
+    bands: kept.map((i) => bands[i]!),
+    amounts: amounts.map((row) => kept.map((i) => row[i] ?? zero)),
+    dropped,
+  };
 }

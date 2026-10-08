@@ -1,41 +1,114 @@
 "use client";
 
 import Link from "next/link";
-import { formatPct } from "@/lib/pair/derive";
-import { useMemo, useState } from "react";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Search } from "lucide-react";
+import { useAccount } from "wagmi";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
-import { usePortfolioLive } from "@/hooks/usePortfolioLive";
 import { useWalletAccount, useWalletConnect } from "@/lib/wallet";
 import { buildPageUrl } from "@/lib/routing/chainParams";
-import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
-import { tokenColor } from "@/lib/portfolio/mock";
 import { cn } from "@/lib/utils";
+import { useLpPositions, useManagerTx } from "@/hooks/useLpPositions";
+import { pinnedPosition, type LpToken } from "@/lib/liquidity/positions";
+import { PositionCard } from "./PositionCard";
+import { WithdrawFlow } from "./WithdrawFlow";
+import { AdjustFlow } from "./AdjustFlow";
 
 type PositionFilter = "open" | "closed";
 
+/**
+ * /pool -- the wallet's LP positions, ONE CARD PER TOKEN.
+ *
+ * apps/web/CLAUDE.md's LP section is the rule: one LP token is one position holding the
+ * whole band ladder, so a card is a token and its bands are drawn inside it. The count
+ * of cards is the count of tokens; a wallet with two positions in one pair sees two.
+ */
 export function PositionsPage({ networkSlug }: { networkSlug: string }) {
   const { displayNetworkName } = useMarketPageContext();
   const { address, isConnected, isLoading: walletLoading } = useWalletAccount();
+  const { address: signer } = useAccount();
   const { open } = useWalletConnect();
-  const { data, isLoading } = usePortfolioLive(displayNetworkName, address);
+  const { data: tokens, isLoading, refetch } = useLpPositions(displayNetworkName, address);
+  const { send } = useManagerTx(displayNetworkName);
   const [filter, setFilter] = useState<PositionFilter>("open");
   const [query, setQuery] = useState("");
+  const [collecting, setCollecting] = useState<string | null>(null);
 
-  const positions = useMemo(() => {
+  /*
+   * Seeded from the URL so the portfolio can link straight INTO a dialog. `position`
+   * names the token; a bare pair still works when the wallet holds exactly one
+   * position in it. Read once, as initial state, so closing the dialog sticks.
+   */
+  const params = useSearchParams();
+  const [withdrawing, setWithdrawing] = useState<string | null>(() =>
+    params.get("withdraw") === "1" ? (params.get("position") ?? `pair:${params.get("base")}/${params.get("quote")}`) : null,
+  );
+  const [adjusting, setAdjusting] = useState<string | null>(null);
+
+  const find = (key: string | null): LpToken | undefined => {
+    if (!key || !tokens) return undefined;
+    if (key.startsWith("pair:")) {
+      const matches = tokens.filter((t) => t.active && `pair:${t.baseSymbol}/${t.quoteSymbol}` === key);
+      return matches.length === 1 ? matches[0] : undefined;
+    }
+    return tokens.find((t) => t.tokenId === key);
+  };
+
+  const shown = useMemo(() => {
     const needle = query.trim().toUpperCase();
-    if (filter === "closed") return [];
-    return (data?.lps ?? []).filter((position) =>
-      !needle || `${position.market.base}/${position.market.quote}`.includes(needle),
+    return (tokens ?? []).filter(
+      (t) =>
+        (filter === "open" ? t.active : !t.active) &&
+        (!needle || `${t.baseSymbol}/${t.quoteSymbol}`.toUpperCase().includes(needle) || t.tokenId === needle.replace("#", "")),
     );
-  }, [data?.lps, filter, query]);
+  }, [tokens, filter, query]);
+
+  const collect = async (token: LpToken) => {
+    if (!signer) return;
+    setCollecting(token.tokenId);
+    const sent = await send("collect", [BigInt(token.tokenId), signer], "Could not collect fees");
+    setCollecting(null);
+    // Refetch for an unconfirmed send as well — it may already have landed.
+    if (sent) void refetch();
+  };
+
+  /**
+   * The position each dialog OPENED with, kept even when the live list stops
+   * matching it.
+   *
+   * `find` re-resolves from `tokens` on every render, and `tokens` moves under
+   * an open dialog: the withdrawal refetches it, `useLpPositions` invalidates
+   * again on the receipt, a full exit flips `active` to false, and a `pair:`
+   * deep link stops matching the moment the wallet holds a second position in
+   * that pair. Any one of those makes `find` return undefined — which UNMOUNTS
+   * the dialog and destroys the success screen the withdrawal has just put on
+   * screen. The user sees their confirmation vanish, and a full withdrawal
+   * could never show one at all, because closing the position is exactly what
+   * removes it from the list.
+   *
+   * The live row still wins while it exists, so an open dialog goes on showing
+   * fresh numbers; the pin is only what stops it disappearing.
+   */
+  const opened = useRef(new Map<string, LpToken>());
+  const resolve = (key: string | null): LpToken | undefined => {
+    if (!key) return undefined;
+    const live = find(key);
+    if (live) opened.current.set(key, live);
+    return pinnedPosition(live, opened.current.get(key));
+  };
+
+  const withdrawToken = resolve(withdrawing);
+  const adjustToken = resolve(adjusting);
 
   return (
     <div className="mx-auto w-full max-w-[1040px] px-5 pb-24 pt-12 min-[800px]:px-8">
       <header className="mb-8 flex flex-wrap items-center gap-4">
         <div>
-          <h1 className="text-[32px] font-medium tracking-[-0.035em] text-[var(--m-text-primary)]">Positions</h1>
-          <p className="mt-1.5 text-sm text-[var(--m-text-secondary)]">Manage liquidity positions you own on {displayNetworkName}.</p>
+          <h1 className="text-[32px] font-medium tracking-[-0.035em] text-[var(--m-text-primary)] [text-wrap:balance]">Positions</h1>
+          <p className="mt-1.5 text-sm text-[var(--m-text-secondary)]">
+            One card per position. Each holds its whole band ladder on {displayNetworkName}.
+          </p>
         </div>
         <Link
           href={buildPageUrl("pool", { slug: networkSlug, provide: true })}
@@ -48,62 +121,72 @@ export function PositionsPage({ networkSlug }: { networkSlug: string }) {
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-xl bg-[var(--m-surface-2)] p-1">
           {(["open", "closed"] as const).map((value) => (
-            <button key={value} type="button" onClick={() => setFilter(value)} className={cn("rounded-lg px-4 py-2 text-sm capitalize", filter === value ? "bg-[var(--m-surface)] font-medium text-[var(--m-text-primary)] shadow-sm" : "text-[var(--m-text-secondary)]")}>
+            <button
+              key={value}
+              type="button"
+              onClick={() => setFilter(value)}
+              className={cn(
+                "rounded-lg px-4 py-2 text-sm capitalize",
+                filter === value ? "bg-[var(--m-surface)] font-medium text-[var(--m-text-primary)] shadow-sm" : "text-[var(--m-text-secondary)]",
+              )}
+            >
               {value} positions
             </button>
           ))}
         </div>
         <label className="flex h-11 min-w-[240px] flex-1 items-center gap-2 rounded-xl border border-[var(--m-border)] bg-[var(--m-surface)] px-3.5 text-[var(--m-text-secondary)]">
           <Search className="h-4 w-4" aria-hidden />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search positions" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--m-text-primary)] outline-none" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by pair or #id"
+            className="min-w-0 flex-1 bg-transparent text-sm text-[var(--m-text-primary)] outline-none"
+          />
         </label>
-        <button type="button" aria-label="Position filters" className="grid h-11 w-11 place-items-center rounded-xl border border-[var(--m-border)] bg-[var(--m-surface)] text-[var(--m-text-secondary)]">
-          <SlidersHorizontal className="h-4 w-4" />
-        </button>
       </div>
 
       {!walletLoading && !isConnected ? (
         <EmptyState title="Connect a wallet to view your positions" body="Your active and closed liquidity positions will appear here." action="Connect wallet" onAction={open} />
       ) : isLoading || walletLoading ? (
-        <div className="grid gap-3"><PositionSkeleton /><PositionSkeleton /></div>
-      ) : positions.length === 0 ? (
+        <div className="grid gap-3">
+          <PositionSkeleton />
+          <PositionSkeleton />
+        </div>
+      ) : shown.length === 0 ? (
         <EmptyState
           title={filter === "closed" ? "No closed positions" : query ? "No positions found" : "Your active liquidity positions will appear here"}
-          body={filter === "closed" ? "Positions you withdraw will be recorded here when position history is indexed." : "Create a position to earn fees from trades that use your liquidity."}
+          body={filter === "closed" ? "Positions you fully withdraw are kept here with their realised P&L and fees." : "Create a position to earn fees from trades that use your liquidity."}
           action={filter === "open" && !query ? "New position" : undefined}
           href={filter === "open" && !query ? buildPageUrl("pool", { slug: networkSlug, provide: true }) : undefined}
         />
       ) : (
-        <div className="grid gap-3">
-          {positions.map((position, index) => (
-            <Link key={`${position.market.base}-${position.market.quote}-${index}`} href={buildPageUrl("pool", { slug: networkSlug, deposit: true, base: position.market.base, quote: position.market.quote })} className="group rounded-2xl border border-[var(--m-border)] bg-[var(--m-surface)] p-5 transition-colors hover:border-[var(--m-primary-300)]">
-              <div className="flex flex-wrap items-start gap-4">
-                <div className="flex -space-x-2">
-                  {[position.market.base, position.market.quote].map((symbol) => <TokenImageIcon key={symbol} symbol={symbol} color={tokenColor(symbol)} size="md" className="h-9 w-9 border-2 border-[var(--m-surface)]" />)}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-[17px] font-semibold text-[var(--m-text-primary)]">{position.market.base} / {position.market.quote}</h2>
-                    <span className={cn("rounded-md px-2 py-0.5 font-mono text-[10px]", position.inRange ? "bg-[color:color-mix(in_srgb,var(--m-success)_14%,transparent)] text-[var(--m-success-fg)]" : "bg-[var(--m-surface-2)] text-[var(--m-text-secondary)]")}>{position.inRange ? "In range" : "Out of range"}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-[var(--m-text-secondary)]">{position.singleSided ? "Single-sided liquidity" : "Concentrated range"} · {position.market.network}</p>
-                </div>
-                <div className="ml-auto grid grid-cols-3 gap-8 text-right">
-                  <Metric label="Position" value={position.provided} />
-                  <Metric label="APR" value={position.aprPct === null ? "—" : `~${formatPct(position.aprPct)}`} />
-                  <Metric label="Fees earned" value={position.feesEarnedUsd === null ? "—" : `$${position.feesEarnedUsd.toFixed(2)}`} />
-                </div>
-              </div>
-            </Link>
+        <div className="grid gap-3" data-testid="lp-positions">
+          {shown.map((token) => (
+            <PositionCard
+              key={token.tokenId}
+              token={token}
+              addHref={buildPageUrl("pool", {
+                slug: networkSlug,
+                deposit: true,
+                base: token.baseSymbol,
+                quote: token.quoteSymbol,
+                positionId: token.tokenId,
+              })}
+              onWithdraw={() => setWithdrawing(token.tokenId)}
+              onAdjust={() => setAdjusting(token.tokenId)}
+              onCollect={() => void collect(token)}
+              collecting={collecting === token.tokenId}
+            />
           ))}
         </div>
       )}
+
+      {withdrawToken && (
+        <WithdrawFlow token={withdrawToken} onClose={() => setWithdrawing(null)} onWithdrawn={() => void refetch()} />
+      )}
+      {adjustToken && <AdjustFlow token={adjustToken} onClose={() => setAdjusting(null)} onAdjusted={() => void refetch()} />}
     </div>
   );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div><div className="font-mono text-[10px] uppercase tracking-wide text-[var(--m-text-secondary-2)]">{label}</div><div className="mt-1 font-mono text-[13px] tabular-nums text-[var(--m-text-primary)]">{value}</div></div>;
 }
 
 function EmptyState({ title, body, action, onAction, href }: { title: string; body: string; action?: string; onAction?: () => void; href?: string }) {
