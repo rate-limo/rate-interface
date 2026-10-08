@@ -77,11 +77,11 @@ import { pairToResult, tokenToResult } from "@/lib/search/trendingRow";
 
 const TRENDING_LIMIT = 4;
 
-/** Marks a hit that Iter has not listed. Ordering sorts these last; this labels them. */
+/** Marks a hit that Rate has not listed. Ordering sorts these last; this labels them. */
 function UnlistedChip() {
     return (
         <span
-            title="Not listed by Iter — anyone can deploy a token and open a market"
+            title="Not listed by Rate — anyone can deploy a token and open a market"
             className="shrink-0 rounded-[5px] border border-[color:var(--m-text-secondary-2)] px-1 py-px font-dm-mono text-[9px] uppercase text-[color:var(--m-text-secondary-2)]"
         >
             unlisted

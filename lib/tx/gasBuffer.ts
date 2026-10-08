@@ -50,7 +50,7 @@
  * level pays for one level whatever the limit said. What it does cost is the
  * **max fee a wallet displays** before signing, which is computed from the limit
  * rather than from what will actually be used. On `n = 20` that is roughly
- * 1.8M gas of headroom shown against ~370k spent. That is the trade being made:
+ * 2.1M gas of headroom shown against ~370k spent. That is the trade being made:
  * a number that looks large in the wallet, against an order that cannot run out
  * of gas.
  */
@@ -59,12 +59,37 @@
 export const ORDER_GAS_MULTIPLIER = BigInt(2);
 
 /**
- * What one matched level costs, from `contracts/CLAUDE.md`'s measured table
- * (75,012 per extra level on a limit order, 77,334 on a market order). The
- * larger of the two, because being over here is refunded and being under is the
- * failure this module exists to prevent.
+ * What one matched level costs.
+ *
+ * ## Raised 77,000 -> 105,000 on 2026-09-29, and the old number was not a typo
+ *
+ * It was 77,000, taken from `contracts/CLAUDE.md`'s table (75,012 per extra level
+ * on a limit order, 77,334 on a market order, the larger of the two). Those are
+ * WARM figures -- measured in a Foundry suite running `isolate = false`, where the
+ * calls that build a book leave every slot warm for the call under test. A real
+ * transaction carries a fresh EIP-2929 access list, so every slot is cold and a
+ * read costs 2,100 instead of 100.
+ *
+ * Re-measured under `isolate`, which is the only regime that prices a real
+ * transaction: a marginal matched level is **104,234**, and the first one (cold
+ * across the whole path) is 187,229. 105,000 is the marginal figure rounded up.
+ * See `MatchingLib`'s `MATCH_GAS_RESERVE` docstring, which was wrong the same way
+ * and for the same reason, and `contracts/test/exchange/orderbook/ReserveSweep.t.sol`
+ * for the measurements.
+ *
+ * ## Why being under here does not revert, and is still a bug
+ *
+ * Unlike every other term in this module, understating this one cannot run an
+ * order out of gas -- `MATCH_GAS_RESERVE` catches that on chain. What it does is
+ * make the limit short of what `n` levels actually need, so the engine's guard
+ * fires earlier than the trader expected and the order comes back a partial fill
+ * with the remainder rested. No error, no revert, just less filled than asked
+ * for. That is a quiet wrong answer rather than a loud one, which is why it is
+ * worth carrying the true number even though nothing breaks without it.
+ *
+ * Over is refunded; under is a smaller fill. Round up.
  */
-export const GAS_PER_MATCH = BigInt(77_000);
+export const GAS_PER_MATCH = BigInt(105_000);
 
 /**
  * The pool leg a TAKER's remainder may now take, on top of the book walk.
@@ -79,8 +104,10 @@ export const GAS_PER_MATCH = BigInt(77_000);
  * branch to approve-to-zero and refund, which can itself run out. An underfunded
  * taker order is still a revert.
  *
- * Only applies when the order is a taker. Today the app sends `isMaker: true`
- * everywhere, so this is dormant — see the note on `poolLeg` below.
+ * Only applies when the order is a taker. Since 2026-10-04 every MARKET order the
+ * Pro ticket sends is `isMaker: false` (a market order that rested its remainder
+ * as a bid was the bug), so market orders pass `poolLeg: true`; limit orders are
+ * still makers and never reach the pool.
  */
 export const POOL_FALLBACK_GAS = BigInt(300_000);
 
@@ -114,8 +141,26 @@ export const POOL_FALLBACK_GAS = BigInt(300_000);
  * the doubled estimate, against a 300,000 reserve. Each burned ~187,000 gas and
  * produced no trade. It was invisible until `MatchingHaltedForGas` was indexed,
  * because a successful transaction that fills nothing looks like a quiet market.
+ *
+ * ## Raised 300,000 -> 500,000 on 2026-09-28, with the contract
+ *
+ * The contract's 300,000 was measured WARM -- in a Foundry suite running
+ * `isolate = false`, where the calls that build a book leave every slot warm for
+ * the call under test. A real transaction has a fresh access list, so every slot
+ * is cold: the settle-and-rest tail alone costs ~353,000, more than the whole old
+ * reserve. `MatchingLib`'s docstring has the re-derivation and
+ * `ReserveSweep.t.sol` the measurements. The guard also moved into `matchAt`, so
+ * it is now checked per ORDER rather than per price level -- without that no
+ * constant is correct, because a level holds an unbounded queue.
+ *
+ * This copy has to move in the SAME commit as the contract, in this direction
+ * especially: the contract now requires 500,000 unspent, so a client still
+ * budgeting 300,000 sends orders that reach the loop, break out of it immediately
+ * and match NOTHING -- succeeding, which is the silent failure this whole comment
+ * is about. `matchGasReserve.test.ts` is what makes that a red test instead of a
+ * quiet market.
  */
-export const MATCH_GAS_RESERVE = BigInt(300_000);
+export const MATCH_GAS_RESERVE = BigInt(500_000);
 
 /** Apply the buffer to a raw estimate. Pure, so the arithmetic is pinned by a test. */
 export function bufferGas(estimate: bigint, multiplier: bigint = ORDER_GAS_MULTIPLIER): bigint {
@@ -137,10 +182,10 @@ export function orderGasLimit(
    * True when this order can reach the pool — i.e. it is a TAKER order
    * (`isMaker: false`), the only branch `PoolFallbackLib` runs on.
    *
-   * Defaulted false because every order the app currently sends is `isMaker: true`,
-   * which rests its remainder and never reaches the pool. Budgeting for a leg that
-   * cannot happen would put the wallet's max fee back where the book-sizing work
-   * just brought it down from.
+   * Defaulted false because limit orders are sent `isMaker: true`, which rests
+   * the remainder and never reaches the pool; budgeting for a leg that cannot
+   * happen would only inflate the wallet's displayed max fee. Market orders are
+   * takers and pass true.
    */
   poolLeg = false,
 ): bigint {
@@ -170,35 +215,91 @@ export function orderGasLimit(
   return bounded > doubled ? bounded : doubled;
 }
 
+/**
+ * What an order costs OUTSIDE the matching loop, cold: pull the funds in, take the
+ * fee, settle, rest or refund, emit. `MatchingLib`'s `MATCH_GAS_RESERVE` docstring
+ * measures this tail at ~353,000 under `isolate` (ReserveSweep.t.sol); rounded up.
+ */
+export const ORDER_TAIL_GAS = BigInt(360_000);
+
+/**
+ * The FIRST matched level, which is cold across the whole path: 187,229 measured
+ * under `isolate` against 104,234 for each one after (see `GAS_PER_MATCH`).
+ */
+export const FIRST_MATCH_GAS = BigInt(190_000);
+
+/**
+ * The least gas an order is ever sent with, whether or not it could be estimated.
+ *
+ * ## Why a floor exists: a failed estimate used to send NO gas field at all
+ *
+ * `bufferedGasFor` returned undefined when `eth_estimateGas` threw, and the caller
+ * then omitted `gas`, so the wallet estimated on its own. Its bare estimate is the
+ * halting path (see `MATCH_GAS_RESERVE`): measured on RISE, a market buy went out
+ * with 468,546 against a 500,000 reserve, skipped matching entirely
+ * (`MatchingHaltedForGas`, matched=0), rested, and "succeeded".
+ *
+ * And the estimate failed for a reason of ours: it ran with no `account`, so the
+ * node simulated from the zero address, which has no allowance — every order
+ * estimate reverted `ERC20InsufficientAllowance`. `account` is now passed; this
+ * floor is what still holds when an estimate fails for any other reason.
+ *
+ * It is the contract's own budget shape: tail + the levels this order may cross
+ * (at least one — depth can arrive before inclusion) + the reserve the engine
+ * insists stays unspent, + the pool leg for a taker. Unused gas is refunded.
+ */
+export function orderGasFloor(maxMatches?: number, poolLeg = false): bigint {
+  const n =
+    maxMatches !== undefined && Number.isFinite(maxMatches) && maxMatches > 1
+      ? BigInt(Math.floor(maxMatches))
+      : BigInt(1);
+  const pool = poolLeg ? POOL_FALLBACK_GAS : BigInt(0);
+  return ORDER_TAIL_GAS + FIRST_MATCH_GAS + (n - BigInt(1)) * GAS_PER_MATCH + MATCH_GAS_RESERVE + pool;
+}
+
 /** The shape of the estimator, so callers can pass a viem public client. */
 export interface GasEstimator {
   estimateContractGas: (request: never) => Promise<bigint>;
 }
 
+export interface OrderGasOptions {
+  /**
+   * The address that will SEND the transaction. Without it the node estimates
+   * from the zero address, which holds no allowance, so every order estimate
+   * reverts and the limit falls to the floor.
+   */
+  account?: `0x${string}`;
+  /** The order's own `n`. Omit for a call that does no matching. */
+  maxMatches?: number;
+  /** True for a TAKER order, which may take the pool leg. See `POOL_FALLBACK_GAS`. */
+  poolLeg?: boolean;
+}
+
 /**
- * A buffered gas limit for `request`, or undefined if it could not be estimated.
+ * A gas limit for `request`: the buffered estimate, never below `orderGasFloor`.
  *
- * Undefined on failure is deliberate: the caller then omits `gas` entirely and
- * lets wagmi estimate as before. A write that would have gone out with a tight
- * estimate must not be blocked by this helper failing — and if the call is
- * genuinely going to revert, letting the write proceed produces the DECODED
- * revert (`decodeOrderSubmitError`), which is a far better message than anything
- * an estimation failure could report here.
+ * Always returns a number. It used to return undefined on a failed estimate so the
+ * caller could omit `gas` and "let wagmi estimate as before" — which is precisely
+ * how orders went out under the reserve and matched nothing. A genuinely reverting
+ * order still reverts at send with its DECODED reason (`decodeOrderSubmitError`);
+ * sending it with a generous limit changes nothing about that.
  */
 export async function bufferedGasFor(
   client: GasEstimator | undefined | null,
   request: unknown,
-  /** The order's own `n`. Omit for a call that does no matching. */
-  maxMatches?: number,
-  /** True for a TAKER order, which may take the pool leg. See `POOL_FALLBACK_GAS`. */
-  poolLeg = false,
-): Promise<bigint | undefined> {
-  if (!client) return undefined;
+  { account, maxMatches, poolLeg = false }: OrderGasOptions = {},
+): Promise<bigint> {
+  const floor = orderGasFloor(maxMatches, poolLeg);
+  if (!client) return floor;
   try {
-    const estimate = await client.estimateContractGas(request as never);
+    const withAccount =
+      account && request && typeof request === "object"
+        ? { ...(request as Record<string, unknown>), account }
+        : request;
+    const estimate = await client.estimateContractGas(withAccount as never);
     const limit = orderGasLimit(estimate, maxMatches, poolLeg);
-    return limit > BigInt(0) ? limit : undefined;
+    return limit > floor ? limit : floor;
   } catch {
-    return undefined;
+    return floor;
   }
 }

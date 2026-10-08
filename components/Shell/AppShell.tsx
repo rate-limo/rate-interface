@@ -21,6 +21,7 @@ import { RefCapture } from "@/components/Onboarding/RefCapture";
 import { SupportWidget } from "@/components/Support/SupportWidget";
 import { tradeGearFromPathname } from "@/lib/routing/chainParams";
 import { ConnectWalletDialog } from "@/components/Wallet/ConnectWalletDialog";
+import { SoundEffects } from "@/components/Sound/SoundEffects";
 
 /**
  * The Coinbase-app-style app shell (user direction, 2026-07-28):
@@ -90,6 +91,9 @@ export function AppShell({
             per wallet per browser. This is the ONLY mount — the landing page had
             one until 2026-08-08 and must not get it back; see the component. */}
         <LoginRouter />
+        {/* Interface sound: one click listener and one toast/overlay observer
+            for the whole app. Renders nothing; see lib/sound. */}
+        <SoundEffects />
         {/* Reads ?ref= on any page and stashes it. Renders NOTHING as of
             2026-08-15 — it is a capture point, not UI; onboarding's invite step
             is what surfaces the code to the visitor. Still
@@ -148,8 +152,9 @@ export function AppShell({
               underneath it: 68px of bar + its 10px inset + breathing room. Pages
               must NOT add their own bottom padding for the bar or the two stack
               — /iter used to carry pb-28 for exactly this and it came out when
-              the bar moved here. */}
-            <main className={`min-w-0 flex-1 pb-[104px] min-[1200px]:pb-0 ${isTerminal ? "min-[1200px]:pb-10" : ""}`}>
+              the bar moved here. Not on the Pro terminal: its phone layout pads
+              for the Buy / Sell bar it stacks on top of the tab bar. */}
+            <main className={`min-w-0 flex-1 min-[1200px]:pb-0 ${isTerminal ? "min-[1200px]:pb-10" : "pb-[104px]"}`}>
               {/* The shell owns the one SearchModal, so a page that wants its own
                   search control borrows this opener rather than mounting a second
                   dialog -- the failure the trigger's own note warns about. */}

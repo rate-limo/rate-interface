@@ -30,6 +30,7 @@ import { buildPageUrl } from "@/lib/routing/chainParams";
 import { wagmiChains } from "@/lib/customChains";
 import { WalletTransferModal, type WalletTransferMode } from "./WalletTransferModal";
 import { useWalletName } from "@/hooks/useWalletName";
+import { FeeTokenPicker } from "@/components/Wallet/FeeTokenPicker";
 
 /**
  * What a CONNECTED wallet opens. The trigger is passed in, so the desktop pill
@@ -158,10 +159,39 @@ export function WalletMenu({
         {/* The address is shown IN FULL, and wraps rather than truncating.
             Truncation is right on a pill, where it is a label; here it is the
             thing being verified, and `break-all` is what keeps 42 unbreakable
-            characters from setting this menu's width. */}
-        <p className="px-2 pb-2 font-dm-mono text-[11px] leading-relaxed break-all text-[color:var(--m-text-primary)]">
-          {address}
-        </p>
+            characters from setting this menu's width.
+
+            The button beside it copies the same address the row below does, from
+            the SAME handler and the same `copied` state, so the two can never
+            disagree about whether a copy just happened. That duplication is
+            deliberate rather than redundant: this is the point where someone is
+            already looking at the address to verify it, and asking them to move
+            to a menu row to act on what is under the cursor is the friction
+            worth removing. The row stays because it is what a keyboard user
+            reaches by arrowing through the menu. */}
+        <div className="flex items-start gap-1.5 px-2 pb-2">
+          <p className="min-w-0 flex-1 font-dm-mono text-[11px] leading-relaxed break-all text-[color:var(--m-text-primary)]">
+            {address}
+          </p>
+          {/* Not a DropdownMenuItem: those close the menu on select, and the
+              whole point of the `copied` state is that it is visible AFTER the
+              click. A plain button inside the content does not dismiss it. */}
+          <button
+            type="button"
+            onClick={() => void onCopy()}
+            aria-label={copied ? "Address copied" : "Copy address"}
+            title={copied ? "Copied" : "Copy address"}
+            className="shrink-0 rounded p-1 text-[color:var(--m-text-secondary-2)] transition-colors hover:bg-[color:var(--m-surface-2)] hover:text-[color:var(--m-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--m-border)]"
+          >
+            {copied ? (
+              // Success is carried by the icon AND the label above, never by
+              // colour alone.
+              <Check className="h-3.5 w-3.5 text-[color:var(--m-success)]" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
         {/* NO network row here, deliberately.
 
             This showed the connected chain and its id, which made sense when a
@@ -226,6 +256,9 @@ export function WalletMenu({
             Withdraw
           </Link>
         </DropdownMenuItem>
+
+        {/* Tempo only: which stablecoin pays gas. Renders nothing elsewhere. */}
+        <FeeTokenPicker address={address} />
 
         <DropdownMenuSeparator />
 

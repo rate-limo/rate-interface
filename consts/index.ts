@@ -28,6 +28,8 @@ export const chainIds: ChainIds = {
     "Somnia Testnet": 50312,
     "MegaETH Testnet": 6342,
     "Arc Testnet": 5042002,
+    "Robinhood Chain Testnet": 46630,
+    "Tempo Testnet": 42431,
 }
 
 export const chainIdToNetworkName: Enums = {
@@ -37,6 +39,8 @@ export const chainIdToNetworkName: Enums = {
     50312: "Somnia Testnet",
     6342: "MegaETH Testnet",
     5042002: "Arc Testnet",
+    46630: "Robinhood Chain Testnet",
+    42431: "Tempo Testnet",
 }
 
 export const slugToNetworkName: Enums = {
@@ -46,6 +50,8 @@ export const slugToNetworkName: Enums = {
     "somnia-testnet": "Somnia Testnet",
     "megaeth-testnet": "MegaETH Testnet",
     "arc-testnet": "Arc Testnet",
+    "robinhood-testnet": "Robinhood Chain Testnet",
+    "tempo-testnet": "Tempo Testnet",
 }
 
 // The inverse of slugToNetworkName, and it must stay total: a name missing here
@@ -59,6 +65,8 @@ export const networkNameToSlug: Enums = {
     "Somnia Testnet": "somnia-testnet",
     "MegaETH Testnet": "megaeth-testnet",
     "Arc Testnet": "arc-testnet",
+    "Robinhood Chain Testnet": "robinhood-testnet",
+    "Tempo Testnet": "tempo-testnet",
 }
 
 // Gateway hosts, per chain. This map is authoritative for any recognized network — see
@@ -98,6 +106,12 @@ export const networkNameToSlug: Enums = {
 export const PonderLinks: Enums = {
     "RISE Testnet": "https://gateway-api-rise.up.railway.app",
     "Arc Testnet": "https://gateway-api-arc.up.railway.app",
+    // Monad and Robinhood: their own `monad` / `robinhood` environments, duplicated
+    // from `rise` on 2026-10-02, so the same split DBs, Kafka and port layout.
+    "Monad Testnet": "https://gateway-api-monad.up.railway.app",
+    "Robinhood Chain Testnet": "https://gateway-api-robinhood.up.railway.app",
+    // Tempo: its own `tempo` environment, duplicated from `rise` on 2026-10-07.
+    "Tempo Testnet": "https://gateway-api-tempo.up.railway.app",
 }
 
 // These values are passed to `new WebSocket(...)` verbatim — no path is appended at the
@@ -117,6 +131,9 @@ export const PonderWssLinks: Enums = {
     // listener on 8080 and REST on 8081 in the arc environment too (verified in its
     // Railway variables), so the generated domain reaches the listener.
     "Arc Testnet": "wss://gateway-ws-arc.up.railway.app/ws",
+    "Monad Testnet": "wss://gateway-ws-monad.up.railway.app/ws",
+    "Robinhood Chain Testnet": "wss://gateway-ws-robinhood.up.railway.app/ws",
+    "Tempo Testnet": "wss://gateway-ws-tempo.up.railway.app/ws",
 }
 
 // Futures gateways are separate services from the spot ones. DELIBERATELY EMPTY: futures

@@ -1,4 +1,5 @@
 "use client";
+import { gatewayFetch } from "@/lib/realtime/watermark";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
@@ -17,6 +18,7 @@ import { getApiUrl, getWsUrl } from "@/lib/realtime/ws-url";
 import { getSocketManager } from "@/lib/realtime/socket-manager";
 import { streamToEvent } from "@/types/streams";
 import { pairRoomString, tokenRoomString } from "@/utils/datafeed";
+import { axisDecimals, formatAxisValue } from "@/utils/number";
 import { parseTradingViewSymbol } from "@iter/types";
 import type { SpotBarEvent } from "@/types";
 import {
@@ -28,6 +30,8 @@ import {
 } from "@/lib/chart/marks";
 import { MarkCard } from "./MarkCard";
 import { candleColors } from "@/lib/chart/candleColors";
+import { latestWindow, olderWindow, prependBars, type HistoryWindow } from "@/lib/chart/historyWindow";
+import { historyKey, readHistory, writeHistory } from "@/lib/chart/historyCache";
 
 /**
  * The token profile's price chart, with callouts drawn on it.
@@ -106,6 +110,53 @@ function palette(isDark: boolean) {
       };
 }
 
+type HistoryBody = { t?: number[]; o?: number[]; h?: number[]; l?: number[]; c?: number[] };
+
+/**
+ * One window of history as bars, or null when the request failed.
+ *
+ * Null and empty are different answers and the caller needs both: empty means
+ * the market has nothing in that window (and nothing older, so paging stops),
+ * null means we could not ask.
+ */
+async function fetchBars(
+  api: string,
+  symbol: string,
+  resolution: string,
+  window: HistoryWindow,
+): Promise<Bar[] | null> {
+  const url =
+    `${api}/api/tradingview/history?symbol=${encodeURIComponent(symbol)}` +
+    `&resolution=${encodeURIComponent(resolution)}&from=${window.from}&to=${window.to}`;
+  const res = await gatewayFetch(url);
+  if (!res.ok) return null;
+  const body = (await res.json()) as HistoryBody | null;
+  const t = body?.t ?? [];
+  // UDF answers in parallel arrays. A row is only usable if every one of
+  // them has a value at that index — a short array is a malformed answer,
+  // not a bar at zero.
+  const bars: Bar[] = [];
+  for (let i = 0; i < t.length; i += 1) {
+    const o = body?.o?.[i];
+    const h = body?.h?.[i];
+    const l = body?.l?.[i];
+    const c = body?.c?.[i];
+    if (o == null || h == null || l == null || c == null) continue;
+    bars.push({ time: t[i]! as UTCTimestamp, open: o, high: h, low: l, close: c });
+  }
+  return bars;
+}
+
+/** Start loading the previous page once the view is within this many bars of the oldest one. */
+const LOAD_OLDER_WITHIN_BARS = 20;
+
+/**
+ * Bars in view when a chart opens. Fewer than a page on purpose: fitting all 300
+ * put the oldest bar at the left edge, which is exactly the load-older trigger,
+ * so every open fetched a second page nobody had scrolled to.
+ */
+const INITIAL_VISIBLE_BARS = 120;
+
 export function ThesisChart({
   networkName,
   symbol,
@@ -156,6 +207,26 @@ export function ThesisChart({
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
+  /*
+   * Paging state, in refs because the chart's range callback reads it and must
+   * not be re-subscribed on every change.
+   *
+   * `generation` ties a response to the chart it was asked for: switching the
+   * symbol or resolution bumps it, and an older page that lands afterwards is
+   * dropped instead of being prepended to the wrong market's bars.
+   *
+   * `view` tells the bars effect what the new bars ARE, because it cannot tell
+   * from the array alone: a fresh chart is fitted, an older page shifts the
+   * view by the bars it added so what the user was looking at stays put, and a
+   * live tick leaves the view alone. Fitting on every change was harmless when
+   * the whole history arrived at once; with paging it would yank the user back
+   * out every time a tick landed or a page loaded.
+   */
+  const generation = useRef(0);
+  const hasOlder = useRef(true);
+  const loadingOlder = useRef(false);
+  const view = useRef<{ kind: "fit" } | { kind: "shift"; by: number } | { kind: "keep" }>({ kind: "fit" });
+
   // Clustered against the bars the chart actually has, not against the
   // resolution: `timeToCoordinate` answers null for a time that is not on the
   // scale, so a bucket computed arithmetically drops every mark whose boundary
@@ -166,8 +237,13 @@ export function ThesisChart({
 
   /* ------------------------------------------------------------------ bars */
 
+  // The most recent page only. It asked for `from=0` before, which on the 1h tab
+  // (one-minute bars) returned the whole retained week — 10,081 bars — to draw
+  // about sixty; see lib/chart/historyWindow.ts.
   useEffect(() => {
-    let cancelled = false;
+    const gen = ++generation.current;
+    hasOlder.current = true;
+    loadingOlder.current = false;
     setLoading(true);
     const api = getApiUrl(networkName);
     if (!api || !symbol) {
@@ -175,41 +251,104 @@ export function ThesisChart({
       setLoading(false);
       return;
     }
-    const now = Math.floor(Date.now() / 1000);
-    const url =
-      `${api}/api/tradingview/history?symbol=${encodeURIComponent(symbol)}` +
-      `&resolution=${encodeURIComponent(resolution)}&from=0&to=${now}`;
 
-    fetch(url)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { t?: number[]; o?: number[]; h?: number[]; l?: number[]; c?: number[] } | null) => {
-        if (cancelled) return;
-        const t = body?.t ?? [];
-        // UDF answers in parallel arrays. A row is only usable if every one of
-        // them has a value at that index — a short array is a malformed answer,
-        // not a bar at zero.
-        const next: Bar[] = [];
-        for (let i = 0; i < t.length; i += 1) {
-          const o = body?.o?.[i];
-          const h = body?.h?.[i];
-          const l = body?.l?.[i];
-          const c = body?.c?.[i];
-          if (o == null || h == null || l == null || c == null) continue;
-          next.push({ time: t[i]! as UTCTimestamp, open: o, high: h, low: l, close: c });
-        }
-        setBars(next);
+    // Back on a tab or coin seen in the last 30 s: draw what it had, older pages
+    // and live ticks included, without asking again. See lib/chart/historyCache.ts.
+    const key = historyKey(api, symbol, resolution);
+    const saved = () => {
+      if (barsRef.current.length > 0) {
+        writeHistory(key, { bars: barsRef.current, hasOlder: hasOlder.current });
+      }
+    };
+    const cached = readHistory<Bar>(key);
+    if (cached) {
+      hasOlder.current = cached.hasOlder;
+      view.current = { kind: "fit" };
+      barsRef.current = [...cached.bars];
+      setBars(barsRef.current);
+      setLoading(false);
+      return () => {
+        generation.current += 1;
+        saved();
+      };
+    }
+
+    fetchBars(api, symbol, resolution, latestWindow(resolution, Math.floor(Date.now() / 1000)))
+      .then((next) => {
+        if (gen !== generation.current) return;
+        view.current = { kind: "fit" };
+        setBars(next ?? []);
         setLoading(false);
       })
       .catch(() => {
-        if (cancelled) return;
+        if (gen !== generation.current) return;
+        view.current = { kind: "fit" };
         setBars([]);
         setLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      // Bumping here as well as above drops a response for a chart that has
+      // since unmounted, not only one that has since switched symbol.
+      generation.current += 1;
+      // Leaving this chart (tab switch, coin switch, unmount): keep what it holds
+      // — older pages and live ticks included — stamped now, for a quick return.
+      // Here and not on every change: an effect keyed on `bars` also fires after a
+      // tab switch while `bars` still holds the previous tab's candles, and would
+      // file them under the new key.
+      saved();
     };
   }, [networkName, symbol, resolution]);
+
+  // The page before the oldest bar, when the user scrolls near the left edge.
+  const loadOlder = useCallback(() => {
+    const api = getApiUrl(networkName);
+    const oldest = barsRef.current[0];
+    if (!api || !symbol || !oldest || !hasOlder.current || loadingOlder.current) return;
+
+    const window = olderWindow(resolution, oldest.time as number, Math.floor(Date.now() / 1000));
+    if (!window) {
+      // At the retention horizon: past it the gateway has only a carried price,
+      // so another page would be flat candles for a period that was pruned.
+      hasOlder.current = false;
+      return;
+    }
+
+    const gen = generation.current;
+    loadingOlder.current = true;
+    fetchBars(api, symbol, resolution, window)
+      .then((older) => {
+        if (gen !== generation.current) return;
+        loadingOlder.current = false;
+        // A failed request is not the end of history; the next scroll retries.
+        if (older === null) return;
+        const merged = prependBars(older, barsRef.current);
+        const added = merged.length - barsRef.current.length;
+        // Nothing older: the market's first trade is inside what we already hold.
+        if (added === 0) {
+          hasOlder.current = false;
+          return;
+        }
+        view.current = { kind: "shift", by: added };
+        barsRef.current = merged;
+        setBars(merged);
+      })
+      .catch(() => {
+        if (gen !== generation.current) return;
+        loadingOlder.current = false;
+      });
+  }, [networkName, symbol, resolution]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const timeScale = chart.timeScale();
+    const onRange = (range: { from: number; to: number } | null) => {
+      if (range && range.from < LOAD_OLDER_WITHIN_BARS) loadOlder();
+    };
+    timeScale.subscribeVisibleLogicalRangeChange(onRange);
+    return () => timeScale.unsubscribeVisibleLogicalRangeChange(onRange);
+  }, [loadOlder, isDark]);
 
   /* ------------------------------------------------------------ live bars */
 
@@ -275,8 +414,12 @@ export function ThesisChart({
     // the market-cap chart subscribes to the token's own stream and applies the
     // same multiplication to each tick. Without this the metric toggle silently
     // turns a live chart into a static one, which is what it did before.
+    //
+    // `base` also drops the contract address a qualified ticker carries: the
+    // address picks the market for /history, but the broker names bar rooms by
+    // the bare symbol.
     const parsed = parseTradingViewSymbol(symbol);
-    const barTicker = parsed.isMarketCap ? parsed.base : symbol;
+    const barTicker = parsed.base;
     const scale = parsed.isMarketCap ? marketCapSupply : 1;
     if (parsed.isMarketCap && !(marketCapSupply > 0)) return;
 
@@ -367,8 +510,57 @@ export function ThesisChart({
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
+    const timeScale = chartRef.current?.timeScale();
+    const before = timeScale?.getVisibleLogicalRange() ?? null;
     series.setData(bars);
-    chartRef.current?.timeScale().fitContent();
+
+    /*
+     * THE AXIS TAKES ITS PRECISION FROM THE RANGE IT IS ABOUT TO DRAW.
+     *
+     * Without a `priceFormatter` lightweight-charts prints the raw number to two
+     * decimals, so a market-cap axis read `1000050000.00` down the whole scale.
+     * Compacting it to `1.0B` is not the fix on its own: those ticks sat 25,000
+     * apart on a value near 1e9, so one decimal collapses them into the same
+     * string -- worse than the raw numbers, which at least differed.
+     *
+     * So the decimals come from the SPAN of the data, recomputed whenever the
+     * bars change -- which is also when the metric toggle swaps a price series
+     * for a market-cap one three orders of magnitude away.
+     */
+    const lows = bars.map((b) => b.low).filter((n) => Number.isFinite(n));
+    const highs = bars.map((b) => b.high).filter((n) => Number.isFinite(n));
+    if (lows.length > 0) {
+      const min = Math.min(...lows);
+      const max = Math.max(...highs);
+      const magnitude = Math.max(Math.abs(max), Math.abs(min));
+      /*
+       * The chart pads its scale past the data, so a FLAT series still gets ten
+       * distinct ticks to label. Measuring the bar span alone reports zero there
+       * and asks for one decimal, which prints the same string all the way down.
+       * The floor approximates that padding so a still series is still readable.
+       */
+      const span = Math.max(max - min, magnitude * 0.002);
+      const decimals = axisDecimals(span, magnitude);
+      chartRef.current?.applyOptions({
+        localization: {
+          priceFormatter: (v: number) => formatAxisValue(v, decimals, magnitude),
+        },
+      });
+    }
+    // Fit only a chart that just opened. An older page keeps the same candles in
+    // view — their logical indexes moved right by the bars prepended — and a live
+    // tick leaves the view where the user put it.
+    const how = view.current;
+    view.current = { kind: "keep" };
+    if (how.kind === "fit") {
+      if (bars.length > INITIAL_VISIBLE_BARS) {
+        timeScale?.setVisibleLogicalRange({ from: bars.length - INITIAL_VISIBLE_BARS, to: bars.length - 1 });
+      } else {
+        timeScale?.fitContent();
+      }
+    } else if (how.kind === "shift" && before) {
+      timeScale?.setVisibleLogicalRange({ from: before.from + how.by, to: before.to + how.by });
+    }
   }, [bars]);
 
   /* -------------------------------------------------------------- overlay */
@@ -423,7 +615,9 @@ export function ThesisChart({
 
       {!loading && bars.length === 0 && (
         <div className="absolute inset-0 grid place-items-center px-4 text-center text-sm text-[color:var(--m-text-secondary)]">
-          No market data for {symbol} yet.
+          {/* The ticker carries the contract address (`NOVA@0x…`) so the gateway can
+              tell two launches sharing a symbol apart; the reader only needs the symbol. */}
+          No market data for {parseTradingViewSymbol(symbol).base} yet.
         </div>
       )}
 

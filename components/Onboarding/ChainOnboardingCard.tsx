@@ -36,13 +36,25 @@ import {
  * chain is never rendered — no LP step where the quote is a wrapped native,
  * no wrap step where gas and quote are one asset.
  */
+// Below 700px the card is a carousel slide too narrow to share a row with the
+// button — beside it the chain name truncated to one letter — so the action
+// takes a full-width row of its own.
+const ACTION =
+  "shrink-0 self-center whitespace-nowrap rounded-xl bg-[color:var(--m-primary)] px-3 py-1.5 text-center text-[12.5px] font-bold max-[699px]:w-full max-[699px]:py-2 text-[color:var(--m-on-primary)] transition-opacity hover:opacity-90";
+
 export function ChainOnboardingCard({
   profile,
   done,
   activeStep,
+  hideConnect = false,
   className,
 }: {
   profile: ChainOnboardingProfile;
+  /**
+   * The stack shows ONE Connect wallet for the whole section while every chain
+   * is waiting on it (a wallet is not per chain), so the cards drop their own.
+   */
+  hideConnect?: boolean;
   /** Steps already satisfied on this chain. */
   done: ReadonlySet<ChainStepKey>;
   /** The step to lead with, or null when this chain is finished. */
@@ -57,7 +69,10 @@ export function ChainOnboardingCard({
   return (
     <article
       className={cn(
-        "flex flex-col gap-2.5 rounded-2xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-4",
+        // A compact row (2026-10-03): it was a tall card — pitch, a wrapping row
+        // of step chips and a button — and four of them filled two phone
+        // screens before the feed began. Same facts, about a third the height.
+        "flex flex-wrap items-start gap-3 rounded-2xl min-[700px]:flex-nowrap border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-3.5 py-3",
         // Finished chains stay on screen, greyed. The same argument the single
         // card already made for completed steps: progress you can see is what
         // makes the next step feel small, and a card that vanishes reads as
@@ -66,55 +81,66 @@ export function ChainOnboardingCard({
         className,
       )}
     >
-      <div className="flex items-center gap-2.5">
-        {/* The chain's own mark, rendered AS a token — the established shape for a
-            standalone network logo here, matching ChainSwitcher and the deposit
-            sheet. `ChainBadge` cannot be reused: it is absolutely positioned to
-            ride a token icon's corner. */}
-        <TokenImageIcon
-          symbol={profile.name}
-          color="#666666"
-          logoURI={chainIconFrom(chainBrands, profile.name)}
-          size="md"
-          badge={false}
-          className="h-7 w-7"
-        />
-        <div className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-[14.5px] font-bold tracking-[-0.01em] text-[color:var(--m-text-primary)]">
+      {/* The chain's own mark, rendered AS a token — the established shape for a
+          standalone network logo here, matching ChainSwitcher and the deposit
+          sheet. `ChainBadge` cannot be reused: it is absolutely positioned to
+          ride a token icon's corner. */}
+      <TokenImageIcon
+        symbol={profile.name}
+        color="#666666"
+        logoURI={chainIconFrom(chainBrands, profile.name)}
+        size="md"
+        badge={false}
+        className="mt-0.5 h-8 w-8 shrink-0"
+      />
+
+      <div className="flex min-w-0 flex-1 basis-[calc(100%-44px)] flex-col gap-1.5 min-[700px]:basis-auto">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate text-[14px] font-bold tracking-[-0.01em] text-[color:var(--m-text-primary)]">
             {profile.name}
           </span>
-          <span className="font-dm-mono text-[10px] uppercase tracking-[0.1em] text-[color:var(--m-text-secondary-2)]">
+          <span className="shrink-0 font-dm-mono text-[9.5px] uppercase tracking-[0.1em] text-[color:var(--m-text-secondary-2)]">
             fees in {profile.gasSymbol}
+          </span>
+        </div>
+
+        {/* One line; the full sentence is the tooltip. */}
+        <p title={profile.pitch} className="truncate text-[12.5px] leading-[18px] text-[color:var(--m-text-secondary)]">
+          {profile.pitch}
+        </p>
+
+        {/* The steps as a segmented bar plus the NEXT one by name — the chip row
+            said the same thing in four pills that wrapped onto two lines. The
+            full list stays readable to assistive tech and on hover. */}
+        <div
+          className="flex items-center gap-2"
+          role="img"
+          aria-label={`Steps: ${steps.map((st) => `${stepLabel(st, profile)}${done.has(st) ? " (done)" : ""}`).join(", ")}`}
+          title={steps.map((st) => `${done.has(st) ? "✓" : "○"} ${stepLabel(st, profile)}`).join("   ")}
+        >
+          <span className="flex gap-1" aria-hidden>
+            {steps.map((step) => (
+              <span
+                key={step}
+                className={cn(
+                  "h-1 w-5 rounded-full",
+                  done.has(step)
+                    ? "bg-[color:var(--m-success-fg)]"
+                    : step === activeStep
+                      ? "bg-[color:var(--m-primary)]"
+                      : "bg-[color:var(--m-surface-2)]",
+                )}
+              />
+            ))}
+          </span>
+          <span className="truncate font-dm-mono text-[10.5px] text-[color:var(--m-text-secondary-2)]">
+            {finished ? "all done" : `next: ${stepLabel(activeStep, profile)} · ${done.size + 1} of ${steps.length}`}
           </span>
         </div>
       </div>
 
-      <p className="text-[13px] leading-5 text-[color:var(--m-text-secondary)]">{profile.pitch}</p>
-
-      <div className="flex flex-wrap gap-1.5">
-        {steps.map((step) => {
-          const isDone = done.has(step);
-          return (
-            <span
-              key={step}
-              className={cn(
-                "rounded-full border px-2.5 py-0.5 font-dm-mono text-[10.5px]",
-                isDone
-                  ? "border-transparent bg-[color:var(--m-surface-2)] text-[color:var(--m-success-fg)]"
-                  : step === activeStep
-                    ? "border-[color:var(--m-border)] bg-[color:var(--m-surface-2)] text-[color:var(--m-text-primary)]"
-                    : "border-[color:var(--m-border)] text-[color:var(--m-text-secondary-2)]",
-              )}
-            >
-              {isDone ? "✓ " : ""}
-              {stepLabel(step, profile)}
-            </span>
-          );
-        })}
-      </div>
-
       {/* ONE action — the next step, never a menu of them. */}
-      {activeStep === "wallet" ? (
+      {activeStep === "wallet" && hideConnect ? null : activeStep === "wallet" ? (
         /*
          * CONNECTING is not a destination, so this is a button and not a link.
          *
@@ -138,24 +164,31 @@ export function ChainOnboardingCard({
           type="button"
           onClick={() =>
             requestWalletConnect(
-              "Connect a wallet to start. The same wallet works on every chain Iter serves.",
+              "Connect a wallet to start. The same wallet works on every chain Rate serves.",
             )
           }
-          className="self-start rounded-xl bg-[color:var(--m-primary)] px-3.5 py-2 text-[13px] font-bold text-[color:var(--m-on-primary)] transition-opacity hover:opacity-90"
+          className={ACTION}
         >
           Connect wallet
         </button>
       ) : activeStep === "fund" || activeStep === "wrap" ? (
         <Link
           href={depositHref()}
-          className="self-start rounded-xl bg-[color:var(--m-primary)] px-3.5 py-2 text-[13px] font-bold text-[color:var(--m-on-primary)] transition-opacity hover:opacity-90"
+          className={ACTION}
         >
           Add {profile.gasSymbol}
         </Link>
       ) : activeStep ? (
         <Link
-          href={buildPageUrl(activeStep === "launch" ? "launch" : "explore", { slug })}
-          className="self-start rounded-xl bg-[color:var(--m-primary)] px-3.5 py-2 text-[13px] font-bold text-[color:var(--m-on-primary)] transition-opacity hover:opacity-90"
+          /* The LP step goes to /pool, not /explore. It used to fall into the
+             same `explore` branch as the trade step, so a button reading
+             "Provide liquidity" landed on the directory — a control that names
+             one destination and opens another. */
+          href={buildPageUrl(
+            activeStep === "launch" ? "launch" : activeStep === "lp" ? "pool" : "explore",
+            { slug },
+          )}
+          className={ACTION}
         >
           {activeStep === "launch"
             ? "Launch a coin"

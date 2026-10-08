@@ -17,6 +17,12 @@ const ARC = "https://admin-service-arc.example";
 /** Real ids, from `@iter/deployments` via the slug maps. */
 const RISE_ID = 11155931;
 const ARC_ID = 5042002;
+const MONAD_ID = 10143;
+const ROBINHOOD_ID = 46630;
+const MONAD = "https://admin-service-monad.example";
+const ROBINHOOD = "https://admin-service-robinhood.example";
+const TEMPO_ID = 42431;
+const TEMPO = "https://admin-service-tempo.example";
 
 const KEYS = ["ADMIN_SERVICE_URL", `ADMIN_SERVICE_URL_${RISE_ID}`, `ADMIN_SERVICE_URL_${ARC_ID}`];
 
@@ -135,13 +141,13 @@ describe("resolveAdminUpstream", () => {
 });
 
 describe("missingUpstreams", () => {
-  it("reports BOTH served chains when nothing is configured", () => {
+  it("reports EVERY served chain when nothing is configured", () => {
     // The state the admin panel actually lived in: two served chains, zero
     // suffixed variables, one silent fallback. A rule that only flagged PARTIAL
     // configuration would have said nothing through the entire outage, so this
     // case is the one that matters most.
     setEnv({ ADMIN_SERVICE_URL: RISE });
-    expect(missingUpstreams().map((m) => m.chainId).sort()).toEqual([ARC_ID, RISE_ID].sort());
+    expect(missingUpstreams().map((m) => m.chainId).sort()).toEqual([ARC_ID, RISE_ID, MONAD_ID, ROBINHOOD_ID, TEMPO_ID].sort());
   });
 
   it("names the variable to set, not just the chain", () => {
@@ -152,12 +158,23 @@ describe("missingUpstreams", () => {
   });
 
   it("reports the half that is missing when one is configured", () => {
-    setEnv({ [`ADMIN_SERVICE_URL_${RISE_ID}`]: RISE });
+    setEnv({
+      [`ADMIN_SERVICE_URL_${RISE_ID}`]: RISE,
+      [`ADMIN_SERVICE_URL_${MONAD_ID}`]: MONAD,
+      [`ADMIN_SERVICE_URL_${ROBINHOOD_ID}`]: ROBINHOOD,
+      [`ADMIN_SERVICE_URL_${TEMPO_ID}`]: TEMPO,
+    });
     expect(missingUpstreams().map((m) => m.chainId)).toEqual([ARC_ID]);
   });
 
   it("is empty once every served chain has its own", () => {
-    setEnv({ [`ADMIN_SERVICE_URL_${RISE_ID}`]: RISE, [`ADMIN_SERVICE_URL_${ARC_ID}`]: ARC });
+    setEnv({
+      [`ADMIN_SERVICE_URL_${RISE_ID}`]: RISE,
+      [`ADMIN_SERVICE_URL_${ARC_ID}`]: ARC,
+      [`ADMIN_SERVICE_URL_${MONAD_ID}`]: MONAD,
+      [`ADMIN_SERVICE_URL_${ROBINHOOD_ID}`]: ROBINHOOD,
+      [`ADMIN_SERVICE_URL_${TEMPO_ID}`]: TEMPO,
+    });
     expect(missingUpstreams()).toEqual([]);
   });
 
@@ -167,6 +184,9 @@ describe("missingUpstreams", () => {
     setEnv({
       [`ADMIN_SERVICE_URL_${RISE_ID}`]: RISE,
       [`ADMIN_SERVICE_URL_${ARC_ID}`]: ARC,
+      [`ADMIN_SERVICE_URL_${MONAD_ID}`]: MONAD,
+      [`ADMIN_SERVICE_URL_${ROBINHOOD_ID}`]: ROBINHOOD,
+      [`ADMIN_SERVICE_URL_${TEMPO_ID}`]: TEMPO,
     });
     process.env.ADMIN_SERVICE_URL_50312 = "https://somnia.example";
     try {

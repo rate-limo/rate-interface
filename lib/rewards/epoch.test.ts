@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EPOCHS_PER_SEASON, epochEndsAt, epochOf, epochStart, seasonOf } from "./epoch";
+import { EPOCHS_PER_SEASON, epochEndsAt, epochOf, epochStart, seasonOf, seasonEndsAt } from "./epoch";
 
 /**
  * Epochs are one week, ending Monday 00:00 UTC. The status bar's Next Beat chip
@@ -84,5 +84,21 @@ describe("seasonOf", () => {
     expect(seasonOf(EPOCHS_PER_SEASON - 1)).toBe(1);
     expect(seasonOf(EPOCHS_PER_SEASON)).toBe(2);
     expect(seasonOf(30)).toBe(3);
+  });
+});
+
+describe("seasonEndsAt", () => {
+  it("ends season 4 at the start of epoch 48", () => {
+    // 2026-09-28 is epoch 38, inside season 4 (epochs 36-47).
+    expect(seasonEndsAt(new Date("2026-09-28T12:00:00Z")).toISOString()).toBe("2026-12-07T00:00:00.000Z");
+  });
+
+  it("rolls to the next season exactly on the boundary", () => {
+    expect(seasonEndsAt(new Date("2026-12-07T00:00:00Z")).toISOString()).toBe("2027-03-01T00:00:00.000Z");
+    expect(seasonEndsAt(new Date("2026-12-06T23:59:59Z")).toISOString()).toBe("2026-12-07T00:00:00.000Z");
+  });
+
+  it("ends season 1 twelve weeks after genesis", () => {
+    expect(seasonEndsAt(new Date("2026-01-05T00:00:00Z")).toISOString()).toBe("2026-03-30T00:00:00.000Z");
   });
 });

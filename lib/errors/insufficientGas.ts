@@ -1,4 +1,5 @@
 import { wagmiChains } from "@/lib/customChains";
+import { tip20GasToken } from "@/lib/chains/gasToken";
 
 /**
  * "You cannot pay the network fee" — recognised, and said in a way someone can act on.
@@ -69,12 +70,20 @@ const FAUCETS: Record<number, string> = {
   // Arc pays gas in USDC, so Circle's own testnet faucet IS the gas faucet.
   5042002: "https://faucet.circle.com",
   11155931: "https://faucet.testnet.riselabs.xyz",
+  10143: "https://faucet.monad.xyz",
+  // Tempo has no gas coin: its faucet hands out the TIP-20 stablecoins fees are paid in.
+  42431: "https://tempo.xyz/developers/docs/quickstart/faucet/",
 };
 
 /** The node's phrasing, from `eth_sendRawTransaction`. Deliberately the full clause rather
  * than a bare "insufficient funds": contracts revert with that wording about TOKEN balances
  * too, and sending someone to a gas faucet over an ERC-20 shortfall wastes their time. */
 const NODE_PHRASE = /insufficient funds for gas/i;
+
+/** Tempo's phrasing, from `eth_estimateGas` when the account's fee token cannot pay:
+ * "gas required exceeds allowance (0)" (measured on Moderato 2026-10-08). Only the
+ * ZERO allowance: a non-zero one is a gas-cap complaint, not an empty balance. */
+const ZERO_ALLOWANCE_PHRASE = /gas required exceeds allowance \(0\)/i;
 
 /** JSON-RPC: transaction rejected. What both chains answer here, measured. */
 const RPC_INSUFFICIENT_FUNDS = -32003;
@@ -85,8 +94,9 @@ export function isInsufficientFunds(error: unknown): boolean {
     const node = current as { name?: unknown; code?: unknown; details?: unknown; message?: unknown };
     if (node.name === "InsufficientFundsError") return true;
     if (node.code === RPC_INSUFFICIENT_FUNDS) return true;
-    if (typeof node.details === "string" && NODE_PHRASE.test(node.details)) return true;
-    if (typeof node.message === "string" && NODE_PHRASE.test(node.message)) return true;
+    for (const text of [node.details, node.message]) {
+      if (typeof text === "string" && (NODE_PHRASE.test(text) || ZERO_ALLOWANCE_PHRASE.test(text))) return true;
+    }
     current = (current as { cause?: unknown }).cause;
   }
   return false;
@@ -107,7 +117,8 @@ export function gasAssetFor(chainId: number | undefined): GasAsset | null {
   if (!chain) return null;
   return {
     chainId: chain.id,
-    symbol: chain.nativeCurrency.symbol,
+    // Tempo has no gas coin: name the TIP-20 its fees are paid in.
+    symbol: tip20GasToken(chain.id)?.symbol ?? chain.nativeCurrency.symbol,
     chainName: chain.name,
     testnet: chain.testnet === true,
   };

@@ -299,7 +299,7 @@ export function AuctionsPanel() {
             Top verified auctions
           </h2>
           <span
-            title="Selected by Iter operators"
+            title="Selected by Rate operators"
             className="grid h-5 w-5 place-items-center rounded-full border border-[var(--m-border)] font-dm-mono text-[10px] text-[var(--m-text-secondary)]"
           >
             i

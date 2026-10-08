@@ -1,6 +1,7 @@
 import { NoticeRow } from "./NoticeRow";
 import { TradingRow } from "./TradingRow";
 import { getRowContent } from "@/lib/rows/content";
+import { getVisibleChains } from "@/lib/chains/visibleServer";
 
 /**
  * The two site rows, in order: **notice** then **trading information**.
@@ -16,7 +17,8 @@ import { getRowContent } from "@/lib/rows/content";
  * `getRowContent` is called here rather than in each row, so a page costs one
  * query instead of two and the two rows can never disagree about whether the
  * content row was readable — which is the exact condition apps/admin's `/rows`
- * view reports on.
+ * view reports on. The operator's visible-chain list is resolved alongside it,
+ * in parallel, and for the same reason.
  *
  * ## Cost of being everywhere
  *
@@ -28,12 +30,18 @@ import { getRowContent } from "@/lib/rows/content";
  * pathnames.
  */
 export async function SiteRows() {
-  const content = await getRowContent();
+  /*
+   * Both reads happen here, for the same reason the content one always has:
+   * one per request, and the two rows cannot disagree about what they were
+   * given. `getVisibleChains` is what stops the tape listing a chain the
+   * operator has hidden — see lib/chains/visibleServer.
+   */
+  const [content, visibleChains] = await Promise.all([getRowContent(), getVisibleChains()]);
 
   return (
     <>
       <NoticeRow content={content} />
-      <TradingRow content={content} />
+      <TradingRow content={content} visibleChains={visibleChains} />
     </>
   );
 }

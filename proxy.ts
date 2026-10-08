@@ -1,8 +1,13 @@
 import createMiddleware from "next-intl/middleware";
+import { NextResponse, type NextRequest } from "next/server";
 import { routing } from "./i18n/routing";
+import { wagmiChains } from "./lib/customChains";
+import { appConnectOrigins } from "./lib/security/connectOrigins";
+import { appCsp, newNonce, walletFrameCsp } from "./lib/security/csp";
+import { appOrigins, walletFrameHost, walletOrigin } from "./lib/wallet/frame/origins";
 
 /**
- * Locale negotiation.
+ * Locale negotiation, and the wallet frame's own headers.
  *
  * Named `proxy.ts`, not `middleware.ts`: Next 16 deprecated the middleware file
  * convention and warns on every build. Same export shape, same matcher.
@@ -11,7 +16,7 @@ import { routing } from "./i18n/routing";
  * nothing — but the matcher below is the part that has to be right from day
  * one, because what it accidentally swallows fails silently.
  *
- * ## What must NOT reach this middleware
+ * ## What must NOT reach the i18n middleware
  *
  * `next.config.ts` rewrites three paths to admin-service, and they are not
  * pages — they are a different origin's API and image delivery:
@@ -40,8 +45,8 @@ import { routing } from "./i18n/routing";
  *                    then, rather than removing the exclusion, which would break
  *                    /delete-account instead.
  *   /wallet/*        first-connect lookup (admin-service)
- *   /token-brand/*   catalogue brand colour/logo lookup (admin-service)
- *   /chain-brand     operator-set chain logo/label/colour (admin-service)
+ *   /token-brand/*   catalogue brand colour/logo lookup (identity-service)
+ *   /chain-brand     operator-set chain logo/label/colour (identity-service)
  *   /chains/*        chain visibility and quote curation (identity-service).
  *                    NOT a page — /explore owns chain browsing.
  *   /follow/:address follow + unfollow (identity-service, sole writer)
@@ -72,12 +77,126 @@ import { routing } from "./i18n/routing";
  * `/launch-config` failure again, and the popup would 404 while the account link
  * itself succeeded — the confusing half of the bug this route was added to fix.
  *
+ * ## `/wallet-frame` is NOT in the matcher's exclusion list, on purpose
+ *
+ * It is a page outside `[locale]` like `/x/complete`, and it would fit the same
+ * exclusion — except that this proxy has work to do on it: a per-request
+ * Content-Security-Policy with a nonce, and a host check. So the matcher lets it
+ * through and the function below branches on the path BEFORE the i18n
+ * middleware ever sees it. Adding `wallet-frame` to the exclusion list would
+ * silently drop the CSP; the pages would still render, without the header that
+ * is the point of them.
+ *
+ * ## Two hosts, one deployment
+ *
+ * When `NEXT_PUBLIC_WALLET_ORIGIN` is set, the wallet frame is served on THAT
+ * host and refused on the app host, and every other path on the wallet host is
+ * refused here (`next.config.ts` rewrites the ones this matcher excludes to a
+ * 404 route). The wallet origin serves the frame pages and nothing else — a
+ * page served there runs on the origin that holds the key.
+ *
  * The matcher is therefore an explicit exclusion list, not the framework's
  * usual "match everything" — an allowlist would have to be updated every time a
  * page is added, which is the failure mode that ends with a page silently
  * losing its locale.
  */
-export default createMiddleware(routing);
+const intl = createMiddleware(routing);
+
+const FRAME_PREFIX = "/wallet-frame";
+
+function requestHost(request: NextRequest): string {
+  return request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+}
+
+function rpcOrigins(): string[] {
+  return Array.from(new Set(wagmiChains.flatMap((chain) => chain.rpcUrls.default.http.map((url) => new URL(url).origin))));
+}
+
+const isDev = process.env.NODE_ENV === "development";
+
+/**
+ * The frame pages: the strict policy, enforced. Next reads the nonce off the
+ * REQUEST's CSP header when it renders, and the browser reads it off the
+ * RESPONSE's. Both, or the inline scripts Next emits carry no nonce and the
+ * policy blocks the page it protects.
+ */
+function withWalletFrameHeaders(request: NextRequest): NextResponse {
+  const nonce = newNonce();
+  const csp = walletFrameCsp({ nonce, dev: isDev, appOrigins: appOrigins(), rpcOrigins: rpcOrigins() });
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", csp);
+  response.headers.set("Referrer-Policy", "no-referrer");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+/**
+ * The app pages: the full policy report-only (the safe directives are enforced
+ * from next.config.ts — see below for why not here). See lib/security/csp.ts
+ * for why it is staged that way.
+ *
+ * The nonce has to reach the render as a REQUEST header, and the response
+ * here is built by next-intl. It clones `request.headers` when it builds its
+ * response (`new Headers(request.headers)` → `NextResponse.next({request})`),
+ * so setting the headers on the incoming request BEFORE calling it is what
+ * forwards them. Next accepts the nonce from either CSP header name.
+ */
+function withAppHeaders(request: NextRequest): NextResponse {
+  const nonce = newNonce();
+  const csp = appCsp({ nonce, dev: isDev, walletOrigin: walletOrigin(), connectOrigins: appConnectOrigins() });
+
+  request.headers.set("x-nonce", nonce);
+  // The REQUEST-only copy Next reads the nonce from. It is the full policy
+  // under the enforced header's NAME, because Next looks at
+  // `content-security-policy` first and at the report-only name only when
+  // that is absent — and on Vercel the render sees a nonce-less enforced
+  // header there (the config-set one), which locally it does not. A request
+  // header set by the proxy never reaches the browser; the RESPONSE carries
+  // the enforced directives from next.config.ts and the report-only policy
+  // set below. Verified by counting nonced scripts: 1/45 before, 45/45 after.
+  request.headers.set("Content-Security-Policy", csp.reportOnly);
+  request.headers.set("Content-Security-Policy-Report-Only", csp.reportOnly);
+
+  const response = intl(request);
+  // The ENFORCED header is deliberately NOT set here. Next copies every
+  // response header a proxy sets back onto the request before rendering, and
+  // then reads the nonce from `content-security-policy` FIRST, falling back
+  // to the report-only header only when that one is absent. An enforced
+  // header without a nonce therefore shadowed the one with it, and every
+  // Next chunk shipped untagged — found by counting nonces in the HTML. The
+  // enforced directives ride `headers()` in next.config.ts instead, which is
+  // applied to the response and never reaches the render.
+  response.headers.set("Content-Security-Policy-Report-Only", csp.reportOnly);
+  response.headers.set("Reporting-Endpoints", csp.reportingEndpoints);
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  return response;
+}
+
+export default function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const walletHost = walletFrameHost();
+  const host = requestHost(request);
+
+  if (pathname === FRAME_PREFIX || pathname.startsWith(`${FRAME_PREFIX}/`)) {
+    // Configured but asked for on the wrong host: not served. The app host must
+    // not serve the frame (its storage would then be the app's), and there is no
+    // reason for a third host to.
+    if (walletHost && host !== walletHost) return new NextResponse(null, { status: 404 });
+    return withWalletFrameHeaders(request);
+  }
+
+  // Anything else on the wallet host is refused — see the header.
+  if (walletHost && host === walletHost) return new NextResponse(null, { status: 404 });
+
+  return withAppHeaders(request);
+}
 
 export const config = {
   matcher: [
@@ -89,7 +208,12 @@ export const config = {
      *  - _next, _vercel  framework internals
      *  - images, fonts, tradingview   public assets
      *  - any path with a dot (favicon.ico, robots.txt, icon.svg, *.woff2)
+     *
+     * NOT excluded: wallet-frame — the function above handles it before i18n.
+     * Note `wallet/` with its slash: these tokens are PREFIXES, and a bare
+     * `wallet` also swallowed `/wallet-frame`, which shipped the frame pages
+     * without their CSP on the first attempt. Verified by curl, not by reading.
      */
-    "/((?!api|logo|token-logo|graduate|usd-balance|points|referral|profile/nonce|profile/edit|profile/delete|profile/x-unlink|profile/avatar|profile/banner|profile/save|x/nonce|x/start|x/callback|x/complete|thesis|launch-config|wallet|token-brand|chain-brand|chains|follow|transfers|transfer-routes|_next|_vercel|images|fonts|tradingview|.*\\..*).*)",
+    "/((?!api|logo|token-logo|graduate|usd-balance|points|referral|profile/nonce|profile/edit|profile/delete|profile/x-unlink|profile/avatar|profile/banner|profile/save|x/nonce|x/start|x/callback|x/complete|thesis|launch-config|wallet/|token-brand|chain-brand|chains|follow|transfers|transfer-routes|_next|_vercel|images|fonts|tradingview|.*\\..*).*)",
   ],
 };

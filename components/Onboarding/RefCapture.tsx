@@ -25,7 +25,7 @@
  * ## It stashes, it does not apply
  *
  * Applying needs a wallet signature, and prompting for one the moment someone
- * follows a link — before they know what Iter is — is how a referral link
+ * follows a link — before they know what Rate is — is how a referral link
  * becomes a bounce. The code waits in localStorage and arrives pre-filled in
  * onboarding's invite step, where the user has context and is already being
  * asked. So this adds a capture point, not a second attribution path: there is

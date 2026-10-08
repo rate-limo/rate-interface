@@ -7,6 +7,9 @@ import {
   POOL_FALLBACK_GAS,
   MATCH_GAS_RESERVE,
   ORDER_GAS_MULTIPLIER,
+  ORDER_TAIL_GAS,
+  FIRST_MATCH_GAS,
+  orderGasFloor,
 } from "./gasBuffer";
 
 describe("bufferGas", () => {
@@ -34,22 +37,71 @@ describe("bufferGas", () => {
 });
 
 describe("bufferedGasFor", () => {
-  it("buffers what the estimator returns", async () => {
-    const client = { estimateContractGas: async () => BigInt(150_000) };
-    expect(await bufferedGasFor(client, {})).toBe(BigInt(300_000) + MATCH_GAS_RESERVE);
+  it("buffers what the estimator returns, when that clears the floor", async () => {
+    const client = { estimateContractGas: async () => BigInt(900_000) };
+    const expected = orderGasLimit(BigInt(900_000), 1);
+    expect(expected).toBeGreaterThan(orderGasFloor(1));
+    expect(await bufferedGasFor(client, {}, { maxMatches: 1 })).toBe(expected);
   });
 
-  it("returns undefined when estimation throws, so the caller omits gas", async () => {
+  it("never returns less than the floor, even for a tiny estimate", async () => {
+    const client = { estimateContractGas: async () => BigInt(150_000) };
+    expect(await bufferedGasFor(client, {})).toBe(orderGasFloor());
+  });
+
+  it("passes the sender as `account`, so the node estimates with its allowance", async () => {
+    const seen: unknown[] = [];
     const client = {
-      estimateContractGas: async () => {
-        throw new Error("execution reverted");
+      estimateContractGas: async (req: never) => {
+        seen.push(req);
+        return BigInt(400_000);
       },
     };
-    expect(await bufferedGasFor(client, {})).toBeUndefined();
+    const account = "0x00000000000000000000000000000000000000aa" as const;
+    await bufferedGasFor(client, { functionName: "marketBuy" }, { account });
+    expect(seen[0]).toMatchObject({ functionName: "marketBuy", account });
   });
 
-  it("returns undefined without a client", async () => {
-    expect(await bufferedGasFor(undefined, {})).toBeUndefined();
+  it("falls back to the FLOOR when estimation reverts — never to no gas field", async () => {
+    // The live failure: estimation ran without `from`, reverted
+    // ERC20InsufficientAllowance, and the order went out with the wallet's bare
+    // 468,546 against a 500,000 reserve — matched nothing, rested, "succeeded".
+    const client = {
+      estimateContractGas: async () => {
+        throw new Error("execution reverted: ERC20InsufficientAllowance");
+      },
+    };
+    const limit = await bufferedGasFor(client, {}, { maxMatches: 3, poolLeg: true });
+    expect(limit).toBe(orderGasFloor(3, true));
+    expect(limit).toBeGreaterThan(BigInt(468_546));
+    // Enough to clear the reserve AND pay for every level it may cross.
+    expect(limit).toBeGreaterThanOrEqual(
+      ORDER_TAIL_GAS + BigInt(3) * GAS_PER_MATCH + MATCH_GAS_RESERVE + POOL_FALLBACK_GAS,
+    );
+  });
+
+  it("returns the floor without a client", async () => {
+    expect(await bufferedGasFor(undefined, {}, { maxMatches: 2 })).toBe(orderGasFloor(2));
+  });
+});
+
+describe("orderGasFloor", () => {
+  it("budgets at least one match even for a book it does not cross today", () => {
+    expect(orderGasFloor(0)).toBe(orderGasFloor(1));
+    expect(orderGasFloor(undefined)).toBe(
+      ORDER_TAIL_GAS + FIRST_MATCH_GAS + MATCH_GAS_RESERVE,
+    );
+  });
+
+  it("adds one marginal level per extra match and the pool leg for a taker", () => {
+    expect(orderGasFloor(4) - orderGasFloor(1)).toBe(BigInt(3) * GAS_PER_MATCH);
+    expect(orderGasFloor(4, true) - orderGasFloor(4)).toBe(POOL_FALLBACK_GAS);
+  });
+
+  it("covers the measured cold tail plus first match", () => {
+    // MatchingLib: tail ~353,000; first match 187,229 under isolate.
+    expect(ORDER_TAIL_GAS).toBeGreaterThanOrEqual(BigInt(353_000));
+    expect(FIRST_MATCH_GAS).toBeGreaterThanOrEqual(BigInt(187_229));
   });
 });
 
@@ -87,7 +139,7 @@ describe("orderGasLimit — the bound, not a guess", () => {
 });
 
 describe("the pool leg a taker's remainder may take", () => {
-  it("is not budgeted for by default, because the app sends maker orders", () => {
+  it("is not budgeted for by default, because limit orders are makers", () => {
     expect(orderGasLimit(BigInt(240_000), 4)).toBe(
       BigInt(240_000) + BigInt(4) * GAS_PER_MATCH + MATCH_GAS_RESERVE,
     );
@@ -150,5 +202,34 @@ describe("the match gas reserve — the halt that is not a revert", () => {
   it("still refuses to budget anything for a zero estimate", () => {
     expect(orderGasLimit(BigInt(0), 20)).toBe(BigInt(0));
     expect(orderGasLimit(BigInt(0), 0, true)).toBe(BigInt(0));
+  });
+})
+
+describe("GAS_PER_MATCH is the COLD cost of a matched level", () => {
+  /*
+   * It was 77,000 until 2026-09-29, from a table measured with Foundry's old
+   * `isolate = false` default -- warm, where the calls that build a book leave every
+   * slot warm for the call under test. A real transaction has a fresh EIP-2929 access
+   * list. Re-measured under `isolate`: a marginal matched level is 104,234.
+   *
+   * Pinned as a FLOOR rather than an equality: rounding up is free (unused gas is
+   * refunded) and rounding down is a silently smaller fill, because the engine's own
+   * reserve stops the order before it runs out. So the test guards the direction that
+   * costs something.
+   */
+  const MEASURED_COLD_MARGINAL = BigInt(104_234);
+
+  it("covers the measured cold cost of one more level", () => {
+    expect(
+      GAS_PER_MATCH,
+      `GAS_PER_MATCH is ${GAS_PER_MATCH} but a matched level costs ${MEASURED_COLD_MARGINAL} cold. `
+        + "Under-sizing does not revert -- it makes the order come back a smaller partial fill.",
+    ).toBeGreaterThanOrEqual(MEASURED_COLD_MARGINAL);
+  });
+
+  it("is not so large that the wallet's displayed max fee runs away", () => {
+    // The headroom a wallet shows at the engine's own `maxMatches` ceiling of 20.
+    const headroomAtMaxMatches = BigInt(20) * GAS_PER_MATCH;
+    expect(headroomAtMaxMatches).toBeLessThan(BigInt(3_000_000));
   });
 });

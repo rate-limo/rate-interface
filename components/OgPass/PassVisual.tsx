@@ -45,7 +45,7 @@ export function PassVisual({ tierName, number, subline, className }: PassVisualP
 
         <div className="relative mt-auto">
           <div className="text-[clamp(26px,4.5vw,38px)] font-semibold leading-none tracking-[0.02em]">
-            ITER
+            RATE
           </div>
           <div className="mt-[6px] font-mono text-[11px] tracking-[0.04em] text-[#9fd8bd]">
             {subline}

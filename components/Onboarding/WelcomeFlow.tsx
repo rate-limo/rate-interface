@@ -30,7 +30,7 @@
  *
  * When it is null the step asks. It sits THIRD, after the seat picker, not
  * first: a code prompt on screen one reads as a gate, and a visitor without one
- * concludes they are not welcome. After the seat picker they know what Iter
+ * concludes they are not welcome. After the seat picker they know what Rate
  * pays for, so the ask is a small favour to a friend rather than a bouncer.
  */
 
@@ -69,7 +69,7 @@ const SEATS = [
     key: "trader",
     label: "Trader",
     tone: "var(--m-success)",
-    blurb: "$ITER on what you trade, and tighter spreads as your fee funds the depth.",
+    blurb: "$RATE on what you trade, and tighter spreads as your fee funds the depth.",
     icon: Compass,
     lands: "trade" as const,
   },
@@ -98,7 +98,7 @@ const SEATS = [
   },
   {
     key: "holder",
-    label: "$ITER holder",
+    label: "$RATE holder",
     tone: "var(--m-primary)",
     blurb: "Fees route into buybacks that burn supply. Nothing to lock.",
     icon: Sparkles,
@@ -223,7 +223,7 @@ export function WelcomeFlow({
           sessions reads as a different flow. Same component either way. */}
       <Stepper
         shape="bar"
-        barBrand="Iter"
+        barBrand="Rate"
         label="Getting started"
         steps={steps.map((key) => ({ key, label: STEP_LABELS[key] }))}
         activeIndex={stepIndex - 1}
@@ -441,7 +441,7 @@ export function WelcomeFlow({
             Rewards shows the current rate.
           </Note>
 
-          <Primary onClick={finish}>Start using Iter</Primary>
+          <Primary onClick={finish}>Start using Rate</Primary>
         </section>
       )}
     </div>

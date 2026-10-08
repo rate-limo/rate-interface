@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ChevronRight, Search } from "lucide-react";
-import { ChainBadge, TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
+import { PairImageIcon } from "@/components/Atoms/PairImageIcon";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
 import { isUnlisted, partitionByListing } from "@/lib/search/listing";
 import { tokenColor } from "@/lib/portfolio/mock";
@@ -21,27 +21,26 @@ function usd(value: number): string {
 function PoolLogo({ pair }: { pair: SpotPair }) {
   const { displayNetworkName } = useMarketPageContext();
   return (
-    <span className="relative block h-8 w-10 shrink-0">
-      <span className="absolute left-0 top-0 z-10 h-8 w-8 overflow-hidden rounded-full border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)]">
-        <TokenImageIcon symbol={pair.baseSymbol} logoURI={pair.base.logoURI} color={tokenColor(pair.baseSymbol)} size="md" />
-      </span>
-      <span className="absolute left-4 top-0 h-8 w-8 overflow-hidden rounded-full border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)]">
-        <TokenImageIcon symbol={pair.quoteSymbol} logoURI={pair.quote.logoURI} color={tokenColor(pair.quoteSymbol)} size="md" />
-      </span>
-      <span className="absolute -bottom-1 left-6 z-20">
-        <ChainBadge chainName={displayNetworkName} size="sm" />
-      </span>
-    </span>
+    <PairImageIcon
+      base={pair.baseSymbol}
+      quote={pair.quoteSymbol}
+      baseLogoURI={pair.base.logoURI ?? undefined}
+      quoteLogoURI={pair.quote.logoURI ?? undefined}
+      baseColor={tokenColor(pair.baseSymbol)}
+      quoteColor={tokenColor(pair.quoteSymbol)}
+      chainName={displayNetworkName}
+      className="h-8 w-8"
+    />
   );
 }
 
-/** Marks a pool Iter has not listed. Wording and tooltip are copied verbatim from
+/** Marks a pool Rate has not listed. Wording and tooltip are copied verbatim from
  * the search modal's chip — a reader who follows a market from one surface to the
  * other must not be told two different things. */
 function UnlistedChip() {
   return (
     <span
-      title="Not listed by Iter — anyone can deploy a token and open a market"
+      title="Not listed by Rate — anyone can deploy a token and open a market"
       className="shrink-0 rounded-[5px] border border-[color:var(--m-text-secondary-2)] px-1 py-px font-dm-mono text-[9px] uppercase text-[color:var(--m-text-secondary-2)]"
     >
       unlisted
@@ -140,7 +139,7 @@ export function PoolsTable({ pairs, search = "" }: { pairs: SpotPair[]; search?:
                         {pair.symbol}
                         {isUnlisted(pair) && <UnlistedChip />}
                       </span>
-                      <span className="mt-1 text-xs font-normal text-[color:var(--m-text-secondary)]">Iter CLOB · 0.10%</span>
+                      <span className="mt-1 text-xs font-normal text-[color:var(--m-text-secondary)]">Rate CLOB · 0.10%</span>
                     </span>
                   </Link>
                 </td>

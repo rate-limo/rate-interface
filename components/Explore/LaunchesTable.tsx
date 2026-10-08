@@ -13,9 +13,18 @@ import { tokenColor } from "@/lib/portfolio/mock";
 import { ChainSwitcher } from "@/components/Organisms/ChainSwitcher";
 import { TokenCards } from "./TokenCards";
 import type { SpotPair, SpotToken } from "@/types";
+import { LadderStatusCell } from "@/components/Launch/LadderStatus";
 
 type LaunchView = "all" | "recent" | "trending";
 type LaunchLayout = "table" | "cards";
+/** Separate events, separate tabs: the onchain graduation is never the listing. */
+type LaunchStatus = "all" | "ladder" | "graduated" | "listed";
+const STATUSES: { key: LaunchStatus; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "ladder", label: "On the ladder" },
+  { key: "graduated", label: "Graduated" },
+  { key: "listed", label: "Listed" },
+];
 
 const VIEWS: { key: LaunchView; label: string; icon: typeof Grid2X2; ranking: TokenRanking }[] = [
   { key: "all", label: "All", icon: Grid2X2, ranking: "top-marketcap" },
@@ -72,6 +81,7 @@ export function LaunchesTable({ pairs = [], thresholdUsd }: { pairs?: SpotPair[]
   const { displayNetworkName, displayNetworkSlug } = useMarketPageContext();
   const [view, setView] = useState<LaunchView>("all");
   const [layout, setLayout] = useState<LaunchLayout>("table");
+  const [status, setStatus] = useState<LaunchStatus>("all");
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     setNow(Math.floor(Date.now() / 1000));
@@ -91,7 +101,7 @@ export function LaunchesTable({ pairs = [], thresholdUsd }: { pairs?: SpotPair[]
    * 200 rows in one page, as before: the previous hook was an infinite query
    * that this table never paged, so nothing is lost by asking once.
    */
-  const { tokens, isLoading } = useMultichainTokens(200, 1, selected.ranking, "launched");
+  const { tokens, isLoading } = useMultichainTokens(200, 1, selected.ranking, "launched", undefined, status === "all" ? undefined : status);
   // The aggregator answers 502 only when EVERY chain fails, and the hook turns
   // that into an empty list; a partial failure still renders the chains that
   // answered. There is no per-chain error to show here any more.
@@ -118,6 +128,26 @@ export function LaunchesTable({ pairs = [], thresholdUsd }: { pairs?: SpotPair[]
                 )}
               >
                 <Icon aria-hidden className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+          <div role="tablist" aria-label="Launch status" className="mt-3 flex flex-wrap items-center gap-1.5">
+            {STATUSES.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                data-testid={`launch-status-${key}`}
+                aria-selected={status === key}
+                onClick={() => setStatus(key)}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+                  status === key
+                    ? "border-transparent bg-[color-mix(in_srgb,var(--m-primary)_18%,transparent)] font-medium text-[color:var(--m-primary-fg)]"
+                    : "border-[color:var(--m-border)] text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]",
+                )}
+              >
                 {label}
               </button>
             ))}
@@ -158,7 +188,7 @@ export function LaunchesTable({ pairs = [], thresholdUsd }: { pairs?: SpotPair[]
       ) : isLoading ? (
         <LaunchesSkeleton />
       ) : tokens.length === 0 ? (
-        <p className="py-10 text-center text-sm text-[color:var(--m-text-secondary)]">No launches on this chain yet.</p>
+        <p className="py-10 text-center text-sm text-[color:var(--m-text-secondary)]">{status === "all" ? "No launches on this chain yet." : "No launches match this filter yet."}</p>
       ) : layout === "cards" ? (
         <TokenCards
           tokens={tokens}
@@ -170,11 +200,12 @@ export function LaunchesTable({ pairs = [], thresholdUsd }: { pairs?: SpotPair[]
         />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1020px] border-collapse text-[15px]">
+          <table className="w-full min-w-[1180px] border-collapse text-[15px]">
             <thead>
               <tr className="rounded-xl bg-[color:var(--m-surface-2)] text-left text-[13px] text-[color:var(--m-text-secondary)]">
                 <th className="rounded-l-xl px-3 py-4 font-normal">#</th>
                 <th className="px-3 py-4 font-normal">Token</th>
+                <th className="px-3 py-4 font-normal">Status</th>
                 <th className="px-3 py-4 font-normal">Launchpad</th>
                 <th className="px-3 py-4 text-right font-normal">FDV</th>
                 <th className="px-3 py-4 text-right font-normal">↓ 24H volume</th>
@@ -211,7 +242,8 @@ export function LaunchesTable({ pairs = [], thresholdUsd }: { pairs?: SpotPair[]
                         </span>
                       </span>
                     </td>
-                    <td className="px-3 py-5 text-[color:var(--m-text-primary)]"><span className="inline-flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-[color:var(--m-surface-2)] text-xs">✦</span>Iter Launchpad</span></td>
+                    <td className="px-3 py-5">{token.ladder ? <LadderStatusCell ladder={token.ladder} /> : <span className="font-dm-mono text-sm text-[color:var(--m-text-secondary-2)]">—</span>}</td>
+                    <td className="px-3 py-5 text-[color:var(--m-text-primary)]"><span className="inline-flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-[color:var(--m-surface-2)] text-xs">✦</span>Rate Launchpad</span></td>
                     <td className="px-3 py-5 text-right font-dm-mono tabular-nums text-[color:var(--m-text-primary)]">{compactUSD(token.marketCap)}</td>
                     <td className="px-3 py-5 text-right font-dm-mono tabular-nums text-[color:var(--m-text-primary)]">{compactUSD(token.dayVolumeUSD)}</td>
                     <td className="px-3 py-5 text-right font-dm-mono tabular-nums text-[color:var(--m-text-primary)]">{compactUSD(token.dayTvlUSD)}</td>

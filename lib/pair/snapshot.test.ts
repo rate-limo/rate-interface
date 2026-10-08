@@ -77,6 +77,7 @@ const legs = (over: Partial<SnapshotLegs> = {}): SnapshotLegs => ({
     trades: tradeEvents(),
     pool: pool(12.5),
     positions: [position()],
+    bandTokens: null,
     ...over,
 });
 
@@ -173,6 +174,7 @@ describe("composePairSnapshot — every leg fails independently", () => {
                 trades: [{}] as unknown as SpotTradeEvent[],
                 pool: {} as PoolLiquidity,
                 positions: [{}] as unknown as LpPosition[],
+                bandTokens: [{}] as unknown as SnapshotLegs["bandTokens"],
             }),
         ).not.toThrow();
     });
@@ -238,5 +240,164 @@ describe("composeProvenance", () => {
 
     it("treats an empty trades array as measured, not missing", () => {
         expect(composeProvenance(legs({ trades: [] })).trades).toBe(false);
+    });
+});
+
+/**
+ * The band ladder — the leg whose absence made this page say "none" to every LP
+ * the deposit UI has ever created.
+ */
+const bandToken = (over: Record<string, unknown> = {}) =>
+    ({
+        tokenId: "1",
+        base: BASE_ID,
+        quote: QUOTE_ID,
+        active: true,
+        feesUSD: 0,
+        bands: [],
+        ...over,
+    }) as unknown as NonNullable<SnapshotLegs["bandTokens"]>[number];
+
+const rung = (band: number, valueUSD: number, over: Record<string, unknown> = {}) => ({
+    band,
+    valueUSD,
+    // Funded means SHARES — the ladder is keyed on them, never on the broker's
+    // USD snapshot, which does not exist for the first minute of a position.
+    shares: BigInt(1),
+    toleranceBuy: 0.02 * (band + 1),
+    toleranceSell: 0.02 * (band + 1),
+    open: true,
+    vestedPct: 100,
+    sharePct: 0,
+    spreadFrac: null,
+    feeMultiplier: null,
+    baseOwned: BigInt(0),
+    quoteOwned: BigInt(0),
+    ...over,
+});
+
+describe("composePairSnapshot — band positions", () => {
+    it("reads the band ladder, where the page used to report none", () => {
+        const s = composePairSnapshot(
+            legs({
+                positions: null,
+                bandTokens: [bandToken({ bands: [rung(0, 8.73), rung(1, 8.73), rung(2, 8.73)] })],
+            }),
+        );
+        expect(s.yourBands?.map((r) => r.band)).toEqual([0, 1, 2]);
+        expect(s.yourPositionUsd).toBeCloseTo(26.19, 6);
+        expect(s.yourPositionCount).toBe(1);
+    });
+
+    it("carries each rung's tolerance, which is what makes it a band and not a total", () => {
+        const s = composePairSnapshot(
+            legs({ positions: null, bandTokens: [bandToken({ bands: [rung(0, 10), rung(1, 30)] })] }),
+        );
+        expect(s.yourBands?.[0]?.toleranceFrac).toBeCloseTo(0.02, 6);
+        expect(s.yourBands?.[1]?.toleranceFrac).toBeCloseTo(0.04, 6);
+    });
+
+    /**
+     * `increaseLiquidity` adds to an existing token but a second `mint` makes
+     * another, and from the reader's side both are one stake in one pool.
+     */
+    it("folds several positions in the same pool into one ladder", () => {
+        const s = composePairSnapshot(
+            legs({
+                positions: null,
+                bandTokens: [
+                    bandToken({ tokenId: "1", bands: [rung(0, 10), rung(1, 10)] }),
+                    bandToken({ tokenId: "2", bands: [rung(1, 30)] }),
+                ],
+            }),
+        );
+        expect(s.yourPositionCount).toBe(2);
+        expect(s.yourBands?.map((r) => [r.band, r.valueUsd])).toEqual([
+            [0, 10],
+            [1, 40],
+        ]);
+        // Recomputed against the SUMMED total, never averaged out of the inputs:
+        // each token's own sharePct is a share of a different denominator.
+        expect(s.yourBands?.[1]?.sharePct).toBeCloseTo(80, 6);
+    });
+
+    it("ignores a position in another pool", () => {
+        const s = composePairSnapshot(
+            legs({
+                positions: null,
+                bandTokens: [bandToken({ quote: "0xSomeOtherQuote", bands: [rung(0, 99)] })],
+            }),
+        );
+        expect(s.yourBands).toBeNull();
+        expect(s.yourPositionUsd).toBeNull();
+    });
+
+    it("ignores a burnt position", () => {
+        const s = composePairSnapshot(
+            legs({ positions: null, bandTokens: [bandToken({ active: false, bands: [rung(0, 99)] })] }),
+        );
+        expect(s.yourBands).toBeNull();
+    });
+
+    /**
+     * "No position" and "a position worth nothing" are different claims, and the
+     * whole file turns on keeping them apart.
+     */
+    it("reports null, not zero, when the wallet holds nothing here", () => {
+        const s = composePairSnapshot(legs({ positions: null, bandTokens: [] }));
+        expect(s.yourBands).toBeNull();
+        expect(s.yourPositionUsd).toBeNull();
+        expect(s.yourFeesUsd).toBeNull();
+    });
+
+    /**
+     * A wallet can hold both generations in one pool, and "your position" means
+     * the whole stake. Asserted as the SUM OF THE PARTS rather than a literal, so
+     * the test states the rule instead of restating the fixture's arithmetic.
+     */
+    it("adds a legacy range to the band ladder rather than hiding either", () => {
+        const rangeOnly = composePairSnapshot(legs({ bandTokens: [] })).yourPositionUsd;
+        const bandOnly = composePairSnapshot(
+            legs({ positions: null, bandTokens: [bandToken({ bands: [rung(0, 10)] })] }),
+        ).yourPositionUsd;
+        const both = composePairSnapshot(
+            legs({ bandTokens: [bandToken({ bands: [rung(0, 10)] })] }),
+        ).yourPositionUsd;
+
+        expect(rangeOnly).toBeGreaterThan(0);
+        expect(bandOnly).toBeCloseTo(10, 6);
+        expect(both).toBeCloseTo((rangeOnly as number) + (bandOnly as number), 6);
+    });
+
+    /**
+     * The failure that reached a real deposit: the position was on chain and the
+     * broker had not valued it yet, so every rung was worth 0 and the ladder
+     * vanished — putting a funded wallet back on the word "none". Shares are the
+     * position; the dollars are a valuation of it.
+     */
+    it("lists a funded band the broker has not valued yet", () => {
+        const s = composePairSnapshot(
+            legs({
+                positions: null,
+                bandTokens: [bandToken({ bands: [rung(0, 0), rung(1, 0)] })],
+            }),
+        );
+        expect(s.yourBands?.map((r) => r.band)).toEqual([0, 1]);
+        // Unvalued, which is NOT worthless — the UI renders an em-dash, not "none".
+        expect(s.yourPositionUsd).toBeNull();
+        // Split evenly rather than 0%, so the rungs do not read as empty bands.
+        expect(s.yourBands?.map((r) => r.sharePct)).toEqual([50, 50]);
+    });
+
+    it("ignores a band the position holds no shares in", () => {
+        const s = composePairSnapshot(
+            legs({
+                positions: null,
+                bandTokens: [
+                    bandToken({ bands: [rung(0, 10), rung(1, 0, { shares: BigInt(0) })] }),
+                ],
+            }),
+        );
+        expect(s.yourBands?.map((r) => r.band)).toEqual([0]);
     });
 });

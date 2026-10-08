@@ -24,7 +24,7 @@ const LEGACY =
   "https://raw.githubusercontent.com/standardweb3/default-token-list/refs/heads/main/assets/placeholder_token.png";
 
 /** The `<img>`, when one is drawn at all. The fallback renders the symbol's
- *  initials instead — see the component's note on why it is not the Iter mark. */
+ *  initials instead — see the component's note on why it is not the Rate mark. */
 const image = (symbol: string) => screen.queryByAltText(symbol);
 
 describe("TokenImageIcon with no artwork", () => {
@@ -62,13 +62,13 @@ describe("TokenImageIcon with no artwork", () => {
     expect(img?.getAttribute("src")).toContain("USDC");
   });
 
-  it("falls back to the SYMBOL's initials, never the Iter logomark", () => {
+  it("falls back to the SYMBOL's initials, never the Rate logomark", () => {
     // The mark used to be `LogoMarkV2`, which put this venue's brand on every
     // unbranded third-party coin — the same error as the standardweb3 placeholder
     // it replaced, with our logo instead of theirs.
     render(<TokenImageIcon symbol="SKHY" color="#fff" logoURI="" />);
     expect(screen.queryByText("SK")).not.toBeNull();
-    expect(document.querySelector('svg[aria-label="Iter"]')).toBeNull();
+    expect(document.querySelector('svg[aria-label="Rate"]')).toBeNull();
   });
 
   it("tints the initials from the symbol, not from the caller's `color` prop", () => {

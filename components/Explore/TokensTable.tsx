@@ -581,7 +581,7 @@ export function TokensTable({
                         </span>
                         {isLaunch && (
                           <span
-                            title="Created through Iter's launch flow"
+                            title="Created through Rate's launch flow"
                             className="rounded-full px-1.5 py-px font-dm-mono text-[8.5px] font-bold uppercase tracking-wide"
                             style={{
                               color: "var(--m-logo)",

@@ -52,6 +52,12 @@ describe("isInsufficientFunds", () => {
     expect(isInsufficientFunds(new Error("insufficient funds in the pool"))).toBe(false);
   });
 
+  it("recognises Tempo's empty-fee-token estimate, and only at a ZERO allowance", () => {
+    expect(isInsufficientFunds(new Error("gas required exceeds allowance (0)"))).toBe(true);
+    // A non-zero allowance is the node's gas cap talking, not an empty balance.
+    expect(isInsufficientFunds(new Error("gas required exceeds allowance (30000000)"))).toBe(false);
+  });
+
   it("is false for an ordinary revert", () => {
     expect(isInsufficientFunds(new Error("execution reverted"))).toBe(false);
     expect(isInsufficientFunds(null)).toBe(false);
@@ -65,6 +71,12 @@ describe("isInsufficientFunds", () => {
 });
 
 describe("insufficientGasCopy", () => {
+  it("names PathUSD on Tempo, which has no gas coin", () => {
+    const copy = insufficientGasCopy(42431);
+    expect(copy.title).toContain("PathUSD");
+    expect(gasFaucetFor(42431)?.href).toContain("tempo.xyz");
+  });
+
   it("names Arc's gas asset as USDC, not ETH", () => {
     // Arc charges its fee in USDC. Telling a user there to add ETH asks for something
     // that does not exist on that chain.

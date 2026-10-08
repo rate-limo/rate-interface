@@ -37,8 +37,21 @@ export type ExploreSection = "tokens" | "launches" | "pools" | "auctions" | "tra
  * outright. That is the exact failure `SCHEME.home` warns about: a control that
  * appears to work and changes nothing.
  */
-export function buildExploreSectionUrl(section: ExploreSection): string {
-  return `/explore/${section}`;
+/**
+ * A section of Explore, optionally narrowed to one chain.
+ *
+ * `chains` is the SCOPE, and it is the only chain-shaped param Explore reads —
+ * `?chain=` is the dead one this surface has always ignored (`SCHEME.explore`
+ * is "none"). It carries a network NAME because that is what `chainFilter`
+ * holds and what the aggregator's own `?chains=` takes; see
+ * `lib/explore/scopeUrl`, which reads and writes the same param.
+ */
+export function buildExploreSectionUrl(
+  section: ExploreSection,
+  opts: { chains?: string } = {},
+): string {
+  const query = opts.chains ? `?chains=${encodeURIComponent(opts.chains)}` : "";
+  return `/explore/${section}${query}`;
 }
 
 export type SearchParamsRecord = Record<string, string | string[] | undefined>;
@@ -64,6 +77,42 @@ export interface BuildOpts {
   provide?: boolean;
   /** Pool only: add funds to an existing pair via `/pool/deposit`. */
   deposit?: boolean;
+  /**
+   * Pool only: open the WITHDRAW dialog for a pair on `/pool`.
+   *
+   * Deep-linked rather than "go to /pool and find it": the portfolio is where an
+   * LP reads their positions, and closing one from there used to mean knowing
+   * that `/pool` exists and that the control lives on a card there. `deposit`
+   * above is its opposite number and the pair of them is the whole verb set.
+   */
+  withdraw?: boolean;
+  /**
+   * Pool only: the LP TOKEN a deposit tops up or a withdrawal acts on. One token is one
+   * position holding the whole band ladder, so a pair no longer names a position -- a
+   * wallet can hold several in one pool -- and the token id is what does.
+   */
+  positionId?: string;
+  /**
+   * Pool deposit only: how the deposit spreads across the pool's bands, as
+   * `lib/liquidity/shape` names it.
+   *
+   * The dock's LP tab asks this before sending the LP to the deposit page, and
+   * without it the answer was thrown away at the link.
+   */
+  shape?: string;
+  /**
+   * Pool deposit only: the amount already typed, so the form opens on it rather
+   * than empty. A string, because it is a typed decimal on its way to a field —
+   * parsing it here would round it before the page ever sees it.
+   */
+  amount?: string;
+  /**
+   * Pool deposit only: which side of the pair a one-token deposit brings.
+   *
+   * `"base"` or `"quote"` rather than a symbol, so it cannot disagree with the
+   * `base`/`quote` travelling beside it in the same URL.
+   */
+  one?: "base" | "quote";
 }
 
 // How each page carries the chain in the query string. The old "from-to" scheme
@@ -211,9 +260,24 @@ export function tradeGearFromPathname(
   return segs[1] === "pro" ? "pro" : "basic";
 }
 
+/**
+ * Short names people type for a chain, mapped to its real slug. Without these
+ * `?chain=rise` is not a slug, falls through to the default chain, and the page
+ * shows Arc under a URL that says RISE (2026-10-03). Only exact aliases of a
+ * registered slug live here; anything else is still read back verbatim.
+ */
+export const SLUG_ALIASES: Readonly<Record<string, string>> = {
+  rise: "rise-testnet",
+  arc: "arc-testnet",
+  monad: "monad-testnet",
+  robinhood: "robinhood-testnet",
+};
+
 export function readDisplaySlug(kind: PageKind, sp: SearchParamsRecord): string {
-  if (SCHEME[kind] === "single") return first(sp.chain) ?? DEFAULT_CHAIN_SLUG;
-  return DEFAULT_CHAIN_SLUG;
+  if (SCHEME[kind] !== "single") return DEFAULT_CHAIN_SLUG;
+  const raw = first(sp.chain);
+  if (!raw) return DEFAULT_CHAIN_SLUG;
+  return SLUG_ALIASES[raw.toLowerCase()] ?? raw;
 }
 
 /**
@@ -319,7 +383,20 @@ export function buildPageUrl(kind: PageKind, opts: BuildOpts = {}): string {
     if (opts.deposit) {
       if (opts.base) p.set("base", opts.base);
       if (opts.quote) p.set("quote", opts.quote);
+      if (opts.positionId) p.set("position", opts.positionId);
+      if (opts.shape) p.set("shape", opts.shape);
+      if (opts.amount) p.set("amount", opts.amount);
+      if (opts.one) p.set("one", opts.one);
       return `/pool/deposit?${p.toString()}`;
+    }
+    if (opts.withdraw) {
+      // Stays on `/pool`, which is where the positions and the dialog live; the
+      // params only say WHICH position to open it for.
+      p.set("withdraw", "1");
+      if (opts.base) p.set("base", opts.base);
+      if (opts.quote) p.set("quote", opts.quote);
+      if (opts.positionId) p.set("position", opts.positionId);
+      return `/pool?${p.toString()}`;
     }
     // Only the flow takes a pair; the overview is market-wide and ignores it.
     if (opts.provide) {

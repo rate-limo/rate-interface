@@ -21,6 +21,8 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
   return (
     <button
       type="button"
+      // The interface changing under you, not a press. See lib/sound.
+      data-sound="notification"
       onClick={() => {
         // Mark this as an explicit choice so the time-of-day default (see the
         // head script in layout.tsx) stops overriding it on future visits.

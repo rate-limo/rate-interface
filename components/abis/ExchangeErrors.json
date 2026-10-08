@@ -187,6 +187,11 @@
   },
   {
     "type": "error",
+    "name": "InsufficientGasToMatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InsufficientHistory",
     "inputs": [
       {
@@ -200,6 +205,11 @@
         "internalType": "uint32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "InsufficientLiquidity",
+    "inputs": []
   },
   {
     "type": "error",

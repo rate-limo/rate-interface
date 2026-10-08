@@ -1,6 +1,7 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { eventBus } from "@/utils/events";
 import { useEffect, useRef } from "react";
 import { WagmiProvider, createConfig, cookieToInitialState, http, useReconnect, type Config } from "wagmi";
 import { wagmiChains } from "@/lib/customChains";
@@ -62,7 +63,7 @@ export const wagmiConfig = createConfig({
       // What the authenticator shows when the user picks a passkey later. There
       // is no email in the app now that Privy is gone, so this is deliberately
       // generic rather than a fabricated identifier.
-      userName: () => "Iter wallet",
+      userName: () => "Rate wallet",
     }),
   ],
   /**
@@ -97,7 +98,14 @@ export const wagmiConfig = createConfig({
   ssr: true,
 });
 
-const queryClient = new QueryClient();
+/**
+ * Exported so a test can watch the client the APP actually uses.
+ *
+ * `useQueryClient()` inside these providers resolves to this instance, never to
+ * one a test wraps around `<Providers>` — so spying on an outer client proves
+ * nothing about whether the bridge below is wired in at all.
+ */
+export const queryClient = new QueryClient();
 
 export default function Providers({
   children,
@@ -135,6 +143,7 @@ export default function Providers({
     <WagmiProvider config={wagmiConfig as Config} initialState={initialState} reconnectOnMount={false}>
       <QueryClientProvider client={queryClient}>
         <ReconnectOnMount />
+        <BalanceRefetchBridge />
         {children}
       </QueryClientProvider>
     </WagmiProvider>
@@ -161,6 +170,52 @@ function ReconnectOnMount() {
     // restore is simply a disconnected wallet, which the UI already renders.
     reconnect();
   }, [reconnect]);
+
+  return null;
+}
+
+/**
+ * `spot-balance-refetch` → wagmi's own balance reads.
+ *
+ * The event's declaration promises that "every balance hook refetches", and for
+ * a long time that was true of exactly two: `useTokenlistBalances` and
+ * `useERC20BalanceAllowance` each subscribe and call their own `refetch`.
+ * Anything reading a balance through wagmi's `useBalance` or `useReadContracts`
+ * — which is what the SWAP CARD does for both of its legs — was never told.
+ *
+ * So a confirmed swap emitted the event at the receipt, two hooks nobody on that
+ * screen was using refetched, and the balance rows directly above the amount
+ * field went on showing the pre-trade figures until something else happened to
+ * remount them.
+ *
+ * Here rather than in the card, because the next `useBalance` caller would
+ * otherwise have to rediscover this. `["balance"]` is wagmi's key for
+ * `getBalance` (verified in @wagmi/core's `getBalanceQueryKey`) and
+ * `["readContracts"]` is the multicall the portfolio's cross-chain read uses —
+ * the same two `WalletTransferModal` invalidates after a confirmed transfer.
+ *
+ * It deliberately does NOT touch `tokenlistBalances`: that hook already
+ * subscribes to this event itself, and invalidating it here as well would issue
+ * the same read twice.
+ *
+ * Invalidate rather than emit a figure. The event carries nothing on purpose —
+ * a swap's delivered amount depends on how the route filled, and on a chain
+ * whose gas asset is the token being traded the fee comes out of the same
+ * balance. See the event's own declaration.
+ */
+function BalanceRefetchBridge() {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const handler = () => {
+      void queryClient.invalidateQueries({ queryKey: ["balance"] });
+      void queryClient.invalidateQueries({ queryKey: ["readContracts"] });
+    };
+    eventBus.on("spot-balance-refetch", handler);
+    return () => {
+      eventBus.off("spot-balance-refetch", handler);
+    };
+  }, [queryClient]);
 
   return null;
 }

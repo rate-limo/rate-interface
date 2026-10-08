@@ -195,7 +195,7 @@ export function GetStartedCard() {
           <Step
             done
             title="Wallet created"
-            note="Yours alone. Iter never holds your keys."
+            note="Yours alone. Rate never holds your keys."
           />
           <Step
             done={progress.steps[1]?.state === "done"}

@@ -1,4 +1,5 @@
 import { defineChain } from "viem";
+import { tempoModerato } from "viem/chains";
 
 /*
  * `evmNetworks` and its `EvmNetwork` type were deleted on 2026-09-03.
@@ -174,7 +175,7 @@ export const somniaTestnet = /*#__PURE__*/ defineChain({
 export const monadTestnet = /*#__PURE__*/ defineChain({
   id: 10143,
   name: "Monad Testnet",
-  nativeCurrency: { name: "Testnet MON Token", symbol: "MON", decimals: 18 },
+  nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
   rpcUrls: { default: { http: ["https://testnet-rpc.monad.xyz"] } },
   blockExplorers: {
     default: {
@@ -183,6 +184,56 @@ export const monadTestnet = /*#__PURE__*/ defineChain({
     },
   },
   testnet: true,
+  // Verified 2026-10-02: 3808 bytes at the canonical address. The public RPC keeps no
+  // history, so the creation block could not be read and is omitted (viem treats it as
+  // optional); every read the app batches is at head. Without this entry viem refuses
+  // every batched read with ChainDoesNotSupportContract — see riseTestnet.
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
+});
+
+/**
+ * Robinhood Chain Testnet (46630), an Arbitrum Orbit chain whose gas coin is ETH.
+ * Chain id read from the RPC itself (eth_chainId = 0xb626); endpoints per
+ * docs.robinhood.com/chain. Multicall3 verified the same way as Monad's, and for the
+ * same reason carries no creation block.
+ */
+export const robinhoodTestnet = /*#__PURE__*/ defineChain({
+  id: 46630,
+  name: "Robinhood Chain Testnet",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.testnet.chain.robinhood.com"] } },
+  blockExplorers: {
+    default: { name: "Robinhood Chain Testnet explorer", url: "https://explorer.testnet.chain.robinhood.com" },
+  },
+  testnet: true,
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
+});
+
+/**
+ * Tempo Testnet "Moderato" (42431), a payments chain with NO native gas token.
+ *
+ * Built on viem's own `tempoModerato` so it keeps viem's Tempo transaction support
+ * (fee tokens, the 0x76 type) rather than a plain EVM shape. Only the name changes:
+ * it must read "Tempo Testnet" because the network NAME is the key every registry
+ * here uses (deployments.json, the token list, NETWORKNAME on the services).
+ *
+ * Gas is paid in a TIP-20 stablecoin (PathUSD by default), and CALLVALUE/BALANCE
+ * always return 0 while eth_getBalance answers a fixed placeholder. So the wallet's
+ * gas check never blocks here, and nothing on this chain can be paid with msg.value:
+ * there is deliberately no wrap entry in lib/swap/wrap.ts. Multicall3 verified on
+ * chain 2026-10-07 (3808 bytes at the canonical address).
+ */
+export const tempoTestnet = /*#__PURE__*/ defineChain({
+  ...tempoModerato,
+  name: "Tempo Testnet",
+  contracts: {
+    ...(tempoModerato as { contracts?: Record<string, unknown> }).contracts,
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
 });
 
 export const megaethTestnet = /*#__PURE__*/ defineChain({
@@ -250,7 +301,7 @@ export const arcTestnet = /*#__PURE__*/ defineChain({
  * /create?chain=arc-testnet reverted, because Arc's USDC quote does not exist
  * on RISE. Arc leads while it is the chain under test.
  */
-export const wagmiChains = [arcTestnet, riseTestnet] as const;
+export const wagmiChains = [arcTestnet, riseTestnet, monadTestnet, robinhoodTestnet, tempoTestnet] as const;
 
 
 

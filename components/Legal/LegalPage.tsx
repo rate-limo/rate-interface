@@ -15,6 +15,7 @@ import type { ReactNode } from "react";
  */
 
 const LEGAL_LINKS = [
+  { href: "/fees", label: "Fees" },
   { href: "/terms", label: "Terms" },
   { href: "/privacy", label: "Privacy" },
   { href: "/cookies", label: "Cookies" },
@@ -37,7 +38,7 @@ export function LegalPage({
   return (
     <main className="mx-auto w-full max-w-[820px] px-[22px] pt-16 pb-28 text-[color:var(--m-text-primary)]">
       <p className="mb-3.5 flex items-center gap-2 font-dm-mono text-xs tracking-[0.16em] uppercase text-[color:var(--m-primary-fg)]">
-        <span className="font-bold text-[color:var(--m-logo)]">Iter</span> · {eyebrow}
+        <span className="font-bold text-[color:var(--m-logo)]">Rate</span> · {eyebrow}
       </p>
       <h1 className="mb-4 text-[clamp(28px,3.6vw,40px)] leading-[1.06] font-medium tracking-[-0.02em] text-balance">
         {title}
@@ -51,7 +52,7 @@ export function LegalPage({
 
       <nav className="mt-12 flex flex-wrap gap-x-5 gap-y-2 border-t border-[color:var(--m-border)] pt-5 text-[13px]">
         <Link href="/" className="text-[color:var(--m-primary-fg)] underline underline-offset-2">
-          Back to Iter
+          Back to Rate
         </Link>
         {LEGAL_LINKS.map((l) => (
           <Link
@@ -67,9 +68,9 @@ export function LegalPage({
   );
 }
 
-export function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, id, children }: { title: string; id?: string; children: ReactNode }) {
   return (
-    <section className="mt-10">
+    <section id={id} className="mt-10 scroll-mt-6">
       <h2 className="mb-3 text-[21px] font-semibold tracking-[-0.01em]">{title}</h2>
       <div className="max-w-[68ch] space-y-3 text-[14.5px] leading-relaxed text-[color:var(--m-text-secondary)]">
         {children}

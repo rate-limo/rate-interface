@@ -48,21 +48,21 @@ describe("profileShareCardUrl", () => {
 
 describe("profileShareText", () => {
   it("uses the display name when set", () => {
-    expect(profileShareText("hskang", ADDRESS)).toBe("hskang on Iter");
+    expect(profileShareText("hskang", ADDRESS)).toBe("hskang on Rate");
   });
 
   it("falls back to the abbreviated address, never an empty subject", () => {
-    expect(profileShareText(null, ADDRESS)).toBe("0x9E7A…850E on Iter");
-    expect(profileShareText("", ADDRESS)).toBe("0x9E7A…850E on Iter");
-    expect(profileShareText("   ", ADDRESS)).toBe("0x9E7A…850E on Iter");
+    expect(profileShareText(null, ADDRESS)).toBe("0x9E7A…850E on Rate");
+    expect(profileShareText("", ADDRESS)).toBe("0x9E7A…850E on Rate");
+    expect(profileShareText("   ", ADDRESS)).toBe("0x9E7A…850E on Rate");
   });
 });
 
 describe("xIntentUrl", () => {
   it("encodes text and url as query parameters", () => {
-    const out = new URL(xIntentUrl("hskang on Iter", "https://iter.cx/profile/0xabc"));
+    const out = new URL(xIntentUrl("hskang on Rate", "https://iter.cx/profile/0xabc"));
     expect(out.origin + out.pathname).toBe("https://x.com/intent/tweet");
-    expect(out.searchParams.get("text")).toBe("hskang on Iter");
+    expect(out.searchParams.get("text")).toBe("hskang on Rate");
     expect(out.searchParams.get("url")).toBe("https://iter.cx/profile/0xabc");
   });
 

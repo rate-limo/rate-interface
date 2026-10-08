@@ -1,4 +1,6 @@
 import defaultTokenlist from "@iter/token-list";
+import { marketParam } from "@/lib/routing/proMarket";
+import { tokenLogoURI } from "@/lib/tokens/logo";
 import {
   chainIdToNetworkName,
   networkNameToSlug,
@@ -24,6 +26,18 @@ import {
 export interface TapePair {
   base: string;
   quote: string;
+  /**
+   * The two tokens' artwork, so the tape draws the same pair mark every other
+   * surface does instead of a coloured dot standing in for a chain.
+   *
+   * Through `tokenLogoURI`, which is the one place that decides whether a
+   * `logoURI` is real: the predecessor list substituted a `placeholder_token.png`
+   * on a host this project does not control, and it LOADS, so `onError` never
+   * fires and no fallback mark can win against it. Undefined here means the
+   * icon draws initials over the token's own hashed colour.
+   */
+  baseLogoURI?: string;
+  quoteLogoURI?: string;
   network: string;
   slug: string;
   price: number;
@@ -75,6 +89,8 @@ export function chainColor(network: string): string {
 interface RawToken {
   chainId: number;
   symbol: string;
+  address?: string;
+  logoURI?: string;
 }
 interface RawPair {
   base: RawToken;
@@ -88,7 +104,18 @@ function networkOf(chainId: number): string | undefined {
   return chainIdToNetworkName[String(chainId)];
 }
 
-export function getMarketTapeData(): MarketTapeData {
+export function getMarketTapeData(visibleChains?: readonly string[]): MarketTapeData {
+  /*
+   * The operator's list, not just the build's.
+   *
+   * `supported` below is `SUPPORTED_CHAINS` — what this build CAN serve.
+   * `visibleChains` is what the operator currently wants shown, and a chain
+   * they have hidden must not scroll past in the tape or be counted in the
+   * "N markets · N chains" label beside it. Undefined means no answer was
+   * available, and the build's own list is then the honest fallback: the same
+   * degrade direction `useVisibleChains` takes, for the same reason.
+   */
+  const shown = visibleChains ? new Set(visibleChains) : null;
   const pairsRaw = (defaultTokenlist.pairs ?? []) as unknown as RawPair[];
   const tokensRaw = (defaultTokenlist.tokens ?? []) as unknown as RawToken[];
 
@@ -99,6 +126,7 @@ export function getMarketTapeData(): MarketTapeData {
   for (const p of pairsRaw) {
     const network = networkOf(p.base.chainId);
     if (!network || !supported.has(network)) continue;
+    if (shown && !shown.has(network)) continue;
     const slug = networkNameToSlug[network];
     if (!slug) continue;
 
@@ -109,10 +137,13 @@ export function getMarketTapeData(): MarketTapeData {
     pairs.push({
       base: p.base.symbol,
       quote: p.quote.symbol,
+      baseLogoURI: tokenLogoURI(p.base.logoURI),
+      quoteLogoURI: tokenLogoURI(p.quote.logoURI),
       network,
       slug,
       price: p.listing_price ?? 0,
-      href: `/trade/pro?chain=${slug}&base=${p.base.symbol}&quote=${p.quote.symbol}`,
+      // By address: a launchpad ticker can belong to two coins.
+      href: `/trade/pro?chain=${slug}&base=${encodeURIComponent(marketParam(p.base))}&quote=${encodeURIComponent(marketParam(p.quote))}`,
     });
     perChain.set(network, (perChain.get(network) ?? 0) + 1);
   }
@@ -120,7 +151,9 @@ export function getMarketTapeData(): MarketTapeData {
   const tokenSet = new Set<string>();
   for (const t of tokensRaw) {
     const network = networkOf(t.chainId);
-    if (network && supported.has(network)) tokenSet.add(`${network}:${t.symbol}`);
+    if (!network || !supported.has(network)) continue;
+    if (shown && !shown.has(network)) continue;
+    tokenSet.add(`${network}:${t.symbol}`);
   }
 
   const byChain: ChainMarkets[] = [...perChain.entries()]

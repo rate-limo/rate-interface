@@ -105,7 +105,7 @@ export function InviteView({ code, networkSlug }: { code: string; networkSlug?: 
             onClick={() => router.push(buildPageUrl("explore", { slug: networkSlug }))}
             className="mt-1 w-full rounded-xl bg-[color:var(--m-primary)] py-3 text-[14px] font-semibold text-white hover:bg-[color:var(--m-primary-hover)]"
           >
-            Explore Iter
+            Explore Rate
           </button>
         </>
       ) : (
@@ -157,7 +157,7 @@ export function InviteView({ code, networkSlug }: { code: string; networkSlug?: 
                 onClick={() => router.push(buildPageUrl("explore", { slug: networkSlug }))}
                 className="w-full rounded-xl bg-[color:var(--m-primary)] py-3 text-[14px] font-semibold text-white hover:bg-[color:var(--m-primary-hover)]"
               >
-                Start using Iter
+                Start using Rate
               </button>
             </>
           ) : (

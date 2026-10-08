@@ -1,8 +1,8 @@
 "use client";
 
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { useMemo, useState } from "react";
 import { useAccount } from "wagmi";
-import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
 import { supportedNetworkName } from "@/lib/routing/chainParams";
 import { useAccountProfile } from "@/hooks/useAccountProfile";
@@ -135,7 +135,7 @@ export function ProfileView({
     >
       {/* One Toaster per screen. The shell already mounts one, and a second inside a
           modal renders every toast twice for as long as it is open. */}
-      {!compact && <Toaster richColors position="bottom-right" />}
+      {!compact && <AppToaster />}
 
       <IdentityCard
         address={address}

@@ -50,7 +50,7 @@ HEADLINE_1 = "Fully on-chain order book."
 HEADLINE_2 = "Inventory and settlement, solved."
 SUBCOPY_1 = "Trade from your own wallet on one open order book. Every trade fills at"
 SUBCOPY_2 = "a price you agreed to."
-FOOTER = "Join the waitlist · iter.cx"
+FOOTER = "rate.limo"
 
 # The 12-bar logomark, transcribed from public/off_grid_logomark_v2.svg
 # (Figma node 5254:8599). That file bakes the diagonal wipe in as opaque

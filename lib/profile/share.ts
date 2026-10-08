@@ -37,7 +37,7 @@ export function profileShareCardUrl(origin: string, address: string, chainSlug?:
 export function profileShareText(name: string | null | undefined, address: string): string {
   const trimmed = name?.trim();
   const who = trimmed && trimmed.length > 0 ? trimmed : `${address.slice(0, 6)}…${address.slice(-4)}`;
-  return `${who} on Iter`;
+  return `${who} on Rate`;
 }
 
 /**

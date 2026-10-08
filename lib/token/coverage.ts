@@ -1,7 +1,7 @@
 import type { SpotToken } from "@/types";
 
 /**
- * Whether Iter launched this token, which decides what the token profile can
+ * Whether Rate launched this token, which decides what the token profile can
  * honestly show.
  *
  * ## Why one helper instead of `token.creator !== ""` at each call site

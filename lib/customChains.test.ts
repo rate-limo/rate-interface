@@ -23,6 +23,27 @@ const EXPECTED = [
     symbol: "ETH",
     rpc: "https://testnet.riselabs.xyz",
   },
+  {
+    id: 10143,
+    name: "Monad Testnet",
+    symbol: "MON",
+    rpc: "https://testnet-rpc.monad.xyz",
+  },
+  {
+    id: 46630,
+    name: "Robinhood Chain Testnet",
+    symbol: "ETH",
+    rpc: "https://rpc.testnet.chain.robinhood.com",
+  },
+  {
+    // No gas coin: "USD" is viem's placeholder for Tempo's fee-token model.
+    id: 42431,
+    name: "Tempo Testnet",
+    symbol: "USD",
+    rpc: "https://rpc.moderato.tempo.xyz",
+    // viem's own value for the placeholder; nothing on Tempo is paid in it.
+    decimals: 6,
+  },
 ] as const;
 
 describe("wagmi chains", () => {
@@ -36,7 +57,9 @@ describe("wagmi chains", () => {
       const want = EXPECTED[i]!;
       expect(chain.name, `chain ${chain.id} name`).toBe(want.name);
       expect(chain.nativeCurrency.symbol, `chain ${chain.id} symbol`).toBe(want.symbol);
-      expect(chain.nativeCurrency.decimals, `chain ${chain.id} decimals`).toBe(18);
+      expect(chain.nativeCurrency.decimals, `chain ${chain.id} decimals`).toBe(
+        "decimals" in want ? want.decimals : 18,
+      );
       expect(chain.rpcUrls.default.http[0], `chain ${chain.id} rpc`).toBe(want.rpc);
     }
   });

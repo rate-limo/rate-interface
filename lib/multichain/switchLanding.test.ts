@@ -129,3 +129,26 @@ describe("currentMarketSymbolFromPath", () => {
     ).toContain("DOUGH");
   });
 });
+
+describe("resolveSwitchTarget — chain-scoped pages without a market", () => {
+  it("keeps /create and swaps only the chain", () => {
+    expect(
+      resolveSwitchTarget({ fromMarketSymbol: null, toNetworkName: "RISE Testnet", toSlug: "rise", isListed: false, from: { pathname: "/create", search: "?chain=arc-testnet" } }),
+    ).toBe("/create?chain=rise");
+  });
+  it("keeps other params on the page", () => {
+    expect(
+      resolveSwitchTarget({ fromMarketSymbol: null, toNetworkName: "RISE Testnet", toSlug: "rise", isListed: false, from: { pathname: "/pool/new", search: "?chain=arc-testnet&mode=launch" } }),
+    ).toBe("/pool/new?chain=rise&mode=launch");
+  });
+  it("still falls back to /explore from a chainless page", () => {
+    expect(
+      resolveSwitchTarget({ fromMarketSymbol: null, toNetworkName: "RISE Testnet", toSlug: "rise", isListed: false, from: { pathname: "/portfolio", search: "" } }),
+    ).toBe("/explore");
+  });
+  it("still falls back to /explore when a Pro market is not listed on the target", () => {
+    expect(
+      resolveSwitchTarget({ fromMarketSymbol: "FOO", toNetworkName: "RISE Testnet", toSlug: "rise", isListed: false, from: { pathname: "/trade/pro", search: "?chain=arc-testnet&base=FOO" } }),
+    ).toBe("/explore");
+  });
+});

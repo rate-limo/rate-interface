@@ -3,7 +3,7 @@
 import { WalletButton } from "@/components/Shell/WalletButton";
 
 /**
- * The Iter dashboard's desktop wallet button, passed to AppShell as
+ * The Rate dashboard's desktop wallet button, passed to AppShell as
  * `walletContent`.
  *
  * Now a thin wrapper over Shell/WalletButton. It used to hand-roll the

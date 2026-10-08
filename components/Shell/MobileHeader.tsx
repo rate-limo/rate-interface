@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Coins, Gift, LineChart, Menu, WalletCards } from "lucide-react";
+import { Activity, Coins, Droplets, Gift, LineChart, Menu, WalletCards } from "lucide-react";
 import { useWalletAccount, useWalletConnect } from "@/lib/wallet";
 import { SupportButton } from "@/components/Support/SupportWidget";
 import { WalletMenu } from "@/components/Shell/WalletMenu";
@@ -11,6 +11,7 @@ import { LogoMarkV2 } from "@/components/Atoms/LogoMarkV2";
 import { SearchTrigger } from "@/components/Search/SearchTrigger";
 import { ChainSwitcher } from "@/components/Organisms/ChainSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SoundToggle } from "@/components/Sound/SoundToggle";
 import {
   Sheet,
   SheetContent,
@@ -33,10 +34,15 @@ import { buildPageUrl, type PageKind } from "@/lib/routing/chainParams";
  * which would have become dead on ten. Worse, the chain switcher and theme toggle
  * live only in AppSidebar and StatusBar, both desktop-only, so before this there
  * was **no way to switch chain or theme on a phone at all**. The sheet is where
- * they live, alongside the destinations that don't earn one of the five tabs.
+ * they live, alongside the destinations that don't earn one of the five tabs
+ * (Pool and Rate among them since the bar went from seven to five).
  */
 
+// Pool and Rate lead: they were tabs until the bar went to five (2026-10-03,
+// see MobileTabs), and this sheet is now how a phone reaches them.
 const MENU_LINKS: { kind: PageKind; label: string; icon: typeof Gift }[] = [
+  { kind: "pool", label: "Pool", icon: Droplets },
+  { kind: "iter", label: "Rate", icon: Activity },
   { kind: "rewards", label: "Rewards", icon: Gift },
   { kind: "pass", label: "OG Pass", icon: Coins },
   { kind: "token", label: "Tokens", icon: LineChart },
@@ -44,10 +50,10 @@ const MENU_LINKS: { kind: PageKind; label: string; icon: typeof Gift }[] = [
 
 const EXTERNAL = [
   { label: "X", href: "https://x.com/off____grid" },
-  { label: "GitHub", href: "https://github.com/iter-cx/iter-monorepo" },
+  { label: "GitHub", href: "https://github.com/rate-limo/rate-monorepo" },
   {
     label: "Whitepaper",
-    href: "https://github.com/iter-cx/iter-research/blob/main/iter-whitepaper.md",
+    href: "https://github.com/rate-limo/rate-research/blob/main/iter-whitepaper.md",
   },
 ];
 
@@ -72,7 +78,7 @@ export function MobileHeader({
     <header className="sticky top-0 z-30 flex h-[58px] items-center justify-between border-b border-[color:var(--m-border)] bg-[color:var(--m-surface)]/95 px-4 backdrop-blur-xl min-[1200px]:hidden">
       <Link
         href={buildPageUrl("explore", { slug: displayNetworkSlug })}
-        aria-label="Iter"
+        aria-label="Rate"
       >
         <LogoMarkV2 size={30} />
       </Link>
@@ -169,11 +175,14 @@ export function MobileHeader({
               })}
             </nav>
 
-            {/* Chain and theme have no other home on a phone: the sidebar and
-                status bar that carry them are both desktop-only. */}
+            {/* Chain, theme and sound have no other home on a phone: the sidebar
+                and status bar that carry them are both desktop-only. Sound sits
+                here rather than in the top bar (five 48px controls already fill
+                360px) or the tab bar (five tabs is the cap). */}
             <div className="mt-4 flex items-center gap-3 border-t border-[color:var(--m-border)] pt-4">
               <ChainSwitcher />
               <ThemeToggle />
+              <SoundToggle />
             </div>
 
             <div className="mt-4 flex items-center gap-4">

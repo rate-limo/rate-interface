@@ -248,7 +248,7 @@ export function ProtocolFlywheel({ data }: { data: ProtocolFlywheelData }) {
         ),
         spine: spinePath(xHubRight, flowH / 2, xTarget, burnCy),
       },
-      /* Backing per Iter is derived from the burn, not a second cash flow — a
+      /* Backing per Rate is derived from the burn, not a second cash flow — a
          dashed hop says "consequence of", where a ribbon would claim "value
          moves here" and double-count the revenue. */
       derive: `M${width * 0.87} ${outTop + OUT_H + 1} L${width * 0.87} ${outTop + OUT_H + OUT_GAP - 1}`,
@@ -468,7 +468,7 @@ export function ProtocolFlywheel({ data }: { data: ProtocolFlywheelData }) {
               label="Buyback & Burn"
               value={
                 hasFlow
-                  ? `${data.buybackBurnIter.toLocaleString("en-US", { maximumFractionDigits: 2 })} Iter`
+                  ? `${data.buybackBurnIter.toLocaleString("en-US", { maximumFractionDigits: 2 })} Rate`
                   : "—"
               }
               note={
@@ -479,7 +479,7 @@ export function ProtocolFlywheel({ data }: { data: ProtocolFlywheelData }) {
               muted={!hasFlow}
             />
             <OutflowCard
-              label="Backing per Iter"
+              label="Backing per Rate"
               value={hasFlow ? `$${data.backingPerIter.toFixed(2)}` : "—"}
               note={hasFlow ? `${data.annualDeflationPct.toFixed(2)}% annual deflation` : "Awaiting revenue"}
               emphasis
@@ -566,7 +566,7 @@ export function ProtocolFlywheel({ data }: { data: ProtocolFlywheelData }) {
           label="Buyback & Burn"
           value={
             hasFlow
-              ? `${data.buybackBurnIter.toLocaleString("en-US", { maximumFractionDigits: 2 })} Iter`
+              ? `${data.buybackBurnIter.toLocaleString("en-US", { maximumFractionDigits: 2 })} Rate`
               : "—"
           }
           note={
@@ -580,7 +580,7 @@ export function ProtocolFlywheel({ data }: { data: ProtocolFlywheelData }) {
         <ChainArrow />
 
         <OutflowCard
-          label="Backing per Iter"
+          label="Backing per Rate"
           value={hasFlow ? `$${data.backingPerIter.toFixed(2)}` : "—"}
           note={hasFlow ? `${data.annualDeflationPct.toFixed(2)}% annual deflation` : "Awaiting revenue"}
           emphasis
@@ -589,7 +589,7 @@ export function ProtocolFlywheel({ data }: { data: ProtocolFlywheelData }) {
       </div>
 
       <p className="mt-6 font-dm-mono text-[10px] tracking-[0.04em] text-[color:var(--m-text-secondary)]">
-        Source: Iter pair aggregates · Admin protocol configuration
+        Source: Rate pair aggregates · Admin protocol configuration
         {data.isFallback ? " · data source unavailable" : ""}
       </p>
     </section>

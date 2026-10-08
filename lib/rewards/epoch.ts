@@ -64,3 +64,15 @@ export function epochEndsAt(now: Date): Date {
 export function seasonOf(epoch: number): number {
   return Math.floor(epoch / EPOCHS_PER_SEASON) + 1;
 }
+
+/**
+ * When the season containing `now` ends — the instant its $RATE is distributed.
+ *
+ * Season N spans epochs 12(N-1) … 12N-1, so it ends at the start of epoch 12N.
+ * That boundary is what users are told, not the backend's close: the close runs
+ * a few minutes after it (Monday 00:42 UTC) and may defer until the last week is
+ * credited, and neither is a date anyone can plan around.
+ */
+export function seasonEndsAt(now: Date): Date {
+  return epochStart(seasonOf(epochOf(now)) * EPOCHS_PER_SEASON);
+}

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "turbo build --filter=web^...",
     "dev": "next dev --turbopack",
     "build": "next build --webpack",
     "start": "next start",
@@ -13,6 +14,7 @@
     "e2e:seed": "playwright test e2e/seed/seed.spec.ts",
     "seed": "tsx --env-file-if-exists=.env.local --env-file-if-exists=e2e/.env e2e/seed/run.mts",
     "seed:fund": "tsx --env-file-if-exists=../../contracts/.env --env-file-if-exists=.env.local --env-file-if-exists=e2e/.env e2e/seed/fund.mts",
+    "verify:backend": "tsx --env-file-if-exists=.env.local --env-file-if-exists=e2e/.env --env-file-if-exists=../../contracts/.env e2e/verify/backend.mts",
     "seed:prune-auctions": "tsx --env-file-if-exists=.env.local --env-file-if-exists=e2e/.env e2e/seed/prune-auctions.mts",
     "packages:build": "pnpm -r --filter \"./packages/*\" run build",
     "prepare": "pnpm run packages:build"
@@ -80,6 +82,7 @@
     "react-is": "^19.0.0-rc-69d4b800-20241021"
   },
   "devDependencies": {
+    "@browserbasehq/stagehand": "^4.1.0",
     "@eslint/eslintrc": "^3",
     "@playwright/test": "^1.62.1",
     "@tenkeylabs/dappwright": "^2.13.12",

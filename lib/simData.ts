@@ -1,8 +1,8 @@
 import results from "@/docs/research/experiments/results.json";
 
 export const CHART_SERIES = {
-  iter: { key: "iter", label: "Iter", color: "var(--m-logo)", emphasize: true },
-  // Plum, NOT the orange it used to be (#d95926). Iter's series is --m-logo,
+  iter: { key: "iter", label: "Rate", color: "var(--m-logo)", emphasize: true },
+  // Plum, NOT the orange it used to be (#d95926). Rate's series is --m-logo,
   // which is gold (#B07A08) in light but ember (#E85D2A) in dark — and #d95926
   // is the same orange as that ember, so in dark mode the emphasized series and
   // the headline comparison were indistinguishable on every chart they share.
@@ -48,9 +48,9 @@ export const ilData = results.impermanent_loss.map((row) => ({
 }));
 
 const LP_SCENARIOS = [
-  { scenario: "thin_book", label: "Iter, thin market" },
-  { scenario: "reference_book", label: "Iter, mid-depth" },
-  { scenario: "deep_book", label: "Iter, deepest" },
+  { scenario: "thin_book", label: "Rate, thin market" },
+  { scenario: "reference_book", label: "Rate, mid-depth" },
+  { scenario: "deep_book", label: "Rate, deepest" },
 ] as const;
 
 function scenarioRange(scenario: string) {
@@ -108,9 +108,9 @@ export const lpEconomicsData = [
   },
 ];
 
-// Every gross figure above (Iter included) is gross of the position's own
+// Every gross figure above (Rate included) is gross of the position's own
 // price-risk channel — LVR for the AMMs, the bounded tolerance cost for
-// Iter. This nets that out at a representative +25% price move, using the
+// Rate. This nets that out at a representative +25% price move, using the
 // same iter_il_bound / il_standard / v3_il_approx formulas that already
 // back the impermanent-loss chart above (see results.json
 // lp_economics.net_of_lvr and whitepaper §4.6, "Net of adverse selection").
@@ -144,28 +144,28 @@ function cexRow(label: string, row: CexNetRow) {
 
 export const lvrNetData = [
   lvrRow(
-    "Iter, thin market",
+    "Rate, thin market",
     CHART_SERIES.iter.color,
     ogRow("thin_book", "s_cap").gross,
     ogRow("thin_book", "s_cap").il_cost,
     ogRow("thin_book", "s_cap").net,
   ),
   lvrRow(
-    "Iter, mid-depth",
+    "Rate, mid-depth",
     CHART_SERIES.iter.color,
     ogRow("reference_book", "s_cap").gross,
     ogRow("reference_book", "s_cap").il_cost,
     ogRow("reference_book", "s_cap").net,
   ),
   lvrRow(
-    "Iter, deepest",
+    "Rate, deepest",
     CHART_SERIES.iter.color,
     ogRow("deep_book", "s_cap").gross,
     ogRow("deep_book", "s_cap").il_cost,
     ogRow("deep_book", "s_cap").net,
   ),
   lvrRow(
-    "Iter, s = 0 (any depth)",
+    "Rate, s = 0 (any depth)",
     CHART_SERIES.iter.color,
     ogRow("thin_book", "s0").gross,
     ogRow("thin_book", "s0").il_cost,
@@ -199,7 +199,7 @@ export const lvrNetData = [
 // How each venue's LP fee is actually computed, as a rate on the LP's own
 // deposited liquidity — so a user can type in a USDC amount and see the
 // fee each venue's formula produces. AMMs charge a fixed protocol fee rate.
-// Iter's LP pays no fee at all and instead earns the spread they
+// Rate's LP pays no fee at all and instead earns the spread they
 // themselves quoted, plus the trader's own tier fee; the rate below is that
 // formula at the top slippageLimit tier under the §3.4 cap on a thin book
 // (results.json lp_economics.cap_min_max).
@@ -228,7 +228,7 @@ export const feeRates = [
     rate: results.lp_economics.amm.curve_gross / VOL,
   },
   {
-    venue: "Iter",
+    venue: "Rate",
     formula: "(spread margin + trader's taker fee) × your liquidity — you pay no fee",
     detail: `${(THIN_TOP_TIER.max_slippage_cap * 100).toFixed(0)}% + ${(THIN_TOP_TIER.trader_taker_fee * 100).toFixed(2)}%, thin market, top tier`,
     rate: THIN_TOP_TIER.max_take_at_cap / VOL,

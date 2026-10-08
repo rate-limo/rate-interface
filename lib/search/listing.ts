@@ -5,7 +5,7 @@
  * pins it as an identity lookup that "must keep resolving regardless of
  * verified" — so unlisted tokens and pairs have always come back from it. What
  * was missing is that nothing SAID so: they sorted in among listed results as
- * equals, with no way for a reader to tell an Iter-listed market from one
+ * equals, with no way for a reader to tell an Rate-listed market from one
  * deployed ten minutes ago by anyone.
  *
  * Anything other than an explicit `true` counts as unlisted. `verified` is

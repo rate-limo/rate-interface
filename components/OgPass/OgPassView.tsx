@@ -56,7 +56,7 @@ export function OgPassView({ networkSlug }: OgPassViewProps) {
     buy(selectedTier.id);
     setMode("owned");
     toast.success(`Minted ${selectedTier.name} · ${selectedTier.priceEth}`, {
-      description: "Your Iter membership benefits are now tied to your wallet.",
+      description: "Your Rate membership benefits are now tied to your wallet.",
     });
   };
 
@@ -75,13 +75,13 @@ export function OgPassView({ networkSlug }: OgPassViewProps) {
     <div className="mx-auto max-w-[1080px] px-[22px] pb-24 pt-12">
       <header>
         <p className="m-0 mb-[14px] flex items-center gap-[9px] font-mono text-[12px] uppercase tracking-[0.16em] text-[color:var(--m-logo)]">
-          <span className="font-bold">Iter</span> · membership
+          <span className="font-bold">Rate</span> · membership
         </p>
         <h1 className="m-0 mb-2 text-[clamp(28px,4vw,44px)] font-medium leading-[1.04] tracking-[-0.02em] text-balance">
-          Trade on <span className="font-bold text-[color:var(--m-logo)]">Iter</span> — the self-custodial venue.
+          Trade on <span className="font-bold text-[color:var(--m-logo)]">Rate</span> — the self-custodial venue.
         </h1>
         <p className="m-0 mb-[22px] max-w-[66ch] text-[16px] text-[color:var(--m-text-secondary)]">
-          Iter brings the tools for onchain markets together:{" "}
+          Rate brings the tools for onchain markets together:{" "}
           <b className="text-[color:var(--m-text-primary)]">more points</b>,{" "}
           <b className="text-[color:var(--m-text-primary)]">passkey login</b> (no seed phrase),{" "}
           <b className="text-[color:var(--m-text-primary)]">sponsored gas</b>, and{" "}
@@ -155,10 +155,10 @@ function Notes() {
   return (
     <div className="mt-7 grid gap-4 max-[720px]:grid-cols-1 min-[721px]:grid-cols-2">
       <div className="col-span-full rounded-[14px] border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-[22px] py-5 shadow-sm">
-        <NoteHeading dot="var(--m-logo)">How Iter works</NoteHeading>
+        <NoteHeading dot="var(--m-logo)">How Rate works</NoteHeading>
         <p className="m-0 text-[13.5px] leading-[1.55] text-[color:var(--m-text-secondary)]">
           <b className="font-semibold text-[color:var(--m-text-primary)]">Points</b> — the pass applies a permanent
-          multiplier on the rewards you already earn (trading + liquidity), on top of any referral boost.{" "}
+          multiplier on the rewards you already earn (trading + liquidity).{" "}
           <b className="font-semibold text-[color:var(--m-text-primary)]">Passkey login (Turnkey)</b> — an embedded,
           self-custodial wallet unlocked by a passkey, so a pass-holder can trade without a seed phrase.{" "}
           <b className="font-semibold text-[color:var(--m-text-primary)]">Gas sponsorship</b> — a paymaster covers

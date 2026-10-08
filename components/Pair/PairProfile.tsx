@@ -1,5 +1,7 @@
 "use client";
 
+import { marketParam } from "@/lib/routing/proMarket";
+import { chartTicker } from "@/lib/chart/ticker";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -7,15 +9,24 @@ import { ChainBadge, TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
 import { ActionDock, type DockTab } from "@/components/Explore/ActionDock";
 import { buildPageUrl } from "@/lib/routing/chainParams";
+import { BreadcrumbNav } from "@/components/Atoms/BreadCrumbNav";
 import {
   bookState,
   bookStateNote,
+  depthCurveSide,
   depthWithin,
+  depthAnchor,
   formatPct,
   levelWidthPct,
   midPrice,
+  withPoolQuotes,
+  midReadout,
+  poolDepthWithin,
+  poolSideInventory,
+  poolTvlUsd,
   spreadPct,
 } from "@/lib/pair/derive";
+import type { DepthSample, PoolBand } from "@/lib/pair/derive";
 import { usePairSnapshot } from "@/hooks/usePairSnapshot";
 import { usePairCandles } from "@/hooks/usePairCandles";
 import type { PairCandle } from "@/hooks/usePairCandles";
@@ -109,7 +120,7 @@ function PairLogo({ pair }: { pair: SpotPair }) {
 }
 
 /**
- * Marks a market Iter has not listed.
+ * Marks a market Rate has not listed.
  *
  * Same wording and title text as the search modal's chip — a reader who follows a hit
  * from search to here must not be told two different things about the same market.
@@ -117,7 +128,7 @@ function PairLogo({ pair }: { pair: SpotPair }) {
 function UnlistedChip() {
   return (
     <span
-      title="Not listed by Iter — anyone can deploy a token and open a market"
+      title="Not listed by Rate — anyone can deploy a token and open a market"
       className="shrink-0 rounded-[5px] border border-[color:var(--m-text-secondary-2)] px-1 py-px font-dm-mono text-[9px] uppercase tracking-normal text-[color:var(--m-text-secondary-2)]"
     >
       unlisted
@@ -163,6 +174,21 @@ function Est() {
   );
 }
 
+/**
+ * One header figure, which FLASHES when it changes.
+ *
+ * The values here have always been live — `usePairSnapshot` maintains them over
+ * `spotOrderbook:{pair}` and `spotTrade:{pair}`, so a fill moves them within a
+ * frame. What was missing is the same thing the token profile's `LiveStat`
+ * exists to say: that the number just moved. A figure that swaps silently is
+ * indistinguishable from one that never moves, and on a market this quiet a
+ * reader watching their own trade land saw the digits change only if they
+ * happened to be looking at that tile.
+ *
+ * Same 900ms tint and the same rule as `LiveStat`: keyed on the FORMATTED
+ * string, never the raw number, so the flash always corresponds to a digit the
+ * reader can actually find. The first render is not a change.
+ */
 function Stat({
   label,
   value,
@@ -174,8 +200,34 @@ function Stat({
   tone?: "up" | "down";
   est?: boolean;
 }) {
+  const key = typeof value === "string" || typeof value === "number" ? String(value) : null;
+  const [flash, setFlash] = useState(false);
+  const previous = useRef<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = key;
+    if (key === null || before === null || before === key) return;
+    setFlash(false);
+    // Cleared before it is set again, or a second change inside the window does
+    // not restart the animation and the tile appears to miss a tick.
+    if (timer.current) clearTimeout(timer.current);
+    const raf = requestAnimationFrame(() => setFlash(true));
+    timer.current = setTimeout(() => setFlash(false), 950);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [key]);
+
   return (
-    <div className="px-4 py-3">
+    <div
+      className={cn(
+        "px-4 py-3 transition-colors duration-500",
+        flash && "bg-[color:var(--m-surface-2)]",
+      )}
+    >
       <div className="font-dm-mono text-[10px] uppercase tracking-wide text-[color:var(--m-text-secondary-2)]">
         {label}
       </div>
@@ -193,19 +245,108 @@ function Stat({
   );
 }
 
-function BookSide({
+export function BookSide({
   levels,
   side,
   quote,
+  base,
+  pool,
 }: {
   levels: BookLevel[];
   side: "bid" | "ask";
   quote: string;
+  base: string;
+  /**
+   * The band pool's inventory on this side, or null where it holds none.
+   *
+   * Its OWN line rather than a row among the resting orders. A band is a
+   * continuum — it holds an amount across an interval — so writing it into a
+   * ladder of discrete prices would invent a resting order that nobody placed,
+   * at a price nobody chose. Measured on Arc, a band is ±0.02% wide, narrower
+   * than the gap between two adjacent rows here: there is no row it belongs in,
+   * and the interval is the honest thing to print.
+   *
+   * WHERE that line goes is a separate question — see `poolFirst` below.
+   */
+  pool: { amount: number; minPrice: number; maxPrice: number } | null;
 }) {
   const rows = side === "ask" ? [...levels].slice(0, 6).reverse() : levels.slice(0, 6);
   const color = side === "bid" ? "var(--m-success)" : "var(--m-error)";
+
+  /**
+   * The pool line sits against the MARKET divider, on both sides.
+   *
+   * This ladder is ordered by distance from the market, and the pool line used
+   * to be rendered after the rows whatever side it was on. Asks reverse their
+   * rows, so best-ask lands at the bottom and the pool followed it into the
+   * right place by accident; bids run best-first from the top, so the pool ended
+   * up furthest from the market, printed beneath an order four percent away.
+   *
+   * Backwards, because the pool is the closest liquidity there is. On Arc's
+   * TITER/USDC its bands span 1.0192–1.0212 and straddle the market at 1.0202
+   * while the resting bid is at 0.98, so the card read as though that order
+   * would fill first. It generalises: a band's width is a fraction of the pair's
+   * slippage limit, so it is always tighter than any order resting outside the
+   * spread.
+   */
+  const poolFirst = side === "bid";
+
+  /**
+   * The pool's line AND its caption, together.
+   *
+   * They were apart: one caption at the foot of the side described both the
+   * resting rows and the pool line. Once the pool moved to the top of the bid
+   * ladder that left "pool in USDC across its own range" printed under an order
+   * four percent away, describing nothing next to it. Each caption now sits with
+   * what it describes.
+   */
+  const poolLine = pool ? (
+    /*
+      The dashed rule bounds the WHOLE pool section — the line and its caption —
+      so the caption sits inside it rather than below it. With the border on the
+      row alone, a bid (where the section leads) pushed its own small print out
+      the other side of the rule and in among the resting orders.
+    */
+    <div
+      data-testid={`book-pool-${side}`}
+      className={cn(
+        "border-dashed border-[color:var(--m-border)]",
+        poolFirst ? "mb-1 border-b pb-1.5" : "mt-1 border-t pt-1.5",
+      )}
+    >
+    <div className="flex items-center justify-between gap-2 px-2 text-[11px]">
+      <span
+        className="inline-flex items-center gap-1.5 font-dm-mono text-[color:var(--m-text-secondary)]"
+        style={{
+          // Hatched in the side's own colour, matching the depth chart above.
+          backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 3px, color-mix(in srgb, ${color} 22%, transparent) 3px, color-mix(in srgb, ${color} 22%, transparent) 5px)`,
+          backgroundClip: "content-box",
+        }}
+      >
+        pool
+      </span>
+      <span className="font-dm-mono tabular-nums text-[color:var(--m-text-secondary)]">
+        {pool.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}{" "}
+        {/* An ask fills from the pool's BASE inventory and a bid from its QUOTE,
+            so each side names the leg it would actually consume. */}
+        {side === "ask" ? base : quote} · {fmtRate(pool.minPrice, "")}–{fmtRate(pool.maxPrice, "")}
+      </span>
+    </div>
+      {/* ALL of the side's small print, in one place, inside the pool section.
+          Splitting it left one line up here and the other at the foot of the
+          side, which on a bid put them either end of a resting order. */}
+      <div className="px-2 pt-1 font-dm-mono text-[9.5px] uppercase tracking-wide text-[color:var(--m-text-secondary-2)]">
+        {side === "bid" ? "bids" : "asks"} · size in base, price in {quote} ·{" "}
+        {/* An ask fills from the pool's BASE inventory and a bid from its QUOTE,
+            so this names a different token from "size in base" above on a bid. */}
+        pool in {side === "ask" ? base : quote} across its own range
+      </div>
+    </div>
+  ) : null;
+
   return (
-    <div className="flex flex-col gap-px">
+    <div className="flex flex-col gap-px" data-testid={`book-side-${side}`}>
+      {poolFirst && poolLine}
       {rows.map((level, i) => (
         <div key={i} className="relative flex items-center justify-between px-2 py-[3px] text-[11.5px]">
           {/* Depth bar reads from the side it belongs to, so the two ladders mirror. */}
@@ -233,9 +374,14 @@ function BookSide({
           nothing resting on the {side} side
         </div>
       )}
-      <div className="mt-1 px-2 font-dm-mono text-[9.5px] uppercase tracking-wide text-[color:var(--m-text-secondary-2)]">
-        {side === "bid" ? "bids" : "asks"} · size in base, price in {quote}
-      </div>
+      {!poolFirst && poolLine}
+      {/* Only when there is no pool section to carry it — see `poolLine`, which
+          holds the whole caption whenever one is rendered. */}
+      {!pool && (
+        <div className="mt-1 px-2 font-dm-mono text-[9.5px] uppercase tracking-wide text-[color:var(--m-text-secondary-2)]">
+          {side === "bid" ? "bids" : "asks"} · size in base, price in {quote}
+        </div>
+      )}
     </div>
   );
 }
@@ -542,9 +688,15 @@ function LiquidityChart({
           <div className="mb-2 font-dm-mono text-[10px] text-[color:var(--m-text-secondary-2)]">Rate range</div>
           <div className="font-dm-mono text-[12px] tabular-nums">{fmtRate(selected.minPrice, quote)} – {fmtRate(selected.maxPrice, quote)}</div>
           <div className="mt-3 flex flex-col gap-1 border-t border-[color:var(--m-border)] pt-2.5">
-            {/* Only the sources actually present in THIS bin. A row of zeroes
-                under every hover is noise, and it hides the one line that moved. */}
-            {SERIES.filter((series) => selected[series.key] > 0).map((series) => (
+            {/* Only the sources actually present in THIS bin — a row of zeroes
+                under every hover is noise, and it hides the one line that moved.
+                POOL is the exception and always shows. This chart bins by rate
+                while the depth curve below accumulates from the market, so the
+                two legitimately print different pool figures at the same price;
+                omitting the row here left that reading as "not measured" when it
+                is measured and genuinely zero, which is what made the two charts
+                look like they disagreed. */}
+            {SERIES.filter((series) => series.key === "pool" || selected[series.key] > 0).map((series) => (
               <div key={series.key} className="flex items-center justify-between gap-4">
                 <span className={cn("inline-flex items-center gap-1.5 text-[10px]", series.text)}>
                   <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: series.swatch }} />
@@ -563,18 +715,62 @@ function LiquidityChart({
   );
 }
 
-/** Cumulative bid/ask depth from the real order book, centered on the mid. */
-function DepthChart({ bids, asks, mid, quote }: { bids: BookLevel[]; asks: BookLevel[]; mid: number | null; quote: string }) {
-  const [hovered, setHovered] = useState<BookLevel | null>(null);
+/**
+ * Cumulative depth from BOTH venues, centered on the mid: the order book's
+ * staircase, and the band pool stacked on top of it.
+ *
+ * ## One unit, because the footer underneath is in it
+ *
+ * This drew cumulative BASE size while the figures printed directly below it —
+ * "Bid depth", "Ask depth" — were quote notional from `depthWithin`. Two numbers
+ * about the same market, in two units, three lines apart. Now that those figures
+ * include the pool as well, the gap would have widened into a chart that
+ * contradicts its own caption, so the curve is quote-denominated too: a level
+ * contributes `size x price`, exactly as `depthWithin` sums it, and the axis
+ * finally means the same thing as the text.
+ *
+ * The book's series is a STAIRCASE and the pool's is a RAMP, and that difference
+ * is real rather than cosmetic. An order rests at one price, so crossing it adds
+ * all of it at once; a band spans prices, so walking further into it collects
+ * proportionally more. Drawing the pool as a step would claim it fills all at
+ * once at an edge it does not have.
+ *
+ * Pool depth is hatched in the SIDE's own colour rather than given a third hue —
+ * the same rule `lib/swap/depth.ts` applies on the swap card. It is not a third
+ * kind of liquidity, it is the same depth from another venue.
+ */
+export function DepthChart({
+  bids,
+  asks,
+  bands,
+  mid,
+  quote,
+}: {
+  bids: BookLevel[];
+  asks: BookLevel[];
+  bands: PoolBand[];
+  mid: number | null;
+  quote: string;
+}) {
+  const [hovered, setHovered] = useState<DepthSample | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
-  const left = [...bids].filter((level) => level.price > 0).sort((a, b) => a.price - b.price);
-  const right = [...asks].filter((level) => level.price > 0).sort((a, b) => a.price - b.price);
+  const left = [...bids].filter((level) => level.price > 0 && level.size > 0).sort((a, b) => a.price - b.price);
+  const right = [...asks].filter((level) => level.price > 0 && level.size > 0).sort((a, b) => a.price - b.price);
+  const usableBands = bands.filter((band) => band.maxPrice > band.minPrice);
   const levels = [...left, ...right];
-  if (!levels.length) return <EmptyChart>No resting depth for this pair.</EmptyChart>;
-  const rawMin = Math.min(...levels.map((level) => level.price));
-  const rawMax = Math.max(...levels.map((level) => level.price));
-  const center = mid ?? (rawMin + rawMax) / 2;
+  // A pool with no book is still a chart. This used to bail on `!levels.length`,
+  // which on a pool-only market drew the "no resting depth" placeholder over
+  // liquidity that was sitting right there.
+  if (!levels.length && !usableBands.length) return <EmptyChart>No resting depth for this pair.</EmptyChart>;
+
+  const prices = [
+    ...levels.map((level) => level.price),
+    ...usableBands.flatMap((band) => [band.minPrice, band.maxPrice]),
+  ];
+  const rawMin = Math.min(...prices);
+  const rawMax = Math.max(...prices);
+  const center = mid && mid > 0 ? mid : (rawMin + rawMax) / 2;
   // The mid has to be inside the domain, and on a one-sided book it sits
   // outside the levels' own range.
   const domainLo = Math.min(rawMin, center);
@@ -587,42 +783,48 @@ function DepthChart({ bids, asks, mid, quote }: { bids: BookLevel[]; asks: BookL
   const minPrice = domainLo - pad;
   const maxPrice = domainHi + pad;
   const span = maxPrice - minPrice;
-  const maxDepth = Math.max(...levels.map((level) => level.cumulative || level.size), 1e-9);
+
+  /*
+   * The sampling lives in `lib/pair/derive` so that "does pool liquidity reach
+   * the chart" is a question a unit test can ask. Everything below this line is
+   * coordinates and colour.
+   */
+  const leftSamples = depthCurveSide(left, usableBands, center, minPrice, "bid");
+  const rightSamples = depthCurveSide(right, usableBands, center, maxPrice, "ask");
+  const maxDepth = Math.max(
+    ...leftSamples.map((s) => s.book + s.pool),
+    ...rightSamples.map((s) => s.book + s.pool),
+    1e-9,
+  );
   const x = (price: number) => CHART_PAD + ((price - minPrice) / span) * (CHART_W - CHART_PAD * 2);
   const y = (depth: number) => CHART_H - CHART_PAD - (depth / maxDepth) * (CHART_H - CHART_PAD * 2);
-  /**
-   * A depth staircase read outward from the mid: nothing is filled at the mid,
-   * and each level adds its cumulative size as the price moves away.
-   *
-   * The previous shape walked the levels themselves and emitted a step per
-   * level AFTER the first, which dropped two runs: the one between the mid and
-   * the innermost level, and — on a side holding exactly one level — every run,
-   * leaving a bare `moveto` that SVG renders as nothing.
-   */
-  const stair = (side: BookLevel[], outward: "left" | "right"): Array<[number, number]> => {
-    if (!side.length) return [];
-    // `side` is sorted ascending by price; nearest-the-mid is the far end for bids.
-    const ordered = outward === "left" ? [...side].reverse() : side;
-    const points: Array<[number, number]> = [[x(center), y(0)]];
-    let depth = 0;
-    for (const level of ordered) {
-      points.push([x(level.price), y(depth)]);
-      depth = level.cumulative || level.size;
-      points.push([x(level.price), y(depth)]);
-    }
-    // Carry the deepest level out to the edge so the last step has width.
-    points.push([x(outward === "left" ? minPrice : maxPrice), y(depth)]);
-    return points;
-  };
-  const leftPoints = stair(left, "left");
-  const rightPoints = stair(right, "right");
-  const curve = (points: Array<[number, number]>) =>
-    points.map(([px, py], index) => `${index ? "L" : "M"} ${px},${py}`).join(" ");
-  const area = (points: Array<[number, number]>) => {
-    if (!points.length) return "";
+
+  const curve = (samples: DepthSample[], pick: (s: DepthSample) => number) =>
+    samples.map((s, index) => `${index ? "L" : "M"} ${x(s.price)},${y(pick(s))}`).join(" ");
+  const area = (samples: DepthSample[], pick: (s: DepthSample) => number) => {
+    if (!samples.length) return "";
     const base = CHART_H - CHART_PAD;
-    return `${curve(points)} L ${points.at(-1)![0]},${base} L ${points[0]![0]},${base} Z`;
+    return `${curve(samples, pick)} L ${x(samples.at(-1)!.price)},${base} L ${x(samples[0]!.price)},${base} Z`;
   };
+  /**
+   * The pool's slice: the ribbon between the book's curve and the total.
+   *
+   * Empty rather than degenerate where there is no pool. Without the guard the
+   * two edges coincide and this emits a zero-area hatched path lying exactly on
+   * the book's own curve — invisible, but a real node claiming pool depth on a
+   * market that has none, and the kind of thing that starts intercepting hit
+   * tests the moment the chart gains one.
+   */
+  const ribbon = (samples: DepthSample[]) => {
+    if (!samples.length || !samples.some((s) => s.pool > 0)) return "";
+    const top = curve(samples, (s) => s.book + s.pool);
+    const back = [...samples]
+      .reverse()
+      .map((s) => `L ${x(s.price)},${y(s.book)}`)
+      .join(" ");
+    return `${top} ${back} Z`;
+  };
+
   const inspect = (event: React.PointerEvent<SVGSVGElement>) => {
     const bounds = chartRef.current?.getBoundingClientRect();
     if (!bounds) return;
@@ -630,9 +832,10 @@ function DepthChart({ bids, asks, mid, quote }: { bids: BookLevel[]; asks: BookL
     const localY = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
     const svgX = (localX / bounds.width) * CHART_W;
     const price = minPrice + ((svgX - CHART_PAD) / (CHART_W - CHART_PAD * 2)) * span;
-    const side = price <= center ? left : right;
-    const nearest = side.reduce<BookLevel | null>(
-      (best, level) => !best || Math.abs(level.price - price) < Math.abs(best.price - price) ? level : best,
+    const samples = price <= center ? leftSamples : rightSamples;
+    const nearest = samples.reduce<DepthSample | null>(
+      (best, sample) =>
+        !best || Math.abs(sample.price - price) < Math.abs(best.price - price) ? sample : best,
       null,
     );
     setHovered(nearest);
@@ -641,14 +844,26 @@ function DepthChart({ bids, asks, mid, quote }: { bids: BookLevel[]; asks: BookL
   const pointerRatio = pointer && chartRef.current ? pointer.x / chartRef.current.clientWidth : 0.5;
   const shiftX = pointerRatio < 0.3 ? "0" : pointerRatio > 0.7 ? "-100%" : "-50%";
   const distancePct = hovered && center > 0 ? ((hovered.price - center) / center) * 100 : null;
+  const hoveredSide = hovered && hovered.price <= center ? "bid" : "ask";
   return (
     <div ref={chartRef} className="relative overflow-hidden rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)]/35 p-3">
-      <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="block h-auto w-full touch-none" role="img" aria-label={`Full ${quote} order-book depth`} onPointerMove={inspect} onPointerLeave={() => { setHovered(null); setPointer(null); }}>
+      <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="block h-auto w-full touch-none" role="img" aria-label={`Cumulative ${quote} depth — order book and pool`} onPointerMove={inspect} onPointerLeave={() => { setHovered(null); setPointer(null); }}>
+        <defs>
+          {/* Hatch, not a third hue: the pool is the same depth from another venue. */}
+          {(["bid", "ask"] as const).map((side) => (
+            <pattern key={side} id={`depth-pool-${side}`} width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="7" height="7" fill={side === "bid" ? "var(--m-success)" : "var(--m-error)"} fillOpacity={0.12} />
+              <line x1="0" y1="0" x2="0" y2="7" stroke={side === "bid" ? "var(--m-success)" : "var(--m-error)"} strokeWidth="2.5" strokeOpacity={0.5} />
+            </pattern>
+          ))}
+        </defs>
         {[0.25, 0.5, 0.75].map((tick) => <line key={tick} x1={CHART_PAD} x2={CHART_W - CHART_PAD} y1={CHART_H * tick} y2={CHART_H * tick} stroke="var(--m-border)" strokeDasharray="2 6" />)}
-        <path d={area(leftPoints)} fill="var(--m-success)" fillOpacity={0.22} stroke="none" />
-        <path d={area(rightPoints)} fill="var(--m-error)" fillOpacity={0.22} stroke="none" />
-        <path d={curve(leftPoints)} fill="none" stroke="var(--m-success)" strokeWidth={3.25} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-        <path d={curve(rightPoints)} fill="none" stroke="var(--m-error)" strokeWidth={3.25} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <path d={area(leftSamples, (s) => s.book)} fill="var(--m-success)" fillOpacity={0.22} stroke="none" />
+        <path d={area(rightSamples, (s) => s.book)} fill="var(--m-error)" fillOpacity={0.22} stroke="none" />
+        <path d={ribbon(leftSamples)} fill="url(#depth-pool-bid)" stroke="none" />
+        <path d={ribbon(rightSamples)} fill="url(#depth-pool-ask)" stroke="none" />
+        <path d={curve(leftSamples, (s) => s.book)} fill="none" stroke="var(--m-success)" strokeWidth={3.25} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        <path d={curve(rightSamples, (s) => s.book)} fill="none" stroke="var(--m-error)" strokeWidth={3.25} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         {center >= minPrice && center <= maxPrice && <line x1={x(center)} x2={x(center)} y1={CHART_PAD} y2={CHART_H - CHART_PAD} stroke="var(--m-text-primary)" strokeWidth={2} />}
         {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
           const price = minPrice + span * tick;
@@ -661,13 +876,24 @@ function DepthChart({ bids, asks, mid, quote }: { bids: BookLevel[]; asks: BookL
         </>}
       </svg>
       {hovered && pointer && (
-        <div className="pointer-events-none absolute z-10 min-w-[220px] rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-3 shadow-lg" style={{ left: pointer.x, top: pointer.y, transform: `translate(${shiftX}, ${pointer.y < 145 ? "14px" : "calc(-100% - 12px)"})` }}>
+        <div className="pointer-events-none absolute z-10 min-w-[230px] rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-3 shadow-lg" style={{ left: pointer.x, top: pointer.y, transform: `translate(${shiftX}, ${pointer.y < 145 ? "14px" : "calc(-100% - 12px)"})` }}>
           <div className="mb-2 flex items-center justify-between text-xs"><span className="text-[color:var(--m-text-secondary)]">Range</span><span className={cn("font-dm-mono tabular-nums", (distancePct ?? 0) <= 0 ? "text-[color:var(--m-success-fg)]" : "text-[color:var(--m-error-fg)]")}>{distancePct !== null && distancePct >= 0 ? "+" : ""}{distancePct?.toFixed(2)}%</span></div>
           <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
             <span className="text-[color:var(--m-text-secondary)]">Rate</span><span className="text-right font-dm-mono tabular-nums">{fmtRate(hovered.price, quote)}</span>
-            <span className="text-[color:var(--m-text-secondary)]">Amount</span><span className="text-right font-dm-mono tabular-nums">{hovered.cumulative.toLocaleString("en-US", { maximumFractionDigits: 8 })}</span>
-            <span className="text-[color:var(--m-text-secondary)]">Quote value</span><span className="text-right font-dm-mono tabular-nums">{(hovered.cumulative * hovered.price).toLocaleString("en-US", { maximumFractionDigits: 4 })} {quote}</span>
+            <span className="text-[color:var(--m-text-secondary)]">Order book</span><span className={cn("text-right font-dm-mono tabular-nums", hoveredSide === "bid" ? "text-[color:var(--m-success-fg)]" : "text-[color:var(--m-error-fg)]")}>{hovered.book.toLocaleString("en-US", { maximumFractionDigits: 4 })} {quote}</span>
+            {/* The pool line appears only where there IS pool depth. A zero under
+                every hover is noise, and it hides the line that moved. */}
+            {hovered.pool > 0 && <>
+              <span className="text-[color:var(--m-text-secondary)]">Pool</span><span className="text-right font-dm-mono tabular-nums">{hovered.pool.toLocaleString("en-US", { maximumFractionDigits: 4 })} {quote}</span>
+            </>}
           </div>
+          <div className="mt-2 flex justify-between border-t border-[color:var(--m-border)] pt-2 font-dm-mono text-[11px]"><span className="text-[color:var(--m-text-secondary-2)]">Total</span><span>{(hovered.book + hovered.pool).toLocaleString("en-US", { maximumFractionDigits: 4 })} {quote}</span></div>
+          {/* States the SCOPE of the two figures above, where they are read. Both
+              are cumulative from the market rate, while the liquidity chart's
+              identically-named Pool series is per rate bin — so the same pool
+              reads as two different numbers at one price, correctly, and this is
+              the line that says why. */}
+          <div className="mt-1.5 font-dm-mono text-[9.5px] uppercase tracking-wide text-[color:var(--m-text-secondary-2)]">cumulative from the market rate</div>
         </div>
       )}
     </div>
@@ -707,9 +933,9 @@ function VolumeChart({ candles, period, onPeriod }: { candles: PairCandle[]; per
   };
   const selected = active === null ? null : candles[active];
   return (
-    <div ref={chartRef} className="relative overflow-hidden rounded-2xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-2">
-      <div className="pointer-events-none absolute left-6 top-5 z-10"><div className="text-[clamp(24px,3vw,34px)] font-medium tracking-[-0.03em]"><AnimatedDigits value={fmtUsd(selected?.volumeUsd ?? total)} /></div><div className="mt-1 text-sm text-[color:var(--m-text-secondary)]">{selected?.timestamp ? formatTime(selected.timestamp) : period === "1D" ? "Past day" : period === "7D" ? "Past week" : "Past month"}</div></div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full touch-none" role="img" aria-label="USD trading volume" onPointerMove={inspect} onPointerLeave={() => setActive(null)}>
+    <div ref={chartRef} className="relative flex flex-col overflow-hidden rounded-2xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-2 sm:block">
+      <div className="pointer-events-none relative z-10 order-1 px-3 pt-2 sm:absolute sm:left-6 sm:top-5 sm:p-0"><div className="text-[clamp(24px,3vw,34px)] font-medium tracking-[-0.03em]"><AnimatedDigits value={fmtUsd(selected?.volumeUsd ?? total)} /></div><div className="mt-1 text-sm text-[color:var(--m-text-secondary)]">{selected?.timestamp ? formatTime(selected.timestamp) : period === "1D" ? "Past day" : period === "7D" ? "Past week" : "Past month"}</div></div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="order-3 block h-auto w-full touch-none" role="img" aria-label="USD trading volume" onPointerMove={inspect} onPointerLeave={() => setActive(null)}>
         {[0, 0.25, 0.5, 0.75, 1].map((tick) => <g key={tick}><line x1={left} x2={W - right} y1={top + (bottom - top) * tick} y2={top + (bottom - top) * tick} stroke="var(--m-border)" strokeDasharray="2 7" /><text x={W - right + 12} y={top + (bottom - top) * tick + 4} fill="var(--m-text-secondary)" fontSize="11">{fmtUsd(maxVolume * (1 - tick))}</text></g>)}
         {candles.map((bar, index) => {
           const height = Math.max(1, (bar.volumeUsd / maxVolume) * (bottom - top));
@@ -718,7 +944,7 @@ function VolumeChart({ candles, period, onPeriod }: { candles: PairCandle[]; per
         {active !== null && <line x1={left + (active + 0.5) * slot} x2={left + (active + 0.5) * slot} y1={top} y2={bottom} stroke="var(--m-text-secondary)" strokeWidth={1} />}
         {timeTicks.map((index, tick) => <text key={`${candles[index]!.timestamp}-${index}`} x={tick === timeTicks.length - 1 ? W - right : left + (index + 0.5) * slot} y={bottom + 24} textAnchor={tick === 0 ? "start" : tick === timeTicks.length - 1 ? "end" : "middle"} fill="var(--m-text-primary)" fontSize="12">{formatTime(candles[index]!.timestamp)}</text>)}
       </svg>
-      <div className="absolute right-4 top-4 z-10 flex gap-1 rounded-full border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-1 shadow-sm">{(["1D", "7D", "1M"] as ChartPeriod[]).map((option) => <button key={option} type="button" onClick={() => onPeriod(option)} className={cn("min-h-8 rounded-full px-3 font-dm-mono text-[11px]", period === option ? "bg-[color:var(--m-surface-2)] text-[color:var(--m-text-primary)]" : "text-[color:var(--m-text-secondary)]")}>{option}</button>)}</div>
+      <div className="relative z-10 order-2 mx-3 mt-2 flex gap-1 self-start rounded-full border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-1 shadow-sm sm:absolute sm:right-4 sm:top-4 sm:m-0">{(["1D", "7D", "1M"] as ChartPeriod[]).map((option) => <button key={option} type="button" onClick={() => onPeriod(option)} className={cn("min-h-8 rounded-full px-3 font-dm-mono text-[11px]", period === option ? "bg-[color:var(--m-surface-2)] text-[color:var(--m-text-primary)]" : "text-[color:var(--m-text-secondary)]")}>{option}</button>)}</div>
     </div>
   );
 }
@@ -766,12 +992,12 @@ function PairPriceChart({ candles, loading, base, quote, period, onPeriod }: { c
     setActive(Math.max(0, Math.min(candles.length - 1, Math.round(((localX - left) / plotWidth) * (candles.length - 1)))));
   };
   return (
-    <div ref={chartRef} className="relative overflow-hidden rounded-2xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-2">
-      <div className="pointer-events-none absolute left-6 top-5 z-10">
+    <div ref={chartRef} className="relative flex flex-col overflow-hidden rounded-2xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-2 sm:block">
+      <div className="pointer-events-none relative z-10 order-1 px-3 pt-2 sm:absolute sm:left-6 sm:top-5 sm:p-0">
         <div className="flex items-baseline gap-3"><span className="text-[clamp(22px,3vw,34px)] font-medium tracking-[-0.03em]">1 {base} = <AnimatedDigits value={fmtRate(selected.c, "")} /> {quote}</span><span className={cn("font-dm-mono text-sm", change >= 0 ? "text-[color:var(--m-success-fg)]" : "text-[color:var(--m-error-fg)]")}>{change >= 0 ? "▲" : "▼"} <AnimatedDigits value={`${Math.abs(change).toFixed(2)}%`} /></span></div>
         <div className="mt-1 text-sm text-[color:var(--m-text-secondary)]">{selected.timestamp ? new Date(selected.timestamp * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Indexed close"}</div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full touch-none" role="img" aria-label={`${base}/${quote} price history`} onPointerMove={inspect} onPointerLeave={() => setActive(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="order-3 block h-auto w-full touch-none" role="img" aria-label={`${base}/${quote} price history`} onPointerMove={inspect} onPointerLeave={() => setActive(null)}>
         <defs><linearGradient id="pair-price-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--m-primary)" stopOpacity="0.42" /><stop offset="1" stopColor="var(--m-primary)" stopOpacity="0.04" /></linearGradient></defs>
         {[0, 0.25, 0.5, 0.75, 1].map((tick) => <g key={tick}><line x1={left} x2={W - right} y1={top + (bottom - top) * tick} y2={top + (bottom - top) * tick} stroke="var(--m-border)" strokeDasharray="2 7" /><text x={W - right + 12} y={top + (bottom - top) * tick + 4} fill="var(--m-text-secondary)" fontSize="11">{fmtRate(max - (max - min) * tick, "")}</text></g>)}
         <path d={area} fill="url(#pair-price-area)" />
@@ -793,7 +1019,7 @@ function PairPriceChart({ candles, loading, base, quote, period, onPeriod }: { c
           </text>
         ))}
       </svg>
-      <div className="absolute right-4 top-4 z-10 flex gap-1 rounded-full border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-1 shadow-sm">
+      <div className="relative z-10 order-2 mx-3 mt-2 flex gap-1 self-start rounded-full border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-1 shadow-sm sm:absolute sm:right-4 sm:top-4 sm:m-0">
         {(["1D", "7D", "1M"] as ChartPeriod[]).map((option) => <button key={option} type="button" onClick={() => onPeriod(option)} className={cn("min-h-8 rounded-full px-3 font-dm-mono text-[11px]", period === option ? "bg-[color:var(--m-surface-2)] text-[color:var(--m-text-primary)]" : "text-[color:var(--m-text-secondary)]")}>{option}</button>)}
       </div>
     </div>
@@ -841,7 +1067,7 @@ export function PairProfile({
     return (
       <div className="mx-auto max-w-[1160px] px-5 py-16 text-center">
         <p className="mb-2 font-dm-mono text-[12px] uppercase tracking-[0.16em] text-[color:var(--m-primary)]">
-          <span className="font-bold text-[color:var(--m-logo)]">Iter</span> · pair
+          <span className="font-bold text-[color:var(--m-logo)]">Rate</span> · pair
         </p>
         <h1 className="mb-2 text-2xl font-medium tracking-tight">{symbol}</h1>
         <p className="mx-auto mb-6 max-w-md text-sm text-[color:var(--m-text-secondary)]">
@@ -887,7 +1113,7 @@ function PairProfileLive({
   );
   const [period, setPeriod] = useState<ChartPeriod>("7D");
   const { displayNetworkName } = useMarketPageContext();
-  const candles = usePairCandles(displayNetworkName, pair.symbol, period);
+  const candles = usePairCandles(displayNetworkName, chartTicker(pair), period);
   const liquidityRanges = usePairLiquidityRanges(
     displayNetworkName,
     pair.base.id,
@@ -898,10 +1124,72 @@ function PairProfileLive({
   const snapshot = usePairSnapshot({ pair, step, seed });
   const { provenance } = snapshot;
 
-  const mid = midPrice(snapshot);
-  const spread = spreadPct(snapshot);
-  const depthUp = depthWithin(snapshot.asks, mid, DEPTH_BAND_PCT);
-  const depthDown = depthWithin(snapshot.bids, mid, DEPTH_BAND_PCT);
+  /*
+   * The pool's bands, read ONCE and handed to every surface that owes the reader
+   * an answer about pool liquidity: the two depth stats, the depth curve and the
+   * ladder. `usePairLiquidityRanges` was already mounted here for the liquidity
+   * chart and nothing else looked at it, which is why a market whose depth sat
+   * in a band showed it on one tab and denied it on the other two.
+   *
+   * Three states, not two, and the distinction is the one `poolExists` was added
+   * for: no pool at all contributes nothing and claims nothing; a pool that
+   * exists and holds no bands contributes zero, which is a measurement; a FAILED
+   * read contributes nothing but marks the figures `est`, because "we could not
+   * look" must not render as "we looked and found none".
+   */
+  const poolUnavailable = liquidityRanges.isError;
+  const poolBands: PoolBand[] =
+    liquidityRanges.data?.poolExists === true && !poolUnavailable
+      ? (liquidityRanges.data.ranges ?? [])
+      : [];
+  const poolTvl = poolUnavailable
+    ? null
+    : poolTvlUsd(
+        liquidityRanges.data?.totalBase,
+        liquidityRanges.data?.totalQuote,
+        pair.price,
+        pair.quote?.priceUSD,
+      );
+
+  // The book's best quotes with the pool's folded in: the pool bids and offers
+  // at its own price, often inside the book's spread (see `withPoolQuotes`).
+  const quotes = withPoolQuotes(snapshot, poolBands, liquidityRanges.data?.price);
+  const mid = midPrice(quotes);
+  /*
+   * What to PRINT where the book's centre goes, and what to call it.
+   *
+   * `mid` stays null on a one-sided book, which is right for the spread beside
+   * it. It was wrong for the readout: the depth figures and the curve are both
+   * measured from `depthAnchor`, so a market with an empty ask side showed an
+   * em-dash under a chart drawn around the very rate the header prints. Two
+   * different numbers had one label; now each says which it is.
+   */
+  const centre = midReadout(quotes, pair.price);
+  const spread = spreadPct(quotes);
+  /*
+   * Depth is anchored on `depthAnchor`, NOT on `mid`, and the two differ exactly
+   * when it matters: a one-sided book has no mid, and anchoring on it blanked
+   * both depth figures — including the side that was holding real resting
+   * orders. `mid` still drives the Mid readout below, where a dash is the
+   * honest answer.
+   */
+  const anchor = depthAnchor(quotes, pair.price);
+  /*
+   * Both venues, in one figure, because "depth within 2%" is a question about the
+   * MARKET rather than about the order book — a taker crossing that band fills
+   * from whichever side of it holds the liquidity, and quoting only the book
+   * understated every banded market on the venue.
+   *
+   * The book leg still decides whether there is an answer at all: `null` there
+   * means no anchor, and a pool figure alone would be a depth reading with no
+   * price to measure it from.
+   */
+  const bookUp = depthWithin(snapshot.asks, anchor, DEPTH_BAND_PCT);
+  const bookDown = depthWithin(snapshot.bids, anchor, DEPTH_BAND_PCT);
+  const poolUp = poolDepthWithin(poolBands, anchor, DEPTH_BAND_PCT, "ask");
+  const poolDown = poolDepthWithin(poolBands, anchor, DEPTH_BAND_PCT, "bid");
+  const depthUp = bookUp === null ? null : bookUp + (poolUp ?? 0);
+  const depthDown = bookDown === null ? null : bookDown + (poolDown ?? 0);
   const state = bookState(snapshot);
   const symbol = pair.symbol;
   const note = bookStateNote(state, symbol);
@@ -917,18 +1205,28 @@ function PairProfileLive({
   return (
     <div className="mx-auto max-w-[1160px] px-5 pb-24 pt-8">
       <header className="mb-6">
-        <p className="mb-4 flex items-center gap-2 font-dm-mono text-xs tracking-[0.06em] text-[color:var(--m-primary)]">
-          <Link href={buildPageUrl("explore", { slug: displayNetworkSlug })} className="hover:underline">
-            Explore
-          </Link>
-          <span className="text-[color:var(--m-text-secondary-2)]">/</span>
-          <span className="font-bold text-[color:var(--m-logo)]">{symbol}</span>
+        {/*
+          The SHARED breadcrumb, same as the token profile's.
+
+          This was a hand-rolled `<p>` of `<span>`s with a literal `/`: two
+          levels where the token page has four, no `<nav>`, no `<ol>`, no
+          `aria-current` — a lookalike that read as a breadcrumb to a sighted
+          user and as nothing at all to a crawler or a screen reader. The
+          component only ever needed a label, so it takes one now.
+        */}
+        <div className="flex items-center gap-2">
+          <BreadcrumbNav
+            label={symbol}
+            networkName={displayNetworkName}
+            section="pools"
+            sectionLabel="Pools"
+          />
           {/* This page can now render pre-graduation markets — it resolves through the
               ungated detail route — so it owes them the badge. "Unlisted, not hidden" is
               the standing rule: reachable, always labelled. Before the lookup changed,
               only listed markets could reach this page and the chip was unnecessary. */}
-          {isUnlisted(pair) && <UnlistedChip />}
-        </p>
+          {isUnlisted(pair) && <span className="mb-6"><UnlistedChip /></span>}
+        </div>
         <div className="flex items-center gap-4">
           <PairLogo pair={pair} />
           <div className="min-w-0">
@@ -948,7 +1246,9 @@ function PairProfileLive({
       </header>
 
       {/* stat strip */}
-      <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-[14px] border border-[color:var(--m-border)] bg-[color:var(--m-border)] sm:grid-cols-3 lg:grid-cols-5">
+      {/* On phones (2 columns) an odd last stat spans both, instead of leaving an
+          empty cell beside TVL. */}
+      <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-[14px] border border-[color:var(--m-border)] bg-[color:var(--m-border)] max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 sm:grid-cols-3 lg:grid-cols-5">
         <div className="bg-[color:var(--m-surface)]">
           {/* est is now conditional on the leg. These three are derived from the
               book, so they are estimates exactly when the book is. Leaving the
@@ -958,10 +1258,13 @@ function PairProfileLive({
           <Stat label="Spread" value={formatPct(spread)} est={provenance.book} />
         </div>
         <div className="bg-[color:var(--m-surface)]">
-          <Stat label={`Depth +${DEPTH_BAND_PCT}%`} value={fmtUsd(depthUp)} est={provenance.book} />
+          {/* Now that these count the pool too, a failed pool read makes them
+              partial — so the marker follows EITHER leg being unavailable. The
+              spread above stays book-only and keeps its own condition. */}
+          <Stat label={`Depth +${DEPTH_BAND_PCT}%`} value={fmtUsd(depthUp)} est={provenance.book || poolUnavailable} />
         </div>
         <div className="bg-[color:var(--m-surface)]">
-          <Stat label={`Depth −${DEPTH_BAND_PCT}%`} value={fmtUsd(depthDown)} est={provenance.book} />
+          <Stat label={`Depth −${DEPTH_BAND_PCT}%`} value={fmtUsd(depthDown)} est={provenance.book || poolUnavailable} />
         </div>
         <div className="bg-[color:var(--m-surface)]">
           <Stat
@@ -970,7 +1273,16 @@ function PairProfileLive({
           />
         </div>
         <div className="bg-[color:var(--m-surface)]">
-          <Stat label="TVL" value={fmtUsd((pair.dayBaseTvlUSD ?? 0) + (pair.dayQuoteTvlUSD ?? 0))} />
+          {/* The pair row's `dayBaseTvlUSD`/`dayQuoteTvlUSD` are written only by the
+              ORDER BOOK processors — `OrderPlaced`, `OrderCanceled`, `OrderMatched`
+              — so this was book TVL under a whole-market label. The pool's is
+              added rather than merged into `snapshot.lpTvlUsd`, which stays book
+              TVL so the two venues remain separable below. */}
+          <Stat
+            label="TVL"
+            value={fmtUsd((pair.dayBaseTvlUSD ?? 0) + (pair.dayQuoteTvlUSD ?? 0) + (poolTvl ?? 0))}
+            est={poolUnavailable}
+          />
         </div>
       </div>
 
@@ -1046,16 +1358,108 @@ function PairProfileLive({
                 <div className="font-dm-mono text-[15px] font-semibold tabular-nums text-[color:var(--m-logo)]">{formatPct(snapshot.lpAprPct, 1)}{provenance.liquidity && <Est />}</div>
               </div>
               <div>
+                {/* This printed `snapshot.lpTvlUsd`, which is the pair row's book TVL,
+                    under the label "Pool TVL" — the one number on the page that named
+                    the pool and measured the book. It is the band pool's own value
+                    now, and null rather than zero without a quote USD price, the same
+                    rule `yourPositionUsd` beside it already follows. */}
                 <div className="font-dm-mono text-[10px] text-[color:var(--m-text-secondary-2)]">Pool TVL</div>
-                <div className="font-dm-mono text-[15px] font-semibold tabular-nums">{fmtUsd(snapshot.lpTvlUsd)}</div>
+                <div className="font-dm-mono text-[15px] font-semibold tabular-nums">{fmtUsd(poolTvl)}{poolUnavailable && <Est />}</div>
               </div>
               <div className="flex items-center gap-3">
                 <div>
                   <div className="font-dm-mono text-[10px] text-[color:var(--m-text-secondary-2)]">Your position</div>
-                  <div className="font-dm-mono text-[15px] font-semibold tabular-nums text-[color:var(--m-text-secondary-2)]">{snapshot.yourPositionUsd === null ? "none" : fmtUsd(snapshot.yourPositionUsd)}</div>
+                  <div
+                    data-testid="pair-your-position"
+                    /* How many band positions this wallet holds here. 0 with a
+                       connected wallet is the signature of the bug this panel
+                       replaced, so it is worth being readable from a test. */
+                    data-positions={snapshot.yourPositionCount}
+                    className={cn(
+                      "font-dm-mono text-[15px] font-semibold tabular-nums",
+                      snapshot.yourPositionUsd === null
+                        ? "text-[color:var(--m-text-secondary-2)]"
+                        : "text-[color:var(--m-text-primary)]",
+                    )}
+                  >
+                    {/*
+                      THREE states, not two. "none" is a measured fact about the
+                      wallet; an em-dash is a position whose value the broker has
+                      not snapshotted yet, which is every position for its first
+                      minute. Printing "none" there tells a wallet that just
+                      deposited that it has nothing — the exact claim this panel
+                      was rebuilt to stop making.
+                    */}
+                    {snapshot.yourPositionUsd !== null
+                      ? fmtUsd(snapshot.yourPositionUsd)
+                      : snapshot.yourBands
+                        ? "—"
+                        : "none"}
+                  </div>
                 </div>
               </div>
+              {snapshot.yourFeesUsd !== null && snapshot.yourFeesUsd > 0 && (
+                <div>
+                  <div className="font-dm-mono text-[10px] text-[color:var(--m-text-secondary-2)]">Your fees</div>
+                  <div className="font-dm-mono text-[15px] font-semibold tabular-nums text-[color:var(--m-logo)]">{fmtUsd(snapshot.yourFeesUsd)}</div>
+                </div>
+              )}
             </div>
+
+            {/*
+              THE LADDER, and the reason it is a list rather than one more figure
+              in the row above.
+
+              A band position is not a number. One ERC-1155 token holds a whole
+              ladder, and WHICH rungs it funds is the decision the LP made — a
+              total hides exactly the part they chose. The row above keeps the
+              total, because that is the number you compare against Pool TVL;
+              this says where it sits.
+
+              It renders only for a wallet that holds one. A reader with no
+              position has nothing to learn from an empty ladder.
+            */}
+            {snapshot.yourBands && (
+              <div
+                data-testid="pair-band-ladder"
+                data-bands={snapshot.yourBands.length}
+                className="mt-3 flex flex-col gap-1.5 border-t border-[color:var(--m-border)] pt-3"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <div className="font-dm-mono text-[10px] text-[color:var(--m-text-secondary-2)]">
+                    Your bands
+                  </div>
+                  {snapshot.yourPositionCount > 1 && (
+                    <div className="font-dm-mono text-[10px] text-[color:var(--m-text-secondary-2)]">
+                      across {snapshot.yourPositionCount} positions
+                    </div>
+                  )}
+                </div>
+                {snapshot.yourBands.map((rung) => (
+                  <div key={rung.band} className="flex items-center gap-2.5 text-[12px]">
+                    <span className="w-[54px] flex-none font-dm-mono tabular-nums text-[color:var(--m-text-secondary)]">
+                      {rung.toleranceFrac === null ? `#${rung.band}` : `±${(rung.toleranceFrac * 100).toFixed(2)}%`}
+                    </span>
+                    {/*
+                      Width is the band's share of THIS position, so the rungs read
+                      against each other. Floored at 2% so a small band is still a
+                      mark rather than nothing — a rung that renders as zero width
+                      reads as a missing row.
+                    */}
+                    <span
+                      className="h-[6px] flex-none rounded-[2px] bg-[color:var(--m-logo)]"
+                      style={{ width: `${Math.max(2, Math.min(100, rung.sharePct)) * 0.45}%` }}
+                    />
+                    {rung.open === false && (
+                      <span className="font-dm-mono text-[10px] text-[color:var(--m-text-secondary-2)]">closed</span>
+                    )}
+                    <span className="ml-auto font-dm-mono tabular-nums text-[color:var(--m-text-secondary)]">
+                      {rung.valueUsd > 0 ? fmtUsd(rung.valueUsd) : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
           </>}
 
@@ -1073,12 +1477,12 @@ function PairProfileLive({
           {(profileTab === "depth" || profileTab === "volume") && <div className="grid gap-4">
             {profileTab === "depth" && <section className="rounded-[14px] border border-[color:var(--m-border)] bg-[color:var(--m-surface)] p-4">
               <div className="mb-4 flex items-end justify-between gap-3">
-                <div><h2 className="text-[15px] font-medium">Full depth {provenance.book && <Est />}</h2><p className="mt-1 text-xs text-[color:var(--m-text-secondary)]">Cumulative bids and asks across every indexed level.</p></div>
+                <div><h2 className="text-[15px] font-medium">Full depth {(provenance.book || poolUnavailable) && <Est />}</h2><p className="mt-1 text-xs text-[color:var(--m-text-secondary)]">Cumulative depth in {pair.quoteSymbol} — every indexed book level, and the pool's bands stacked on top.</p></div>
                 <Link
                   href={buildPageUrl("trade", {
                     pro: true,
-                    base: pair.baseSymbol,
-                    quote: pair.quoteSymbol,
+                    base: marketParam({ id: pair.base?.id, symbol: pair.baseSymbol }),
+                    quote: marketParam({ id: pair.quote?.id, symbol: pair.quoteSymbol }),
                     slug: displayNetworkSlug,
                   })}
                   className="font-dm-mono text-[11px] text-[color:var(--m-primary-fg)]"
@@ -1086,20 +1490,33 @@ function PairProfileLive({
                   Open terminal ↗
                 </Link>
               </div>
-              <DepthChart bids={snapshot.bids} asks={snapshot.asks} mid={mid} quote={pair.quoteSymbol} />
-              <div className="mt-3 flex justify-between font-dm-mono text-[11px] text-[color:var(--m-text-secondary)]"><span>Bid depth {fmtUsd(depthDown)}</span><span>Mid {fmtRate(mid, pair.quoteSymbol)}</span><span>Ask depth {fmtUsd(depthUp)}</span></div>
+              {/*
+                `anchor`, not `mid`, and for the same reason the depth figures use
+                it: a one-sided book has no mid, and the chart's own fallback is
+                the midpoint of the DATA rather than the market rate. The two
+                figures printed directly underneath are measured from `anchor`, so
+                centring the curve anywhere else puts the caption and the plot on
+                different prices — and swings the pool's side split with it, which
+                lands the hatched ribbon on the wrong side of the line.
+
+                The `Mid` readout below keeps `mid` and its em-dash. "There is no
+                mid" is the honest answer there; it is not an answer a curve can be
+                drawn from.
+              */}
+              <DepthChart bids={snapshot.bids} asks={snapshot.asks} bands={poolBands} mid={anchor} quote={pair.quoteSymbol} />
+              <div className="mt-3 flex justify-between font-dm-mono text-[11px] text-[color:var(--m-text-secondary)]"><span>Bid depth {fmtUsd(depthDown)}</span><span>{centre.label} {fmtRate(centre.value, pair.quoteSymbol)}</span><span>Ask depth {fmtUsd(depthUp)}</span></div>
               <div className="mt-4 grid gap-4 border-t border-[color:var(--m-border)] pt-4 md:grid-cols-2">
                 <div className="rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)]/25 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <h3 className="text-[13px] font-medium">Order book</h3>
                     <span className="font-dm-mono text-[9.5px] text-[color:var(--m-text-secondary-2)]">Rate · amount</span>
                   </div>
-                  <BookSide levels={snapshot.asks.slice(0, 4)} side="ask" quote={pair.quoteSymbol} />
+                  <BookSide levels={snapshot.asks.slice(0, 4)} side="ask" quote={pair.quoteSymbol} base={pair.baseSymbol} pool={poolSideInventory(poolBands, "ask")} />
                   <div className="my-1.5 flex items-center justify-between border-y border-[color:var(--m-border)] px-2 py-1.5">
-                    <span className="font-dm-mono text-[9.5px] text-[color:var(--m-text-secondary-2)]">Mid</span>
-                    <span className="font-dm-mono text-xs tabular-nums">{fmtRate(mid, pair.quoteSymbol)}</span>
+                    <span className="font-dm-mono text-[9.5px] uppercase text-[color:var(--m-text-secondary-2)]">{centre.label}</span>
+                    <span className="font-dm-mono text-xs tabular-nums">{fmtRate(centre.value, pair.quoteSymbol)}</span>
                   </div>
-                  <BookSide levels={snapshot.bids.slice(0, 4)} side="bid" quote={pair.quoteSymbol} />
+                  <BookSide levels={snapshot.bids.slice(0, 4)} side="bid" quote={pair.quoteSymbol} base={pair.baseSymbol} pool={poolSideInventory(poolBands, "bid")} />
                 </div>
                 <div className="rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)]/25 p-3">
                   <div className="mb-2 flex items-center justify-between">

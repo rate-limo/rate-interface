@@ -1,4 +1,4 @@
-import { buildPageUrl, stripLocale } from "@/lib/routing/chainParams";
+import { buildPageUrl, setSourceChainOnUrl, stripLocale } from "@/lib/routing/chainParams";
 
 /**
  * The base symbol of the market currently being viewed, or null when the route
@@ -51,6 +51,14 @@ export interface ResolveSwitchTargetInput {
   /** Whether `fromMarketSymbol` is a listed market on the target chain. Computed by the
    * caller (a targeted per-network query) — this function does no I/O. */
   isListed: boolean;
+  /**
+   * Where the switch was made from. A chain-scoped page with no market — /create,
+   * /pool, /launch — stays put and only changes `?chain=`: sending a creator
+   * halfway through /create to /explore threw their form away (found by the
+   * ladder-launch e2e, 2026-10-02). Omitted, or a chainless page, keeps the old
+   * fallback.
+   */
+  from?: { pathname: string; search: string };
 }
 
 /**
@@ -73,11 +81,20 @@ export function resolveSwitchTarget({
   fromMarketSymbol,
   toSlug,
   isListed,
+  from,
 }: ResolveSwitchTargetInput): string {
   if (fromMarketSymbol && isListed) {
     // Carrying a specific market across the switch, so this is the Pro gear —
     // Basic isn't pair-bound and would drop the symbol.
     return buildPageUrl("trade", { pro: true, slug: toSlug, base: fromMarketSymbol });
+  }
+  if (!fromMarketSymbol && from) {
+    // No market to carry, but the page itself is about one chain: keep the page.
+    // `setSourceChainOnUrl` returns the URL unchanged for a chainless page, which
+    // is the signal to fall through.
+    const here = from.search ? `${from.pathname}${from.search}` : from.pathname;
+    const there = setSourceChainOnUrl(from.pathname, from.search, toSlug);
+    if (there !== here) return there;
   }
   // Cross-chain, so no slug — see the note above.
   return buildPageUrl("explore");

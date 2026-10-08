@@ -57,10 +57,10 @@ export function SaleView({
       : { label: `Buy ${selectedTier.name} · ${selectedTier.priceEth}`, onClick: onBuy, disabled: false };
 
   const bannerText = !countdown.mounted
-    ? "Iter membership — starts soon"
+    ? "Rate membership — starts soon"
     : live
-      ? `Iter membership is LIVE — ${insider.sold} joined`
-      : `Iter membership — starts in ${countdown.days}d ${countdown.hours}h`;
+      ? `Rate membership is LIVE — ${insider.sold} joined`
+      : `Rate membership — starts in ${countdown.days}d ${countdown.hours}h`;
 
   return (
     <div>
@@ -76,7 +76,7 @@ export function SaleView({
             Mint before the app opens.
           </h2>
           <p className="m-0 mb-[14px] text-[14.5px] text-[color:var(--m-text-secondary)]">
-            Iter membership is available ahead of launch. It&apos;s self-custodial — your
+            Rate membership is available ahead of launch. It&apos;s self-custodial — your
             benefits travel with your wallet the moment trading goes live.
           </p>
           <div
@@ -212,7 +212,7 @@ export function SaleView({
           <i className="h-[10px] w-[10px] rounded-full bg-[color:var(--m-border)]" />
           <i className="h-[10px] w-[10px] rounded-full bg-[color:var(--m-border)]" />
           <i className="h-[10px] w-[10px] rounded-full bg-[color:var(--m-border)]" />
-          <span className="mx-auto font-mono text-[11px] text-[color:var(--m-text-secondary-2)]">iter.cx</span>
+          <span className="mx-auto font-mono text-[11px] text-[color:var(--m-text-secondary-2)]">rate.limo</span>
         </div>
         <div className="flex items-center gap-3 px-[18px] py-[11px] text-[13px] text-[#E9F6EF] [background:linear-gradient(90deg,#052a1e,#074632)]">
           <span>◆</span>
@@ -225,7 +225,7 @@ export function SaleView({
         <div className="px-5 py-[26px] text-white [background:linear-gradient(150deg,#0C1A2B,#17324A)]">
           <h3 className="m-0 mb-2 text-[24px] font-medium tracking-[-0.01em]">Fully on-chain order book.</h3>
           <p className="m-0 max-w-[40ch] text-[13.5px] text-[#b9cbdd]">
-            Inventory and settlement, solved. Join Iter before launch.
+            Inventory and settlement, solved. Join Rate before launch.
           </p>
         </div>
       </div>

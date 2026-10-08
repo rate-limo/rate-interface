@@ -1,4 +1,5 @@
 import { TokenImageIcon } from '@/components/Atoms/TokenImageIcon';
+import { marketParam } from "@/lib/routing/proMarket";
 import { TokenName } from '@/components/Atoms/TokenName';
 import { TokenPrice } from '@/components/Atoms/TokenPrice';
 import { TokenPercentageChange } from '@/components/Atoms/TokenPercentageChange';
@@ -13,6 +14,9 @@ type SpotPairTableRowProps = {
   id: string;
   name: string;
   symbol: string;
+  /** Token addresses for the Pro link; the symbol is only a fallback. */
+  baseAddress?: string;
+  quoteAddress?: string;
   logoURI: string;
   iconColor: string;
   price: number;
@@ -31,6 +35,8 @@ type SpotPairTableRowProps = {
 export function SpotPairTableRow({
   id,
   symbol,
+  baseAddress,
+  quoteAddress,
   logoURI,
   iconColor,
   price,
@@ -69,7 +75,10 @@ export function SpotPairTableRow({
       ? 'grid w-full items-center px-4 py-7'
       : 'border-neutral-light-white-12 grid w-full p-2';
 
-  const [tradeBase, tradeQuote] = symbol.split("/");
+  // Addresses when the row has them: a launchpad ticker can belong to two coins.
+  const [symbolBase, symbolQuote] = symbol.split("/");
+  const tradeBase = encodeURIComponent(marketParam({ id: baseAddress, symbol: symbolBase }));
+  const tradeQuote = symbolQuote ? encodeURIComponent(marketParam({ id: quoteAddress, symbol: symbolQuote })) : "";
   // Picking a market opens the order book (/trade/pro). /trade is the convert
   // card since Swap merged in, and it ignores base/quote.
   const tradeHref = tradeQuote

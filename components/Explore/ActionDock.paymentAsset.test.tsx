@@ -15,7 +15,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { PaymentAsset } from "./ActionDock";
+import { PaymentAsset, isShort } from "./ActionDock";
 import type { SpotPair } from "@/types";
 
 const pair = (quoteSymbol: string, quoteId: string, tvl: number) =>
@@ -139,5 +139,32 @@ describe("PaymentAsset", () => {
     fireEvent.click(screen.getByLabelText("Choose payment asset"));
     // Distinct symbols need no disambiguation, and adding one would be noise.
     expect(screen.queryByText(/0xusdc…/)).toBeNull();
+  });
+});
+
+/*
+ * The dock used to arm a trade against a balance it never read: 0 USDC in the
+ * wallet, and a live "Buy VF15CK" button whose first objection would have come
+ * from the wallet itself, after a signature prompt.
+ */
+describe("isShort", () => {
+  it("is false while disconnected, whatever the numbers say", () => {
+    // `balance` defaults to 0 before a wallet is attached, so without this the
+    // dock would tell every visitor their funds were short.
+    expect(isShort(100, 0, false)).toBe(false);
+  });
+
+  it("is true when the spend exceeds the holding", () => {
+    expect(isShort(1, 0, true)).toBe(true);
+    expect(isShort(10.5, 10.4999, true)).toBe(true);
+  });
+
+  it("allows spending the balance exactly — this is what Max sets", () => {
+    expect(isShort(12.5, 12.5, true)).toBe(false);
+  });
+
+  it("allows anything under it", () => {
+    expect(isShort(0, 0, true)).toBe(false);
+    expect(isShort(3, 12.5, true)).toBe(false);
   });
 });

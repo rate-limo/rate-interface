@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { SpotPair } from "@/types";
-import { chainInitials, quoteTvlUsd, toPickerRow, volumeUsd } from "./pickerRow";
+import { chainInitials, proHref, quoteTvlUsd, toPickerRow, volumeUsd } from "./pickerRow";
 
 /** A gateway pair, shaped from a real `/api/pairs/all` row. */
 const pair = (over: Partial<SpotPair> = {}): SpotPair =>
@@ -118,5 +118,90 @@ describe("chainInitials", () => {
 
   it("handles a single-word name", () => {
     expect(chainInitials("Arc")).toBe("A");
+  });
+});
+
+describe("logos", () => {
+  /*
+   * The picker rendered every market as hued initials while `useAllPairs`
+   * carried both tokens' artwork on every `SpotPair` — the row dropped the
+   * logos here and the component then hardcoded `logoURI={undefined}`, so an
+   * operator's upload was two functions away from the render and never arrived.
+   */
+  it("carries both tokens' artwork through to the row", () => {
+    const withArt = pair({
+      base: { symbol: "SKHY", logoURI: "https://cdn.example/skhy.png" },
+      quote: { symbol: "ETH", logoURI: "https://cdn.example/eth.png" },
+    } as unknown as Partial<SpotPair>);
+    const row = toPickerRow(withArt);
+    expect(row.baseLogoURI).toBe("https://cdn.example/skhy.png");
+    expect(row.quoteLogoURI).toBe("https://cdn.example/eth.png");
+  });
+
+  it("treats an empty string as NO artwork, not as a URL", () => {
+    // `logoURI` is non-nullable on the wire and routinely blank. An
+    // `<img src="">` re-requests the page itself, which is a load that
+    // succeeds — so `onError` never fires and no fallback mark can win.
+    const blank = pair({
+      base: { symbol: "SKHY", logoURI: "" },
+      quote: { symbol: "ETH", logoURI: "" },
+    } as unknown as Partial<SpotPair>);
+    expect(toPickerRow(blank).baseLogoURI).toBeUndefined();
+    expect(toPickerRow(blank).quoteLogoURI).toBeUndefined();
+  });
+
+  it("survives a pair with no joined token rows at all", () => {
+    const noJoin = pair({ base: undefined, quote: undefined } as unknown as Partial<SpotPair>);
+    expect(toPickerRow(noJoin).baseLogoURI).toBeUndefined();
+    expect(toPickerRow(noJoin).quoteLogoURI).toBeUndefined();
+  });
+});
+
+describe("Pro links by address", () => {
+  const A = "0x35C60968CA948f71D57Bd2A0597B691E4cC8e8d3";
+  const B = "0x0970e682bbD4F19f0feAEF250002D6462AC348DE";
+  const USDC = "0x3600000000000000000000000000000000000000";
+
+  it("carries both token addresses from a gateway pair", () => {
+    const row = toPickerRow(pair({ base: { symbol: "NOVA", id: A }, quote: { symbol: "USDC", id: USDC } } as unknown as Partial<SpotPair>));
+    expect(row.baseAddress).toBe(A);
+    expect(row.quoteAddress).toBe(USDC);
+  });
+
+  it("accepts a route that sends the tokens as bare addresses", () => {
+    const row = toPickerRow(pair({ base: A, quote: USDC } as unknown as Partial<SpotPair>));
+    expect(row.baseAddress).toBe(A);
+    expect(row.quoteAddress).toBe(USDC);
+  });
+
+  it("gives two launches sharing a ticker two different links", () => {
+    const one = proHref("arc-testnet", { baseSymbol: "NOVA", quoteSymbol: "USDC", baseAddress: A, quoteAddress: USDC });
+    const two = proHref("arc-testnet", { baseSymbol: "NOVA", quoteSymbol: "USDC", baseAddress: B, quoteAddress: USDC });
+    expect(one).toBe(`/trade/pro?chain=arc-testnet&base=${A}&quote=${USDC}`);
+    expect(two).not.toBe(one);
+  });
+
+  it("falls back to symbols for a row without addresses", () => {
+    expect(proHref("arc-testnet", { baseSymbol: "ETH", quoteSymbol: "USDC" })).toBe("/trade/pro?chain=arc-testnet&base=ETH&quote=USDC");
+  });
+});
+
+
+describe("telling two same-symbol markets apart", () => {
+  it("shortens a base address, and refuses anything that is not one", async () => {
+    const { shortAddress } = await import("./pickerRow");
+    expect(shortAddress("0x9a41000000000000000000000000000000c07e00")).toBe("0x9a41…7e00");
+    expect(shortAddress("PEPE")).toBeNull();
+    expect(shortAddress(undefined)).toBeNull();
+  });
+
+  it("states a market's age in the largest whole unit", async () => {
+    const { ageLabel } = await import("./pickerRow");
+    const now = 1_790_000_000;
+    expect(ageLabel(now - 30, now)).toBe("1m");
+    expect(ageLabel(now - 3 * 3600, now)).toBe("3h");
+    expect(ageLabel(now - 4 * 86_400, now)).toBe("4d");
+    expect(ageLabel(now - 90 * 86_400, now)).toBe("3mo");
+    expect(ageLabel(null, now)).toBeNull();
   });
 });

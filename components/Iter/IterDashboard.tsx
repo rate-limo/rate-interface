@@ -153,7 +153,7 @@ function ProgramCard({
 const actions = [
   { tag: "Fees", color: "bg-[color:var(--m-primary-100)] text-[color:var(--m-primary-700)]", type: "Revenue", text: "Protocol earned $8,420", detail: "$21.4M trading volume", time: "about 2 hours ago" },
   { tag: "LP", color: "bg-[color:var(--m-success-100)] text-[color:var(--m-success-700)]", type: "Yield", text: "LPs earned $18,640", detail: "Fees distributed across 42 pools", time: "about 5 hours ago" },
-  { tag: "Buy", color: "bg-[color:var(--m-warning-100)] text-[color:var(--m-warning-700)]", type: "Buyback", text: "Protocol repurchased 18,240 Iter", detail: "$12,806 via market execution", time: "about 8 hours ago" },
+  { tag: "Buy", color: "bg-[color:var(--m-warning-100)] text-[color:var(--m-warning-700)]", type: "Buyback", text: "Protocol repurchased 18,240 Rate", detail: "$12,806 via market execution", time: "about 8 hours ago" },
   { tag: "Pool", color: "bg-[color:var(--m-error-100)] text-[color:var(--m-error-700)]", type: "Liquidity", text: "0x6eC5…f3ff added $473K", detail: "ETH / USDC concentrated liquidity", time: "about 1 day ago" },
 ];
 
@@ -218,9 +218,9 @@ export function IterDashboard({ flywheel }: { flywheel: ProtocolFlywheelData }) 
         </article>
 
         <div className="grid gap-4">
-          <MarketCard title="Iter Price" value="$18.61" delta="0.69%" path={sparkPaths[0]} id={0} />
-          <MarketCard title="Liquid Backing Per Iter" value="$12.05" delta="0.02%" path={sparkPaths[1]} id={1} />
-          <MarketCard title="Iter Premium" value="$6.56" delta="1.95%" path={sparkPaths[2]} id={2} info="Price premium above liquid backing" />
+          <MarketCard title="Rate Price" value="$18.61" delta="0.69%" path={sparkPaths[0]} id={0} />
+          <MarketCard title="Liquid Backing Per Rate" value="$12.05" delta="0.02%" path={sparkPaths[1]} id={1} />
+          <MarketCard title="Rate Premium" value="$6.56" delta="1.95%" path={sparkPaths[2]} id={2} info="Price premium above liquid backing" />
         </div>
       </section>
 
@@ -246,13 +246,13 @@ export function IterDashboard({ flywheel }: { flywheel: ProtocolFlywheelData }) 
         <ProgramCard
           title="Revenue Buyback"
           status={<span className="inline-flex items-center gap-2">Active <span className="h-2.5 w-2.5 rounded-full bg-[color:var(--m-success)] shadow-[0_0_0_5px_var(--m-success-100)]" /></span>}
-          eyebrow="Lifetime Iter Repurchased"
+          eyebrow="Lifetime Rate Repurchased"
           value={<span className="flex items-center gap-2"><CircleDollarSign className="h-9 w-9 text-[color:var(--m-text-secondary)]" />566,623.74</span>}
         >
           <div className="mt-auto pt-8">
             <div className="flex items-center gap-2 text-sm text-[color:var(--m-text-secondary)]">Annual Supply Impact <InfoIcon label="Estimated annual token supply impact" /></div>
             <div className="mt-1 font-dm-mono text-lg font-medium tabular-nums">
-              -0.07% <span className="text-[color:var(--m-text-secondary)]">14,397 Iter/yr</span>
+              -0.07% <span className="text-[color:var(--m-text-secondary)]">14,397 Rate/yr</span>
             </div>
           </div>
         </ProgramCard>

@@ -39,6 +39,27 @@ export interface PairTrade {
 }
 
 /**
+ * One funded band of the connected wallet's position, for the profile's ladder.
+ *
+ * `toleranceFrac` is the half-width as a fraction (0.02 = ±2%), already resolved
+ * from the pair limit by `lib/liquidity/positions.ts`. It is what makes a rung
+ * legible — a band is an interval around the anchor, and the interval is the
+ * thing the LP chose.
+ */
+export interface YourBandRung {
+  band: number;
+  /** Half-width per side as a fraction; null when the chain read did not answer. */
+  toleranceFrac: number | null;
+  valueUsd: number;
+  /** This band's share of the POSITION's value, 0..100. */
+  sharePct: number;
+  /** False when the creator has closed the band to new trades. */
+  open: boolean | null;
+  /** Vesting ramp of this band's capital, 0..100; null when unknown. */
+  vestedPct: number | null;
+}
+
+/**
  * Everything the profile reads that is not already on `SpotPair`.
  *
  * Every field is nullable on purpose. A market with an empty book has no spread and no
@@ -62,6 +83,22 @@ export interface PairSnapshot {
   accruedFees24hQuote: number | null;
   /** The connected wallet's position in this pool, USD. Null when there is none. */
   yourPositionUsd: number | null;
+  /**
+   * The wallet's BAND position in this pool — one rung per funded band.
+   *
+   * Separate from `yourPositionUsd` because a band position is not one number.
+   * One ERC-1155 token holds a whole ladder, and which rungs it funds is the
+   * decision the LP actually made; collapsing it to a total throws that away.
+   *
+   * Null when the wallet holds no band position here (or none is known yet),
+   * which is not the same as an empty array — that would mean a position with
+   * no funded band, which cannot exist.
+   */
+  yourBands: YourBandRung[] | null;
+  /** How many ERC-1155 positions back `yourBands`. An LP may hold several. */
+  yourPositionCount: number;
+  /** Fees this wallet can collect from those positions now, in USD. */
+  yourFeesUsd: number | null;
   /** Which figures are still illustrative. See `SnapshotProvenance`. */
   provenance: SnapshotProvenance;
 }

@@ -10,7 +10,7 @@
       "launch": "Launch",
       "create": "Create",
       "portfolio": "Portfolio",
-      "iter": "Iter"
+      "iter": "Rate"
     },
     "status": {
       "gas": "Gas",
@@ -22,7 +22,7 @@
   },
   "landing": {
     "footer": {
-      "copyright": "© Iter {year}",
+      "copyright": "© Rate {year}",
       "terms": "Terms",
       "privacy": "Privacy",
       "cookies": "Cookies"

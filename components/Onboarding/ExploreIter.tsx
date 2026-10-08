@@ -7,7 +7,7 @@ import { buildPageUrl } from "@/lib/routing/chainParams";
 import { useOptionalMarketPageContext } from "@/contexts/MarketPageProvider";
 
 /**
- * The three things Iter does that the feed underneath cannot show.
+ * The three things Rate does that the feed underneath cannot show.
  *
  * ## There is deliberately no card for social trading
  *
@@ -51,8 +51,8 @@ export function ExploreIter({ className }: { className?: string }) {
   ];
 
   return (
-    <section aria-label="Explore Iter" className={cn("mb-4", className)}>
-      <h2 className="mb-2 text-[13px] font-bold text-[color:var(--m-text-primary)]">Explore Iter</h2>
+    <section aria-label="Explore Rate" className={cn("mb-4", className)}>
+      <h2 className="mb-2 text-[13px] font-bold text-[color:var(--m-text-primary)]">Explore Rate</h2>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {items.map((item) => {
           const Icon = item.icon;

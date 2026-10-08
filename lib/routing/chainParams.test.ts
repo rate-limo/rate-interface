@@ -5,6 +5,7 @@ import {
   readDisplaySlug,
   supportedNetworkName,
   buildPageUrl,
+  buildExploreSectionUrl,
   setSourceChainOnUrl,
   siblingChainUrls,
   tradeGearFromPathname,
@@ -82,10 +83,10 @@ describe("supportedNetworkName", () => {
     expect(supportedNetworkName("rise-testnet")).toBe("RISE Testnet");
   });
   it("falls back for a slug naming a chain removed from supportedChains", () => {
-    // monad-testnet, somnia-testnet and megaeth-testnet are still registered in
-    // slugToNetworkName (see its own comment) — this is the case those entries
-    // exist to prove: recognized, but not fetchable.
-    expect(supportedNetworkName("monad-testnet")).toBe(defaultConnectedChain);
+    // somnia-testnet and megaeth-testnet are still registered in slugToNetworkName
+    // (see its own comment) — this is the case those entries exist to prove:
+    // recognized, but not fetchable.
+    expect(supportedNetworkName("somnia-testnet")).toBe(defaultConnectedChain);
   });
   it("falls back for a slug that maps to nothing at all", () => {
     expect(supportedNetworkName("not-a-real-chain")).toBe(defaultConnectedChain);
@@ -132,6 +133,15 @@ describe("buildPageUrl", () => {
   });
 
   // Pool splits the same way Trade does: bare route reads, deeper route acts.
+  it("narrows an explore section to one chain with the param Explore reads", () => {
+    // `chains`, plural, holding a network NAME — `?chain=<slug>` is the dead
+    // param this surface ignores, and the two differ by one letter.
+    expect(buildExploreSectionUrl("tokens")).toBe("/explore/tokens");
+    expect(buildExploreSectionUrl("tokens", { chains: "Arc Testnet" })).toBe(
+      "/explore/tokens?chains=Arc%20Testnet",
+    );
+  });
+
   it("sends pool to the overview unless the provide flow is asked for", () => {
     expect(buildPageUrl("pool", { slug: "s" })).toBe("/pool?chain=s");
     // the overview is market-wide, so a pair must not leak into it
@@ -195,5 +205,12 @@ describe("siblingChainUrls", () => {
   });
   it("returns empty for portfolio", () => {
     expect(siblingChainUrls("/portfolio", "", ["a", "b"])).toEqual([]);
+  });
+});
+
+describe("short chain names", () => {
+  it("resolves ?chain=rise to the RISE slug instead of falling back to the default", () => {
+    expect(readDisplaySlug("launch", { chain: "rise" })).toBe("rise-testnet");
+    expect(readDisplaySlug("launch", { chain: "ARC" })).toBe("arc-testnet");
   });
 });

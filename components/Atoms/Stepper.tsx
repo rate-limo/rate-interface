@@ -72,7 +72,7 @@ interface StepperProps {
   shape?: "dots" | "bar";
   /** Names the list for assistive tech, e.g. "Launch a coin". */
   label: string;
-  /** Shown beside the count in `bar` shape only — onboarding prints Iter there. */
+  /** Shown beside the count in `bar` shape only — onboarding prints Rate there. */
   barBrand?: string;
   className?: string;
 }

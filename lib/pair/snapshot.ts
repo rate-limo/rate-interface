@@ -1,7 +1,8 @@
 import type { GroupedOrderbookResult } from "@/types/tables/orderbooks/orderbook";
 import type { SpotPair, SpotTradeEvent } from "@/types";
 import type { LpPosition, PoolLiquidity } from "@/queries/server/liquidity";
-import type { BookLevel, PairSnapshot, PairTrade, SnapshotProvenance } from "./types";
+import type { LpToken } from "@/lib/liquidity/positions";
+import type { BookLevel, PairSnapshot, PairTrade, SnapshotProvenance, YourBandRung } from "./types";
 
 /**
  * Composes the live legs into a `PairSnapshot`.
@@ -30,6 +31,16 @@ export interface SnapshotLegs {
     pool: PoolLiquidity | null;
     /** The connected wallet's LP ranges across all pools, or null when absent. */
     positions: LpPosition[] | null;
+    /**
+     * The wallet's BAND positions across all pools, or null when absent.
+     *
+     * A separate leg from `positions` because they are separate generations, not
+     * two spellings of one thing: `positions` are Pool.sol ranges, `bandTokens`
+     * are ERC-1155 ladders. The profile read only the former, so every position
+     * the band UI creates rendered as the word "none" — the gateway returns both
+     * halves on one response and the web read dropped this one.
+     */
+    bandTokens: LpToken[] | null;
 }
 
 function toLevels(buckets: GroupedOrderbookResult["bids"]["buckets"] | undefined): BookLevel[] {
@@ -100,6 +111,112 @@ function positionUsd(pair: SpotPair, positions: LpPosition[] | null): number | n
     return Number.isFinite(usd) ? usd : null;
 }
 
+/**
+ * The wallet's BAND positions in THIS pool.
+ *
+ * Matched on token addresses in either orientation, like `positionUsd` above and
+ * for the same reason: the profile never has to learn the pool address to ask
+ * the question. Inactive tokens are excluded — a burnt position is not a stake.
+ */
+function myBandTokens(pair: SpotPair, tokens: LpToken[] | null): LpToken[] {
+    if (!Array.isArray(tokens) || tokens.length === 0) return [];
+    const baseId = pair.base?.id?.toLowerCase();
+    const quoteId = pair.quote?.id?.toLowerCase();
+    if (!baseId || !quoteId) return [];
+    return tokens.filter((t) => {
+        if (!t?.active) return false;
+        const b = t.base?.toLowerCase();
+        const q = t.quote?.toLowerCase();
+        return (b === baseId && q === quoteId) || (b === quoteId && q === baseId);
+    });
+}
+
+/**
+ * The ladder, folded across every position the wallet holds here.
+ *
+ * An LP can hold several ERC-1155 tokens in one pool — `increaseLiquidity` adds
+ * to an existing one, but a second `mint` makes another — and they are the same
+ * stake from the reader's side, so the rungs are summed by band index rather
+ * than listed per token.
+ *
+ * `sharePct` is RECOMPUTED from the summed values instead of being averaged out
+ * of the inputs: each token's `sharePct` is a share of THAT token, and averaging
+ * shares of different denominators is meaningless. Returns null rather than an
+ * empty array when nothing is funded — `yourBands` is documented as "no position
+ * here", and an empty ladder would claim a position with no bands, which cannot
+ * exist.
+ */
+function bandLadder(tokens: LpToken[]): YourBandRung[] | null {
+    if (tokens.length === 0) return null;
+
+    const byBand = new Map<number, YourBandRung>();
+    for (const token of tokens) {
+        for (const band of token.bands ?? []) {
+            /**
+             * FUNDED means SHARES, never dollars.
+             *
+             * `valueUSD` comes from the broker's periodic band-reserve snapshot,
+             * so a position is worth 0 to the gateway for the first minute of
+             * its life — and keying the ladder on it put a brand-new deposit
+             * back in the state this panel exists to end: a funded wallet told
+             * it has none. Measured end to end: the profile said "none" ~40s
+             * after a deposit whose shares were already on chain, and the same
+             * response carried real values minutes later.
+             *
+             * Shares are the position. The dollars are a valuation of it, and
+             * "not valued yet" renders as an em-dash below.
+             */
+            if (band.shares <= BigInt(0)) continue;
+            const rung = byBand.get(band.band);
+            if (!rung) {
+                byBand.set(band.band, {
+                    band: band.band,
+                    toleranceFrac: band.toleranceBuy ?? band.toleranceSell,
+                    valueUsd: band.valueUSD,
+                    sharePct: 0,
+                    open: band.open,
+                    vestedPct: band.vestedPct,
+                });
+                continue;
+            }
+            rung.valueUsd += band.valueUSD;
+            // A band the LP holds through two tokens is open or closed once —
+            // it is a property of the POOL's band, not of either token.
+            rung.open = rung.open ?? band.open;
+            rung.toleranceFrac = rung.toleranceFrac ?? band.toleranceBuy ?? band.toleranceSell;
+        }
+    }
+    if (byBand.size === 0) return null;
+
+    const rungs = [...byBand.values()].sort((a, b) => a.band - b.band);
+    const total = rungs.reduce((sum, r) => sum + r.valueUsd, 0);
+    // An even split while nothing is valued, the same fallback
+    // `mergeLpPositions` already applies per token — a row of 0% bars would
+    // read as empty bands rather than as an unvalued position.
+    for (const rung of rungs) {
+        rung.sharePct = total > 0 ? (rung.valueUsd / total) * 100 : 100 / rungs.length;
+    }
+    return rungs;
+}
+
+/** A ladder's total, or null while the broker has not valued it. */
+function ladderUsd(ladder: YourBandRung[] | null): number | null {
+    if (!ladder) return null;
+    const total = ladder.reduce((sum, r) => sum + r.valueUsd, 0);
+    return total > 0 ? total : null;
+}
+
+/**
+ * Add two figures that are each "null means unknown, not zero".
+ *
+ * `(a ?? 0) + (b ?? 0)` would turn two unknowns into a measured 0.00, which is
+ * the exact claim every null in this file exists to avoid making.
+ */
+function sumOrNull(a: number | null, b: number | null): number | null {
+    if (a === null && b === null) return null;
+    return (a ?? 0) + (b ?? 0);
+}
+
 /** Pool TVL in USD, straight off the pair row — no extra call needed. */
 function tvlUsd(pair: SpotPair): number | null {
     const base = pair.dayBaseTvlUSD;
@@ -113,6 +230,9 @@ function tvlUsd(pair: SpotPair): number | null {
 
 export function composePairSnapshot(legs: SnapshotLegs): PairSnapshot {
     const { pair, book, trades, pool, positions } = legs;
+
+    const myBands = myBandTokens(pair, legs.bandTokens);
+    const ladder = bandLadder(myBands);
 
     const bids = toLevels(book?.bids?.buckets);
     const asks = toLevels(book?.asks?.buckets);
@@ -139,7 +259,23 @@ export function composePairSnapshot(legs: SnapshotLegs): PairSnapshot {
         accruedFees24hQuote: pool?.aprBasis
             ? pool.aprBasis.poolDayQuoteVolume * pool.aprBasis.lpFeeRate
             : null,
-        yourPositionUsd: positionUsd(pair, positions),
+        /**
+         * Both generations, added. A wallet can hold a v3 range AND a band ladder
+         * in the same pool, and "your position" means the whole stake — showing
+         * one and hiding the other would be a subtler version of the bug this
+         * replaced. Null survives only when NEITHER leg has anything, so the UI
+         * still says "none" rather than "$0.00" for a wallet with no position.
+         */
+        yourPositionUsd: sumOrNull(
+            positionUsd(pair, positions),
+            // 0 across a ladder that HAS shares means unvalued, not worthless —
+            // see the note in `bandLadder`. Null renders an em-dash beside a
+            // ladder that still lists every funded band.
+            ladderUsd(ladder),
+        ),
+        yourBands: ladder,
+        yourPositionCount: myBands.length,
+        yourFeesUsd: myBands.length > 0 ? myBands.reduce((sum, t) => sum + (t.feesUSD ?? 0), 0) : null,
         provenance: composeProvenance(legs),
     };
 }

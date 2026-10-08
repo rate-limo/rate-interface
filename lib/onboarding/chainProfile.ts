@@ -1,4 +1,5 @@
 import { findChain } from "@iter/deployments";
+import { gasSymbol } from "@/lib/chains/gasToken";
 
 /**
  * What a chain offers a new user, and what it asks of them first.
@@ -75,7 +76,23 @@ const DECLARED: Record<number, { pitch: string; headline: ChainHeadline }> = {
   },
   // RISE: gas is ETH, quote is WETH. Two assets and a wrap, and no pools at all.
   11155931: {
-    pitch: "Order-book trading quoted in ETH, with the deepest books on Iter.",
+    pitch: "Order-book trading quoted in ETH, with the deepest books on Rate.",
+    headline: "trade",
+  },
+  // Monad and Robinhood: gas in the native coin, markets quoted in USDC, so pools
+  // exist (a USDC leg is not the engine's WETH).
+  10143: {
+    pitch: "Trade on Monad with markets quoted in USDC, and provide liquidity to earn fees.",
+    headline: "trade",
+  },
+  46630: {
+    pitch: "Trade on Robinhood Chain with markets quoted in USDC, and provide liquidity to earn fees.",
+    headline: "trade",
+  },
+  // Tempo: no gas coin at all. Fees and markets are both in PathUSD, so there is
+  // nothing to wrap, and pools exist.
+  42431: {
+    pitch: "Trade on Tempo with fees and markets in PathUSD, and provide liquidity to earn fees.",
     headline: "trade",
   },
 };
@@ -103,7 +120,8 @@ export function chainOnboardingProfile(chainId: number): ChainOnboardingProfile 
   return {
     chainId,
     name: chain.name,
-    gasSymbol: chain.nativeCurrency?.symbol ?? "gas",
+    // Tempo's registry symbol is a placeholder ("USD"); its gas is PathUSD.
+    gasSymbol: gasSymbol(chainId, chain.nativeCurrency?.symbol) ?? "gas",
     quoteWrapsNative,
     canLaunch: has("assetGenerator"),
     canAuction: has("presaleLaunch"),

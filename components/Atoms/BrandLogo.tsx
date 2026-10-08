@@ -12,7 +12,7 @@ type BrandLogoProps = {
 
 // Mark height per size; the wordmark tracks it. The mark is LogoMarkV2 (an
 // inline geometric mark that inherits `currentColor` + `--m-background`), and
-// the wordmark is the text "Iter" — no baked-in legacy SVG lockup.
+// the wordmark is the text "Rate" — no baked-in legacy SVG lockup.
 const MARK_HEIGHT: Record<NonNullable<BrandLogoProps['size']>, number> = {
   sm: 18,
   md: 22,
@@ -31,7 +31,7 @@ export function BrandLogo({
   return (
     <Link
       href={buildPageUrl("explore")}
-      aria-label="Iter"
+      aria-label="Rate"
       className={cn(
         'font-satoshi flex items-center gap-2 font-medium cursor-pointer text-[color:var(--m-logo)]',
         className,
@@ -43,7 +43,7 @@ export function BrandLogo({
           className="font-bold leading-none tracking-[0.08em]"
           style={{ fontSize: Math.round(h * 0.6) }}
         >
-          Iter
+          Rate
         </span>
       )}
     </Link>

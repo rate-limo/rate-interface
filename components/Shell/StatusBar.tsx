@@ -6,10 +6,13 @@ import { usePathname } from "next/navigation";
 import { Copyright } from "@/components/Molecules/Copyright";
 import { SupportButton } from "@/components/Support/SupportWidget";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SoundToggle } from "@/components/Sound/SoundToggle";
 import { findChain } from "@iter/deployments";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
 import { useNetworkGas } from "@/hooks/useNetworkGas";
+import { useAccount } from "wagmi";
+import { useFeeToken } from "@/lib/wallet/feeToken";
 import { useRpcStatus } from "@/hooks/useRpcStatus";
 import { epochEndsAt, epochOf } from "@/lib/rewards/epoch";
 import { tradeGearFromPathname } from "@/lib/routing/chainParams";
@@ -56,10 +59,10 @@ const LINKS: { label: string; href: string; i18nKey?: "cookies" }[] = [
   { label: "Privacy", href: "/privacy" },
   { label: "Legal", href: "/terms" },
   { label: "X", href: "https://x.com/off____grid" },
-  { label: "GitHub", href: "https://github.com/iter-cx/iter-monorepo" },
+  { label: "GitHub", href: "https://github.com/rate-limo/rate-monorepo" },
   {
     label: "Whitepaper",
-    href: "https://github.com/iter-cx/iter-research/blob/main/iter-whitepaper.md",
+    href: "https://github.com/rate-limo/rate-research/blob/main/iter-whitepaper.md",
   },
   // Exactly ONE legal link here, not three. This is a 40px strip already
   // carrying four live-data chips and the theme toggle; three more items is how
@@ -239,7 +242,12 @@ function EthPriceChip() {
 function GasChip() {
   const gas = useNetworkGas();
   const { displayNetworkName } = useMarketPageContext();
-  const nativeSymbol = findChain(displayNetworkName)?.nativeCurrency.symbol;
+  const { address } = useAccount();
+  const gasChain = findChain(displayNetworkName);
+  // Tempo has no gas coin: name the TIP-20 THIS account pays in (its FeeManager
+  // choice, else PathUSD), not the registry's "USD" placeholder.
+  const feeToken = useFeeToken(gasChain?.chainId, address);
+  const nativeSymbol = feeToken?.symbol ?? gasChain?.nativeCurrency.symbol;
 
   return (
     <Chip
@@ -442,6 +450,7 @@ export function StatusBar({
           onClick={onSupportToggle}
           className="inline-flex shrink-0 items-center gap-1.5 font-dm-mono text-[10px] tracking-[0.08em] text-[color:var(--m-text-secondary)] uppercase transition-colors hover:text-[color:var(--m-text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--m-primary)] [&_svg]:h-3.5 [&_svg]:w-3.5"
         />
+        <SoundToggle />
         <ThemeToggle />
       </div>
     </div>

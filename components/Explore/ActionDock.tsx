@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import type { DepositShape } from "@/lib/liquidity/shape";
 import { formatPct } from "@/lib/pair/derive";
 import { useEffect, useMemo, useState } from "react";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
+import { PoolRiskNote } from "@/components/Liquidity/PoolRiskNote";
 import { buildPageUrl } from "@/lib/routing/chainParams";
 import { cn } from "@/lib/utils";
 import { normalizeAmountInput } from "@/utils/numberInput";
@@ -20,6 +22,8 @@ import { useDepositApr } from "@/hooks/useDepositApr";
 import { useWalletConnect } from "@/lib/wallet";
 import { useAccount } from "wagmi";
 import { useRouteQuote } from "@/lib/swap/routeQuote";
+import { useLadderTrade } from "@/hooks/useLadderTrade";
+import { REFUND_NOTE } from "@/lib/launch/ladderBuy";
 import { applyQuoteDisplay, useQuoteDisplay } from "@/lib/chains/useQuoteDisplay";
 import type { SwapToken } from "@/lib/swap/types";
 import type { SpotPair } from "@/types";
@@ -103,6 +107,56 @@ const amt = (n: number): string =>
   formatSubscriptDecimal(n, { digits: 4 }) ??
   n.toLocaleString("en-US", { maximumFractionDigits: 4 });
 
+/**
+ * Is the wallet short of what this trade would spend?
+ *
+ * ## The bug
+ *
+ * The dock quoted, labelled and armed a trade against a balance it never looked
+ * at. A wallet holding 0 USDC got a live "Buy VF15CK" button, and the first
+ * thing to say otherwise would have been the wallet's own rejection — after a
+ * signature prompt, which is the most expensive place to learn it.
+ *
+ * ## Both tabs, one comparison
+ *
+ * Buying spends the quote asset and selling spends the base, and the dock's
+ * `amountAsset`/`balance` already follow that split — so the caller passes the
+ * spend and the holding of the SAME token whichever tab is open.
+ *
+ * ## Disconnected is never "insufficient"
+ *
+ * There is no balance to read, and `balance` defaults to 0 — so without this
+ * gate every disconnected visitor would be told their funds were short, which
+ * describes their wallet rather than the app's ignorance of it. The dock's
+ * primary button says "Connect wallet" in that state and must keep saying it.
+ *
+ * Exported for direct unit testing: the dock itself needs MarketPageProvider,
+ * `useLiveSwapTokens` and `useRouteQuote` to mount, so the rule is pinned here
+ * rather than behind three mocks — the same reason `PaymentAsset` is exported.
+ */
+export function isShort(spend: number, balance: number, connected: boolean): boolean {
+  if (!connected) return false;
+  // Not `>=`: spending a balance to the last unit is a legitimate trade, and
+  // refusing it would make Max unusable — Max sets exactly this number.
+  return spend > balance;
+}
+
+/**
+ * The shapes the deposit page offers, in its order and its words.
+ *
+ * Deliberately the same four, because this control hands its answer to that
+ * page: a dock that named them differently would make the two screens look
+ * like different features. `auto` leads and is the default here for the same
+ * reason it is there — it is measured from the pair's own trading rather than
+ * guessed by someone who has just met this market.
+ */
+const DOCK_SHAPES: ReadonlyArray<{ key: DepositShape; name: string; blurb: string }> = [
+  { key: "auto", name: "Auto", blurb: "From this pair's own trading" },
+  { key: "spot", name: "Spot", blurb: "Even across every band" },
+  { key: "curve", name: "Curve", blurb: "Most in the tightest band" },
+  { key: "wide", name: "Wide", blurb: "Most in the outer bands" },
+];
+
 export function ActionDock({
   pair,
   pairs = [],
@@ -166,7 +220,19 @@ export function ActionDock({
   const amountFontPx = Math.max(30, 56 - Math.max(0, amount.length - 6) * 4);
   /** false = the field is USD; true = the field is the asset itself. */
   const [inAsset, setInAsset] = useState(false);
-  const [range, setRange] = useState("±5%");
+  /**
+   * How the deposit SPREADS ACROSS BANDS — the same question the deposit page
+   * asks, in the same vocabulary, defaulting to the same answer.
+   *
+   * It was three price tolerances, `±5% / ±10% / Full`, and they described
+   * nothing this venue has. A band's width is a fraction of the pair's
+   * slippage limit, not a percentage of price the LP picks: measured on Arc's
+   * TITER/USDC the ladder is ±0.02% / ±0.06% / ±0.10%, so every option here was
+   * two orders of magnitude wide and none of them named a band. The chips fed
+   * `minPrice`/`maxPrice` into the APR estimate and nothing else — the deposit
+   * itself is a deep link, which dropped the choice on the way out.
+   */
+  const [shape, setShape] = useState<DepositShape>("auto");
   /**
    * What happens to the part of the order the book cannot take.
    *
@@ -266,14 +332,28 @@ export function ActionDock({
     slippagePct: 0.005,
     enabled: Boolean(pair && spending.address && amountAsset > 0 && tab !== "lp"),
   });
+  // A launch coin still selling its ladder: buys are walked across the steps and
+  // both sides go out fill-or-refund — see hooks/useLadderTrade. Everything
+  // below reads `quote`, so the ladder and the ordinary route share one path.
+  const ladder = useLadderTrade({
+    networkName: displayNetworkName,
+    pay: spending,
+    get: tab === "sell" ? quoteToken : baseToken,
+    amountIn: amountAsset,
+    slippage: 0.005,
+    liveQuote: route.quote,
+    enabled: Boolean(pair && amountAsset > 0 && tab !== "lp"),
+  });
+  const quote = ladder.active ? ladder.quote : route.quote;
+  const quoteError = ladder.buy ? null : route.error;
 
-  // The preset chips are a tolerance; the estimator wants absolute bounds. "Full"
-  // sends none, which is what the gateway reads as an unbounded band.
-  const tolerance = range === "±5%" ? 0.05 : range === "±10%" ? 0.1 : null;
-  const lpBounds =
-    tolerance !== null && pair?.price
-      ? { minPrice: pair.price * (1 - tolerance), maxPrice: pair.price * (1 + tolerance) }
-      : {};
+  /*
+   * No bounds. The estimator takes them to describe a v3 RANGE, and a band
+   * deposit has no range to send — its bands are the pool's, at widths the
+   * pool sets. Passing the old chips' invented ±5% asked the gateway to price
+   * a position nobody could open.
+   */
+  const lpBounds = {};
 
   const lpApr = useDepositApr({
     networkName: displayNetworkName,
@@ -289,7 +369,7 @@ export function ActionDock({
   // One source for the split and the resting price, shared with the execution
   // that actually posts the order — see `lib/swap/remainder` for the 27.6%
   // mispricing that came of deriving it twice.
-  const { unfilled, filled, restsTo, restPrice } = remainderSplit(route.quote);
+  const { unfilled, filled, restsTo, restPrice } = remainderSplit(quote);
   /**
    * `6.5581 filled · 2.4419 refunded` — the split, in the asset being spent.
    *
@@ -298,7 +378,7 @@ export function ActionDock({
    * labelled figures are the whole content; a reader can subtract.
    */
   const splitNote =
-    unfilled > 0 && route.quote ? `${amt(filled)} filled · ${amt(unfilled)} refunded` : "";
+    ladder.active ? REFUND_NOTE : unfilled > 0 && quote ? `${amt(filled)} filled · ${amt(unfilled)} refunded` : "";
   /**
    * What the WHOLE input is worth — the conversion, not the execution.
    *
@@ -317,8 +397,8 @@ export function ActionDock({
    * which says how much of that fills now and how much comes back. Conversion
    * first, then what the market can actually do with it.
    */
-  const converted = route.quote
-    ? route.quote.delivered + route.quote.placements.reduce((sum, p) => sum + p.outAmount, 0)
+  const converted = quote
+    ? quote.delivered + quote.placements.reduce((sum, p) => sum + p.outAmount, 0)
     : 0;
   /*
    * There is deliberately NO rate line here.
@@ -332,11 +412,11 @@ export function ActionDock({
 
   const estimate = !(amountAsset > 0)
     ? ""
-    : route.loading
+    : route.loading && !ladder.buy
       ? "Finding a route…"
-      : route.error
-        ? route.error
-        : route.quote
+      : quoteError
+        ? quoteError
+        : quote
           ? // The delivered amount AND the price it fills at. With a partial
             // fill those are the two numbers that reconcile the screen: 9 DONUT
             // in and 6.5089 USDC out reads as a mispriced trade until the rate
@@ -367,8 +447,32 @@ export function ActionDock({
 
   // LP still deep-links: the deposit flow is a page with a band picker, a range
   // chart and a shape control, none of which belongs in a 550px rail.
+  /*
+   * The choice travels with the link.
+   *
+   * This carried only the pair, so a person who typed an amount and picked a
+   * shape landed on an empty deposit form and started again — the dock asked
+   * three questions and threw two of the answers away. `shape` and `amount`
+   * are read back by `LiquidityFlow`, so the page opens on what was chosen
+   * here.
+   */
   const lpHref = pair
-    ? buildPageUrl("pool", { slug, deposit: true, base: pair.baseSymbol, quote: pair.quoteSymbol })
+    ? buildPageUrl("pool", {
+        slug,
+        deposit: true,
+        base: pair.baseSymbol,
+        quote: pair.quoteSymbol,
+        shape,
+        /*
+         * WHICH token, not just how much. The card asks the LP to pick a side
+         * and the link dropped it, so the deposit page opened on its own default
+         * — the base token — after someone had explicitly chosen the quote.
+         * Reading the amount off `lpSide` too, rather than preferring whichever
+         * field happened to be filled.
+         */
+        one: lpSide,
+        amount: Number(lpAmount) > 0 ? lpAmount : undefined,
+      })
     : buildPageUrl("trade", { pro: true, slug });
 
   const getToken = tab === "sell" ? quoteToken : baseToken;
@@ -386,14 +490,18 @@ export function ActionDock({
    * check, real approve, real `swap()`. Reusing both is what keeps one
    * definition of "what a swap does" instead of a second one in the rail.
    */
-  const canExecute = Boolean(pair && getToken.address && route.quote?.execution && !route.loading && !route.error);
+  const canExecute = ladder.order
+    ? Boolean(pair && getToken.address && quote && quote.delivered > 0)
+    : Boolean(pair && getToken.address && route.quote?.execution && !route.loading && !route.error);
+
+  const insufficientBalance = isShort(amountAsset, balance, isConnected);
 
   function onPrimary() {
     if (!isConnected) {
       openWallet();
       return;
     }
-    if (!canExecute) return;
+    if (!canExecute || insufficientBalance) return;
     setFlowOpen(true);
   }
 
@@ -401,9 +509,13 @@ export function ActionDock({
     ? "Pick a market"
     : !isConnected
       ? "Connect wallet"
-      : route.loading
+      : route.loading && !ladder.buy
         ? "Finding a route…"
-        : (route.error ??
+        : insufficientBalance
+          ? // Named, not merely disabled: a dead button with a trade label on it
+            // reads as the app being broken. `SwapCard` words it identically.
+            `Insufficient ${spendingSymbol ?? "balance"}`
+          : (quoteError ??
           /*
            * The label names BOTH transactions when a disposition is set.
            *
@@ -550,31 +662,35 @@ export function ActionDock({
 
           <div>
             <div className="mb-1.5 text-[11px] text-[color:var(--m-text-secondary)]">
-              Band
+              Spread across bands
             </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              {["±5%", "±10%", "Full"].map((option) => (
+            <div className="grid grid-cols-4 gap-1.5">
+              {DOCK_SHAPES.map((option) => (
                 <button
-                  key={option}
+                  key={option.key}
                   type="button"
-                  onClick={() => setRange(option)}
-                  aria-pressed={range === option}
+                  data-testid={`dock-shape-${option.key}`}
+                  onClick={() => setShape(option.key)}
+                  aria-pressed={shape === option.key}
+                  title={option.blurb}
                   className={cn(
                     "rounded-lg border px-2 py-2 font-dm-mono text-[11px] transition-colors",
-                    range === option
+                    shape === option.key
                       ? "border-[color:var(--m-primary)] bg-[color:var(--m-surface-selected)] text-[color:var(--m-primary-fg)]"
                       : "border-[color:var(--m-border)] text-[color:var(--m-text-secondary)] hover:text-[color:var(--m-text-primary)]",
                   )}
                 >
-                  {option}
+                  {option.name}
                 </button>
               ))}
             </div>
           </div>
-          <div className="flex justify-between font-dm-mono text-[11px] text-[color:var(--m-text-secondary)]">
-            <span>Fee tier</span>
-            <span>0.30%</span>
-          </div>
+          {/*
+            No fee-tier row. It printed a constant 0.30%, which is a v3 concept
+            this venue does not have: the fee is the engine's taker fee times a
+            PER-BAND multiplier, so one number cannot state it and 0.30% was not
+            any of them.
+          */}
           {/* Estimated APR — the figure this tab never had. It is a function of
               the amount AND the band, so it only exists once an amount is typed;
               before that there is no deposit to estimate and a number here would
@@ -641,6 +757,10 @@ export function ActionDock({
                   </span>
                 )}
                 <input
+                  /* Named for e2e: this is the token profile's buy amount, a
+                     different component from the swap card's, and the two are
+                     easy to confuse from a spec. */
+                  data-testid="dock-amount"
                   inputMode="decimal"
                   pattern="[0-9]*\.?[0-9]*"
                   autoComplete="off"
@@ -739,7 +859,10 @@ export function ActionDock({
                   setInAsset(true);
                   setAmount(String(Number(((balance * preset) / 100).toFixed(6))));
                 }}
-                disabled={tab === "sell" && balance <= 0}
+                // On EITHER tab: 25% of an empty balance is 0, and a preset
+                // that silently produces zero reads as a broken control. This
+                // was sell-only, so the buy tab offered them against nothing.
+                disabled={balance <= 0}
                 className={cn(
                   "flex-1 select-none rounded-lg border border-transparent px-2 py-2 text-sm font-medium transition-all duration-150",
                   "bg-[color:var(--m-surface-2)] text-[color:var(--m-text-primary)] hover:scale-[1.02]",
@@ -780,6 +903,10 @@ export function ActionDock({
         </>
       )}
 
+      {/* The pool-pricing disclosure. The dock reads no pool reserves, so it
+          shows the standard line; the deposit page it links to judges the pool. */}
+      {ready && tab === "lp" && <PoolRiskNote variant="standard" />}
+
       {ready && tab === "lp" ? (
         <Link
           href={lpHref}
@@ -793,8 +920,9 @@ export function ActionDock({
           type="button"
           data-testid="dock-submit"
           onClick={onPrimary}
-          // Connecting is never blocked by the quote — only executing is.
-          disabled={isConnected && !canExecute}
+          // Connecting is never blocked by the quote or the balance — only
+          // executing is.
+          disabled={isConnected && (!canExecute || insufficientBalance)}
           className="w-full rounded-lg px-4 py-3 text-center text-sm font-semibold leading-normal text-[color:var(--m-on-primary)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ background: accent }}
         >
@@ -859,29 +987,25 @@ export function ActionDock({
         </div>
       )}
 
-      {/* Only the LP tab keeps a footnote. "Routed on-chain through Iter's
+      {/* Only the LP tab keeps a footnote. "Routed on-chain through Rate's
           orderbook and pools" described the venue rather than the trade in
           front of the reader — true of every trade here, so it told nobody
           anything they could act on. The LP line survives because bands ARE a
           choice being made on that tab. */}
-      {tab === "lp" && (
-        <p className="px-1 text-center text-[11px] leading-snug text-[color:var(--m-text-secondary)]">
-          Liquidity is provided in bands that follow the market price.
-        </p>
-      )}
       {/* The same machine the swap card mounts, on the same real router path.
           The disposition is now the reader's, defaulting to a refund — see
           `RemainderChoice`. It was hardcoded to "none" while this rail had no
           control, on the argument that a dock which silently rested a remainder
           would open a position nobody asked for; that argument is satisfied by
           the default, not by removing the choice. */}
-      {flowOpen && route.quote && pair && getToken.address && (
+      {flowOpen && quote && pair && getToken.address && (
         <SwapFlow
           pay={spending}
           get={getToken}
-          quote={route.quote}
-          disposition={disposition}
+          quote={quote}
+          disposition={ladder.order ? "none" : disposition}
           networkName={displayNetworkName}
+          ladder={ladder.order}
           onClose={() => setFlowOpen(false)}
           useExecution={useRealSwapExecution}
         />
@@ -1168,6 +1292,9 @@ function RemainderChoice({
             key={option.key}
             type="button"
             role="radio"
+            /* The disposition decides which shape the review and result take,
+               so a spec picks one by key rather than by a title that is copy. */
+            data-testid={`dock-disposition-${option.key}`}
             aria-checked={active}
             onClick={() => onChange(option.key)}
             className={cn(

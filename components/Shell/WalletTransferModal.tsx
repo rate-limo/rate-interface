@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { erc20Abi, isAddress, parseUnits } from "viem";
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { encodeFunctionData, erc20Abi, isAddress, parseUnits, type Hex } from "viem";
+import { useAccount, useWaitForTransactionReceipt } from "wagmi";
+import { WalletConfirmFrame } from "@/components/Wallet/WalletConfirmFrame";
+import type { WalletRpc } from "@/lib/wallet/frame/protocol";
+import { isWalletDecision } from "@/lib/wallet/walletFailure";
+import { findChain } from "@iter/deployments";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import defaultTokenList from "@iter/token-list";
@@ -57,12 +61,13 @@ export function WalletTransferModal({
   ]?.["iter_native"]?.[0];
   const isNative = Boolean(nativeToken?.address && selectedToken?.id === nativeToken.address);
 
-  const { address: sender } = useAccount();
+  const { address: sender, chainId: connectedChainId } = useAccount();
   const queryClient = useQueryClient();
-  const { writeContractAsync } = useWriteContract();
-  const { sendTransactionAsync } = useSendTransaction();
   const [hash, setHash] = useState<`0x${string}` | undefined>();
-  const [submitting, setSubmitting] = useState(false);
+  // The chain this modal sends on: the one the market page displays, resolved
+  // through the registry the rest of the app uses; the connector's current
+  // chain when that name is unknown to it.
+  const chainId = findChain(displayNetworkName)?.chainId ?? connectedChainId;
 
   const { data: receipt, isError: receiptFailed } = useWaitForTransactionReceipt({ hash });
 
@@ -119,37 +124,44 @@ export function WalletTransferModal({
     setHash(undefined);
   }, [receipt, receiptFailed, hash, queryClient, onOpenChange]);
 
-  async function submitTransfer() {
-    if (!selectedToken || !recipientValid || !parsedAmount || !sender) return;
-    // One in flight at a time. Without this a second click broadcasts a second
-    // transfer whose hash overwrites the first, orphaning its receipt — the
-    // same trap PlaceOrderButton guards.
-    if (submitting || hash) return;
-
-    setSubmitting(true);
+  /**
+   * The request the wallet's confirm control signs. A transfer moves value out,
+   * so the wallet frame refuses it on the silent path and signs it only from a
+   * click inside its own button — `WalletConfirmFrame`, drawn below in place of
+   * the one that used to call `sendTransactionAsync` here. One in flight at a
+   * time is enforced by the `hash` gate: the control is inert while a receipt
+   * is awaited, which is the same trap PlaceOrderButton guards.
+   */
+  const rpc = useMemo<WalletRpc | null>(() => {
+    if (!selectedToken || !recipientValid || !parsedAmount || !sender || hash) return null;
     const to = recipient.trim() as `0x${string}`;
-    try {
-      const sent = isNative
-        ? await sendTransactionAsync({ to, value: parsedAmount })
-        : await writeContractAsync({
-            address: selectedToken.id as `0x${string}`,
-            abi: erc20Abi,
-            functionName: "transfer",
-            args: [to, parsedAmount],
-          });
-      setHash(sent);
-      toast.loading("Confirming transfer…", { id: `transfer-${sent}` });
-    } catch (error) {
-      // A rejected signature is a decision, not a failure — the same
-      // distinction `lib/wallet` draws, and a toast for "no thanks" is noise.
-      const message = error instanceof Error ? error.message : String(error);
-      if (!/reject|denied|cancel/i.test(message)) {
-        toast.error("Could not send", { description: message.slice(0, 200) });
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    return isNative
+      ? { method: "eth_sendTransaction", params: [{ to, value: `0x${parsedAmount.toString(16)}` as Hex }] }
+      : {
+          method: "eth_sendTransaction",
+          params: [
+            {
+              to: selectedToken.id as `0x${string}`,
+              value: "0x0",
+              data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [to, parsedAmount] }),
+            },
+          ],
+        };
+  }, [selectedToken, recipientValid, parsedAmount, sender, hash, recipient, isNative]);
+
+  const onSubmitted = (sent: Hex) => {
+    setHash(sent);
+    toast.loading("Confirming transfer…", { id: `transfer-${sent}` });
+  };
+
+  const onFailed = (error: unknown) => {
+    // A rejected signature is a decision, not a failure — the same
+    // distinction `lib/wallet` draws, and a toast for "no thanks" is noise.
+    if (isWalletDecision(error)) return;
+    const message = error instanceof Error ? error.message : String(error);
+    toast.error("Could not send", { description: message.slice(0, 200) });
+  };
+
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(address)}`;
 
   async function copyAddress() {
@@ -173,7 +185,7 @@ export function WalletTransferModal({
             {isReceive ? "Receive assets" : "Send assets"}
           </DialogTitle>
           <DialogDescription className="pt-1 text-sm text-[color:var(--m-text-secondary)]">
-            {isReceive ? "Receive tokens to your connected Iter wallet." : "Send tokens from your connected Iter wallet."}
+            {isReceive ? "Receive tokens to your connected Rate wallet." : "Send tokens from your connected Rate wallet."}
           </DialogDescription>
         </DialogHeader>
 
@@ -227,25 +239,26 @@ export function WalletTransferModal({
           {isReceive ? (
             <Button type="button" onClick={() => void copyAddress()} className="h-12 w-full rounded-2xl bg-[color:var(--m-text-primary)] text-[color:var(--m-surface)] hover:bg-[color:var(--m-text-primary)] hover:opacity-90">{copied ? "Address copied" : "Copy address"}</Button>
           ) : (
-            <Button
-              type="button"
-              onClick={() => void submitTransfer()}
-              // Disabled for a REASON the label names, rather than a dead
-              // button: an inert control with no explanation is what this was
-              // before it did anything at all.
-              disabled={!sender || !selectedToken || !recipientValid || !parsedAmount || submitting || Boolean(hash)}
-              className="h-12 w-full rounded-2xl bg-[color:var(--m-primary)] text-[color:var(--m-on-primary)] hover:bg-[color:var(--m-primary)] hover:opacity-90"
-            >
-              {!sender
-                ? "Connect a wallet"
-                : hash
-                  ? "Confirming…"
-                  : submitting
-                    ? "Check your wallet"
+            // Disabled for a REASON the label names, rather than a dead
+            // button: an inert control with no explanation is what this was
+            // before it did anything at all. The control itself is drawn by the
+            // wallet origin — see components/Wallet/WalletConfirmFrame.
+            <WalletConfirmFrame
+              chainId={chainId ?? 0}
+              rpc={chainId ? rpc : null}
+              variant="modal"
+              label={
+                !sender
+                  ? "Connect a wallet"
+                  : hash
+                    ? "Confirming…"
                     : recipient.trim() && !recipientValid
                       ? "That is not a valid address"
-                      : `Send ${selectedToken?.symbol ?? ""}`.trim()}
-            </Button>
+                      : `Send ${selectedToken?.symbol ?? ""}`.trim()
+              }
+              onSubmitted={onSubmitted}
+              onFailed={onFailed}
+            />
           )}
         </div>
       </DialogContent>

@@ -1,10 +1,77 @@
+import { readFileSync } from "node:fs";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 import { SUPPORTED_CHAINS, findChain } from "@iter/deployments";
+import { FRAME_ANCESTORS_HEADER } from "./lib/security/csp";
 
 // Points the plugin at i18n/request.ts, which resolves the locale and loads its
 // messages. Without it `next-intl/server` has no config to read.
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+
+/**
+ * Does the BUILT `@iter/deployments` still match the registry on disk?
+ *
+ * ## The failure this catches
+ *
+ * `deployments.json` is the source and nothing reads it at runtime — this app
+ * imports `@iter/deployments`, which tsup inlines the JSON into. So a redeploy
+ * that updates the registry leaves a second, older set of addresses behind the
+ * same import until somebody rebuilds.
+ *
+ * On 2026-09-18 that cost an afternoon. The registry carried Arc's live
+ * band-pool factory; `dist` carried the retired generation's. Both are real
+ * contracts with code, so `getPool` did not error — it answered zero for every
+ * current market, and the swap card said "No band pool is listed for
+ * USDC/TITER yet". True from where it was looking, and naming none of the
+ * cause. `scripts/verify-redeploy.mjs` reads the JSON, so all of its checks
+ * passed.
+ *
+ * ## Why here, and why it is not enough on its own
+ *
+ * `predev` already builds this app's dependencies, and it only runs when the
+ * server STARTS. The dev server that hit this had been up for four days,
+ * straight through the pull that changed the registry — nothing re-ran, and
+ * Turbopack had long since resolved the stale copy. A running process cannot
+ * rebuild its own modules, so the achievable goal is that the NEXT start is
+ * loud rather than silently wrong.
+ *
+ * Dev and non-production only: a production build always compiles the package
+ * fresh, and this must never be able to fail a deploy over a local artifact.
+ * It throws rather than warns — a warning in a dev server's boot output is
+ * scrollback, and the whole failure mode here is being quiet.
+ */
+function assertDeploymentsAreFresh(): void {
+  if (process.env.NODE_ENV === "production" || process.env.ITER_SKIP_DEPLOYMENT_CHECK) return;
+  let registry: { chains?: Record<string, { name?: string; contracts?: Record<string, { address?: string }> }> };
+  try {
+    registry = JSON.parse(
+      readFileSync(require.resolve("@iter/deployments/deployments.json"), "utf8"),
+    );
+  } catch {
+    // No registry to compare against is not this check's business to report.
+    return;
+  }
+  for (const [chainId, chain] of Object.entries(registry.chains ?? {})) {
+    const built = findChain(Number(chainId));
+    if (!built) continue;
+    for (const [name, entry] of Object.entries(chain.contracts ?? {})) {
+      const onDisk = entry?.address?.toLowerCase();
+      const inBuild = (built.contracts as Record<string, { address?: string }> | undefined)?.[name]
+        ?.address?.toLowerCase();
+      if (!onDisk || onDisk === inBuild) continue;
+      throw new Error(
+        `@iter/deployments is STALE: ${chain.name ?? chainId} ${name} is ${inBuild ?? "missing"} ` +
+          `in the built package and ${onDisk} in deployments.json.\n\n` +
+          `  pnpm --filter @iter/deployments build\n\n` +
+          `Then RESTART this dev server — Turbopack caches node_modules dependencies, ` +
+          `so a reload keeps serving the old addresses. Every contract call this app ` +
+          `makes resolves through that package.`,
+      );
+    }
+  }
+}
+
+assertDeploymentsAreFresh();
 
 /**
  * Where admin-service lives. Not NEXT_PUBLIC_: the rewrite is resolved on the
@@ -94,7 +161,7 @@ const IDENTITY_SERVICE_URL = (() => {
       "/follow/*, /profile/*, /logo/* and /chain-brand — admin-service serves none " +
       "of them on any chain, so falling back to it 404s every one. Rewrites are " +
       "resolved at build time, so this cannot be corrected by a restart. Set it to " +
-      "identity-service's public URL (https://auth.iter.cx) and rebuild.",
+      "identity-service's public URL (https://auth.rate.limo) and rebuild.",
   );
 })();
 
@@ -158,6 +225,16 @@ assertPerChainUpstreams();
 
 const nextConfig: NextConfig = {
   /*
+   * Move the dev indicator off the CHAIN SWITCHER.
+   *
+   * `AppSidebar` pins the switcher to the bottom-left, which is exactly where
+   * Next puts its dev badge — so in `next dev` the badge sits on top of it and
+   * a click on the switcher opens the Route/Bundler/Preferences menu instead of
+   * the chain list. Dev-only, and invisible in production, which is why it
+   * reads as "the chain switcher is broken locally".
+   */
+  devIndicators: { position: "bottom-right" },
+  /*
    * Source maps were turned on here to name a React #310 that fired on a
    * successful passkey connect, where the only stack available was minified.
    * They are OFF again: the fault stopped reproducing after the connect path was
@@ -209,12 +286,12 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/waitlist",
-        destination: "https://waitlist.iter.cx/",
+        destination: "https://waitlist.rate.limo/",
         permanent: false,
       },
       {
         source: "/waitlist/:path*",
-        destination: "https://waitlist.iter.cx/:path*",
+        destination: "https://waitlist.rate.limo/:path*",
         permanent: false,
       },
 
@@ -241,8 +318,61 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  async rewrites() {
+  /**
+   * The app's clickjacking rule, as `X-Frame-Options: SAMEORIGIN`.
+   *
+   * NOT as a `Content-Security-Policy: frame-ancestors` header, and the
+   * reason cost three preview deployments to find: on Vercel every entry
+   * here is applied to the REQUEST the render receives as well as to the
+   * response, and Next reads its script nonce from the request's
+   * `content-security-policy` before ever falling back to the report-only
+   * header the proxy sets. A nonce-less header under that name untagged
+   * every Next chunk. See `lib/security/csp.ts` for the full staging; the
+   * other two enforced directives ride a meta tag in the app layout.
+   *
+   * `/wallet-frame*` is EXCLUDED: those pages are embedded by the app, and
+   * SAMEORIGIN here would refuse that embedding. Their own `frame-ancestors`
+   * names the app origins.
+   */
+  async headers() {
     return [
+      {
+        source: "/:path((?!wallet-frame(?:/|$)|_next/|api/).*)",
+        headers: [FRAME_ANCESTORS_HEADER],
+      },
+    ];
+  },
+
+  async rewrites() {
+    /**
+     * The wallet host serves the wallet frame and NOTHING else.
+     *
+     * One deployment answers on both hosts (see `proxy.ts`), so without this
+     * every page and route handler would also be reachable on the origin that
+     * holds the key. `proxy.ts` refuses what its matcher sees; the paths the
+     * matcher excludes on purpose — `/api`, `/x/complete`, the admin-service
+     * passthroughs — are caught here instead, BEFORE the filesystem routes, and
+     * sent to a route that answers 404. Static assets stay: the frame's own
+     * chunks and fonts are under `/_next` and `/fonts`.
+     *
+     * `has: host` is a regex, so the dots are escaped. No entry at all when the
+     * origin is unconfigured — that is the same-origin local shape, where there
+     * is no second host to guard.
+     */
+    const walletHost = process.env.NEXT_PUBLIC_WALLET_ORIGIN?.trim()
+      ? new URL(process.env.NEXT_PUBLIC_WALLET_ORIGIN.trim()).host
+      : null;
+    const beforeFiles = walletHost
+      ? [
+          {
+            source: "/:path((?!wallet-frame(?:/|$)|_next/|fonts/|icon\\.svg$).*)",
+            has: [{ type: "host" as const, value: walletHost.replace(/\./g, "\\.") }],
+            destination: "/wallet-frame/blocked",
+          },
+        ]
+      : [];
+
+    const afterFiles = [
       // IDENTITY_SERVICE_URL, not ADMIN_SERVICE_URL, since 2026-09-03.
       //
       // The bytes used to live in whichever CHAIN's database uploaded them,
@@ -324,6 +454,10 @@ const nextConfig: NextConfig = {
        * shadow it with a proxy.
        */
       { source: "/transfers", destination: `${IDENTITY_SERVICE_URL}/transfers` },
+      // Its own entry rather than relying on `/transfers/:address` to catch it:
+      // that parameter would match the literal "discover", which works by
+      // accident and breaks the day the list route gains a sibling.
+      { source: "/transfers/discover", destination: `${IDENTITY_SERVICE_URL}/transfers/discover` },
       { source: "/transfers/:address", destination: `${IDENTITY_SERVICE_URL}/transfers/:address` },
       /*
        * ── The three below stay on ONE origin, and that is a DECISION ──
@@ -467,6 +601,8 @@ const nextConfig: NextConfig = {
       // /wallet as a prefix that will never be a page.
       { source: "/wallet/:path*", destination: `${IDENTITY_SERVICE_URL}/wallet/:path*` },
     ];
+
+    return { beforeFiles, afterFiles };
   },
 
   // /api/og reads the two share cards off disk at request time. Route

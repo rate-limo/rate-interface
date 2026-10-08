@@ -156,9 +156,9 @@ export function TokenImageIcon({
           /**
            * A coin with no artwork wears its own initials, not ours.
            *
-           * This drew `LogoMarkV2` — the Iter logomark — which put the venue's brand on
+           * This drew `LogoMarkV2` — the Rate logomark — which put the venue's brand on
            * every unbranded third-party coin: SK Hynix, Google, Nvidia and Dogecoin all
-           * rendering as Iter. That is the same error as the standardweb3
+           * rendering as Rate. That is the same error as the standardweb3
            * `placeholder_token.png` this replaced, with our logo instead of theirs, and
            * it reads as a claim about the coin rather than as "no artwork yet".
            *

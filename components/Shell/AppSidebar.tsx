@@ -88,7 +88,16 @@ export function AppSidebar({ className }: { className?: string }) {
     <aside
       aria-label={t("primaryLabel")}
       className={cn(
-        "sticky top-0 flex max-h-screen self-stretch w-[76px] shrink-0 flex-col items-center border-r border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-2 py-5",
+        /*
+         * `z-30` so the chain menu is not painted over.
+         *
+         * The rail comes FIRST in the DOM and the content column that follows
+         * carries a `z-20` sticky header, so anything the sidebar opens beyond
+         * its own 76px — which the 340px chain menu does by design — was
+         * covered from the rail's edge onward. Above the header, below the
+         * support panel's `z-[60]` and the consent banner's `z-50`.
+         */
+        "sticky top-0 z-30 flex max-h-screen self-stretch w-[76px] shrink-0 flex-col items-center border-r border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-2 py-5",
         className,
       )}
     >
@@ -132,7 +141,18 @@ export function AppSidebar({ className }: { className?: string }) {
       {/* Theme toggle deliberately absent: it lives in the status bar (see
           Shell/StatusBar) rather than being duplicated in both places. */}
       <div className="mt-auto flex w-full flex-col items-center gap-3">
-        <ChainSwitcher className="[&_button]:h-10 [&_button]:w-10 [&_button]:justify-center [&_button]:p-0 [&_button>span]:hidden [&_button>svg]:hidden" />
+        {/*
+          * Collapse the TRIGGER, not the component.
+          *
+          * These rules used to ride `className`, which lands on the wrapper —
+          * so `[&_button]:h-10 [&_button]:w-10 [&_button]:p-0` and
+          * `[&_button>span]:hidden` applied to every button INSIDE, the menu's
+          * own chain rows included. Each option collapsed to a 40px circle with
+          * its name hidden, so the network list rendered as unlabelled dots and
+          * there was no way to tell which chain you were picking. `triggerClassName`
+          * is the prop for exactly this and reaches only the button.
+          */}
+        <ChainSwitcher triggerClassName="h-10 w-10 justify-center p-0 [&>span]:hidden [&>svg]:hidden" />
       </div>
     </aside>
   );

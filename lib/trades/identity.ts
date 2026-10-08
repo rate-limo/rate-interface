@@ -1,3 +1,5 @@
+import { makerOrderIdFromWire } from "@iter/types";
+
 /**
  * Which cached trade row an incoming fill frame is an update to.
  *
@@ -19,15 +21,36 @@
  * resting order. `pair` is not redundant with it: a routed multi-hop swap
  * settles across several books in a single transaction, and those books number
  * their orders independently.
+ *
+ * The id segment is `makerOrderId`, empty for a pool fill: the REST row and the
+ * live row for one fill must produce the same key, or the fill shows twice until
+ * the next refetch.
  */
-export function tradeRowKey(row: {
-  txHash?: string | null;
-  pair?: string | null;
-  orderId?: number | null;
-}): string {
+export function tradeRowKey(row: TradeIdentityRow): string {
   return [
     (row.txHash ?? "").toLowerCase(),
     (row.pair ?? "").toLowerCase(),
-    row.orderId ?? "",
+    makerOrderIdOf(row) ?? "",
   ].join(":");
+}
+
+type TradeIdentityRow = {
+  txHash?: string | null;
+  pair?: string | null;
+  makerOrderId?: number | null;
+  /** Legacy spelling of `makerOrderId`, 0 for the pool. Read only when a row
+   *  from a gateway older than `makerOrderId` lacks the explicit field. */
+  orderId?: number | null;
+};
+
+/**
+ * The resting order a trade row consumed, null for a pool fill.
+ *
+ * A REST row from a current gateway and every decoded frame carry
+ * `makerOrderId`. A REST row from an older gateway has only `orderId`, spelled
+ * 0 for the pool, and goes through the same translation the decoders use — so
+ * both kinds of row key identically while the gateway rolls out after the web.
+ */
+export function makerOrderIdOf(row: Pick<TradeIdentityRow, "makerOrderId" | "orderId">): number | null {
+  return row.makerOrderId !== undefined ? row.makerOrderId : makerOrderIdFromWire(row.orderId);
 }

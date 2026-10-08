@@ -7,7 +7,7 @@ describe("explorerUrlForNetwork", () => {
     });
 
     it("does not expose dormant chain explorers", () => {
-        for (const name of ["Monad Testnet", "Somnia Testnet", "MegaETH Testnet", "Ink Sepolia"]) {
+        for (const name of ["Somnia Testnet", "MegaETH Testnet", "Ink Sepolia"]) {
             expect(explorerUrlForNetwork(name), name).toBeUndefined();
         }
     });

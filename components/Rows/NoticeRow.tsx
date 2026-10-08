@@ -43,12 +43,12 @@ export function NoticeRow({ content }: { content?: RowContent | null }) {
         className={
           countdown.isLive
             ? "h-2 w-2 shrink-0 rounded-full bg-[#6E9E7C]"
-            : "h-2 w-2 shrink-0 rounded-full bg-[#C4A96A]"
+            : "h-2 w-2 shrink-0 rounded-full bg-[#E85D2A]"
         }
       />
       <b className="font-mono font-bold tabular-nums">{label}</b>
       {detail && <span className="hidden text-[#9BA2AA] sm:inline">· {detail}</span>}
-      <span className="ml-auto shrink-0 rounded-[8px] bg-[#C4A96A] px-3 py-[6px] font-mono text-[12px] font-semibold text-[#17130C]">
+      <span className="ml-auto shrink-0 rounded-[8px] bg-[#E85D2A] px-3 py-[6px] font-mono text-[12px] font-semibold text-[#17130C]">
         {ctaLabel}
       </span>
     </Link>

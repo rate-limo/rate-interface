@@ -8,9 +8,35 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { buildExploreSectionUrl, buildPageUrl } from "@/lib/routing/chainParams"
-import { SpotToken } from "@/types"
+import type { ExploreSection } from "@/lib/routing/chainParams"
 
-export function BreadcrumbNav({ token, networkName }: { token: SpotToken, networkName: string }) {
+/**
+ * The trail every market-ish profile sits under: Explore › <section> ›
+ * <network> › <this thing>.
+ *
+ * It took a `SpotToken` and read exactly one field off it — `token.symbol` —
+ * which was enough to keep the PAIR profile from using it at all. `/pair`
+ * therefore hand-rolled a lookalike: a `<p>` of `<span>`s with a literal `/`
+ * separator and two levels instead of four, so the one page that shares this
+ * page's job had no `<nav>`, no `<ol>`, no `aria-current`, and was invisible as
+ * a breadcrumb to crawlers and screen readers.
+ *
+ * So it takes a LABEL and a section. `"pools"` is the pair page's section
+ * because that is what the Explore tab is called, `ExploreSection` already
+ * carries it, and `/explore/pools/[pair]` redirects to `/pair` — the trail
+ * describes a hierarchy that exists.
+ */
+export function BreadcrumbNav({
+  label,
+  networkName,
+  section = "tokens",
+  sectionLabel = "Tokens",
+}: {
+  label: string
+  networkName: string
+  section?: ExploreSection
+  sectionLabel?: string
+}) {
   return (
     <Breadcrumb className="mb-6 text-[color:var(--m-text-secondary)]">
       <BreadcrumbList>
@@ -32,31 +58,37 @@ export function BreadcrumbNav({ token, networkName }: { token: SpotToken, networ
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="transition-colors hover:text-[color:var(--m-text-primary)]">
             {/* Through the builder, like every other route in this trail. */}
-            <Link href={buildExploreSectionUrl("tokens")}>Tokens</Link>
+            <Link href={buildExploreSectionUrl(section)}>{sectionLabel}</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         {/*
-          The network is a LABEL here, not a link, and that is a correction.
+          The network NAVIGATES again, to a scope that now exists.
 
-          It used to be `/explore/tokens?chain=<slug>`, which reads as "show me
-          this chain's tokens" and does nothing at all: Explore is a cross-chain
-          surface, `SCHEME.explore` is "none", and `readDisplaySlug` therefore
-          returns DEFAULT_CHAIN_SLUG whatever the URL says. So the crumb landed
-          on the same page as the one before it — the exact "control that appears
-          to work and changes nothing" that scheme's own docstring warns about.
+          It was a link to `/explore/tokens?chain=<slug>` once, and that was
+          removed for good reason: Explore is cross-chain, `SCHEME.explore` is
+          "none", and `readDisplaySlug` returns DEFAULT_CHAIN_SLUG whatever the
+          URL says — so the crumb landed on the page before it and changed
+          nothing. It was demoted to a label because, in that comment's words,
+          "there is no URL that filters Explore to one chain (the scope control
+          is client state)".
 
-          There is no URL that filters Explore to one chain (the scope control is
-          client state), so the honest options were to drop the crumb or stop
-          pretending it navigates. It is kept because it still tells a reader
-          which network this token is on, which is worth saying.
+          There is one now. `MarketPageProvider` reads `?chains=` into
+          `chainFilter` on mount, which is the same value the scope control
+          writes and the aggregator already takes, so this crumb lands on
+          Explore actually narrowed to this token's network.
+
+          Note `chains` (plural, a network NAME), not the dead `chain` (slug):
+          the two differ by a letter and only one of them does anything.
         */}
         <BreadcrumbItem>
-          <span>{networkName}</span>
+          <BreadcrumbLink asChild className="transition-colors hover:text-[color:var(--m-text-primary)]">
+            <Link href={buildExploreSectionUrl(section, { chains: networkName })}>{networkName}</Link>
+          </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem className="text-[color:var(--m-text-primary)]">
-          <BreadcrumbPage>{token.symbol}</BreadcrumbPage>
+          <BreadcrumbPage>{label}</BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>

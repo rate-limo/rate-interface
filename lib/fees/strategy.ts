@@ -1,4 +1,4 @@
-/** Canonical Iter market-fee policy. Percent values are human-readable rates. */
+/** Canonical Rate market-fee policy. Percent values are human-readable rates. */
 export type MarketFeeClass = "stable" | "correlated" | "major" | "volatile" | "launch";
 
 export interface MarketFeePolicy {

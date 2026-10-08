@@ -1,9 +1,10 @@
 "use client";
 
+import { AppToaster } from "@/components/Shell/AppToaster";
 import { useState } from "react";
 import { useAccount } from "wagmi";
 import { useWalletConnect } from "@/lib/wallet";
-import { Toaster, toast } from "sonner";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { rewardsData, SOURCE_COLOR } from "@/lib/rewards/mock";
 import { epochPoints, pointsToOg } from "@/lib/rewards/types";
@@ -43,12 +44,12 @@ export default function ClaimView({ networkSlug }: { networkSlug: string }) {
 
   return (
     <div className="mx-auto w-full max-w-[1080px] px-[22px] pt-12 pb-24">
-      <Toaster position="bottom-right" richColors closeButton />
+      <AppToaster />
 
       {/* Header */}
       <header>
         <p className="mb-3.5 flex items-center gap-2.5 font-mono text-[12px] uppercase tracking-[0.16em] text-[color:var(--m-primary)]">
-          <span className="font-bold text-[color:var(--m-logo)]">Iter</span> · rewards · claim
+          <span className="font-bold text-[color:var(--m-logo)]">Rate</span> · rewards · claim
         </p>
         <h1 className="mb-2 text-[clamp(27px,3.6vw,40px)] font-medium leading-[1.05] tracking-[-0.02em] text-[color:var(--m-text-primary)]">
           Claim <span className="font-bold text-[color:var(--m-logo)]">$OG</span>

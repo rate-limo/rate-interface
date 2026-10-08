@@ -1,4 +1,4 @@
-// Iter logomark v2: the favicon's own construction (see app/icon.svg),
+// Rate logomark v2: the favicon's own construction (see app/icon.svg),
 // reused directly rather than redrawn -- same coordinates, same tile +
 // diagonal-wipe technique. A rounded tile sits behind the mark now, instead
 // of bars that blended into whatever surface they sat on:
@@ -23,7 +23,7 @@ export function LogoMarkV2({
       viewBox="0 0 512 512"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      aria-label="Iter"
+      aria-label="Rate"
       className={className}
     >
       <rect width="512" height="512" rx={64} fill="var(--m-logo)" />
