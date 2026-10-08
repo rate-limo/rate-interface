@@ -10,7 +10,7 @@
  * Everything is the pair RATE (quote-per-base), never a USD price.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { TokenImageIcon } from "@/components/Atoms/TokenImageIcon";
 import {
@@ -180,7 +180,9 @@ export function CLPriceChart({
   // Latest props snapshot for the imperative pointer handlers, so the
   // document-level listeners (registered once) never read a stale closure.
   const latest = useRef({ rate, low, high, zoom: displayZoom, isFullRange, onRangeChange, onZoom });
-  latest.current = { rate, low, high, zoom: displayZoom, isFullRange, onRangeChange, onZoom };
+  useLayoutEffect(() => {
+    latest.current = { rate, low, high, zoom: displayZoom, isFullRange, onRangeChange, onZoom };
+  });
 
   // Transient drag bookkeeping lives in refs — never in state — so it stays out
   // of the render path and out of the listener closures.

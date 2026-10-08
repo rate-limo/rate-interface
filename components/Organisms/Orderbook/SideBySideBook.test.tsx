@@ -23,7 +23,11 @@ const ctx = vi.hoisted(() => ({
 }));
 const setLimitPrice = vi.fn();
 const account = vi.hoisted(() => ({ value: { address: undefined as string | undefined, orders: [] as unknown[] } }));
-vi.mock("@/contexts/OrderPageProvider", () => ({ useOrderPageContext: () => account.value }));
+vi.mock("@/contexts/OrderPageProvider", () => ({
+  useOrderPageContext: () => account.value,
+  // useOwnBookLevels reads the provider through this since dddaaa66.
+  useOptionalOrderPageContext: () => account.value,
+}));
 
 vi.mock("@/contexts/TradePageProvider", () => ({ useTradePageContext: () => ctx.value }));
 vi.mock("@/contexts/MarketPageProvider", () => ({ useMarketPageContext: () => ({ displayNetworkName: "RISE Testnet" }) }));

@@ -377,7 +377,9 @@ export const useTradeHistory = (
       return queryClient.getQueryData(updateQueryKey) as SpotTradeEvent[];
     }
     return prevTradeHistories;
-  }, [queryData, prevTradeHistories, updated, queryClient, queryKey]);
+    // The key's parts, not `queryKey`: that array is rebuilt every render, so
+    // depending on it recomputed this on every render.
+  }, [queryData, prevTradeHistories, updated, queryClient, networkName, address, pageLimit, page]);
 
   return {
     data: memoizedTradeHistories,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { getSocketManager } from "@/lib/realtime/socket-manager";
 import { getWsUrl } from "@/lib/realtime/ws-url";
 import {
@@ -72,7 +72,9 @@ export function useTradePulse({
    * busy market, which is the opposite of what this hook is for.
    */
   const onTradeRef = useRef(onTrade);
-  onTradeRef.current = onTrade;
+  useLayoutEffect(() => {
+    onTradeRef.current = onTrade;
+  });
 
   // A stable key, so re-deriving `pairs.map(p => p.symbol)` upstream does not
   // count as a change. The list is a handful of symbols; sorting makes it

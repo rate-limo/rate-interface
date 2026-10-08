@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { scopeFromUrl, scopeUrl } from "./scopeUrl";
 
 const KNOWN = ["Arc Testnet", "RISE Testnet"];
-const at = (path: string) => `https://iter.cx${path}`;
+const at = (path: string) => `https://rate.limo${path}`;
 
 describe("scopeFromUrl", () => {
   it("reads a chain the venue actually serves", () => {

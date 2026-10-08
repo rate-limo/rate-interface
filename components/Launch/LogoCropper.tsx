@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   clampBox,
@@ -70,7 +70,9 @@ export function LogoCropper({
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<Gesture | null>(null);
   const live = useRef({ box, natural });
-  live.current = { box, natural };
+  useLayoutEffect(() => {
+    live.current = { box, natural };
+  });
 
   useEffect(() => setMounted(true), []);
 

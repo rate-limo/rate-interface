@@ -14,33 +14,33 @@ describe("normalizeOrigin", () => {
   });
 
   it("strips a path and a trailing slash", () => {
-    expect(normalizeOrigin("https://wallet.iter.cx/", "x")).toBe("https://wallet.iter.cx");
-    expect(normalizeOrigin("https://wallet.iter.cx/wallet-frame", "x")).toBe("https://wallet.iter.cx");
+    expect(normalizeOrigin("https://wallet.rate.limo/", "x")).toBe("https://wallet.rate.limo");
+    expect(normalizeOrigin("https://wallet.rate.limo/wallet-frame", "x")).toBe("https://wallet.rate.limo");
   });
 
   it("drops a default port and keeps a real one", () => {
-    expect(normalizeOrigin("https://wallet.iter.cx:443", "x")).toBe("https://wallet.iter.cx");
-    expect(normalizeOrigin("https://dev.iter.cx:3101", "x")).toBe("https://dev.iter.cx:3101");
+    expect(normalizeOrigin("https://wallet.rate.limo:443", "x")).toBe("https://wallet.rate.limo");
+    expect(normalizeOrigin("https://dev.rate.limo:3101", "x")).toBe("https://dev.rate.limo:3101");
   });
 
   it("lower-cases the host", () => {
-    expect(normalizeOrigin("https://Wallet.Iter.CX", "x")).toBe("https://wallet.iter.cx");
+    expect(normalizeOrigin("https://Wallet.Rate.limo", "x")).toBe("https://wallet.rate.limo");
   });
 
   it("falls back on garbage rather than comparing against it", () => {
-    expect(normalizeOrigin("wallet.iter.cx", "https://app.test")).toBe("https://app.test");
+    expect(normalizeOrigin("wallet.rate.limo", "https://app.test")).toBe("https://app.test");
     expect(normalizeOrigin("not a url", "https://app.test")).toBe("https://app.test");
   });
 });
 
 describe("appOrigins", () => {
   it("parses a comma-separated list, normalises each entry, and drops garbage", async () => {
-    vi.stubEnv("NEXT_PUBLIC_WALLET_APP_ORIGIN", " https://www.iter.cx/, https://iter.cx , not-an-origin ,https://www.iter.cx");
+    vi.stubEnv("NEXT_PUBLIC_WALLET_APP_ORIGIN", " https://www.rate.limo/, https://rate.limo , not-an-origin ,https://www.rate.limo");
     const { appOrigins, isAllowedAppOrigin, appOrigin } = await import("./origins");
-    expect(appOrigins()).toEqual(["https://www.iter.cx", "https://iter.cx"]);
-    expect(isAllowedAppOrigin("https://iter.cx")).toBe(true);
+    expect(appOrigins()).toEqual(["https://www.rate.limo", "https://rate.limo"]);
+    expect(isAllowedAppOrigin("https://rate.limo")).toBe(true);
     expect(isAllowedAppOrigin("https://evil.example")).toBe(false);
-    expect(appOrigin()).toBe("https://www.iter.cx");
+    expect(appOrigin()).toBe("https://www.rate.limo");
     vi.unstubAllEnvs();
   });
 });

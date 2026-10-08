@@ -5,7 +5,7 @@ import { InviteView } from "@/components/Onboarding/InviteView";
 import { readDisplaySlug } from "@/lib/routing/chainParams";
 
 /**
- * Referral landing — `iter.cx/r/CODE`.
+ * Referral landing — `rate.limo/r/CODE`.
  *
  * The destination of every shared link, so it must work for a signed-out
  * visitor who has never heard of Rate. The code is captured here and applied

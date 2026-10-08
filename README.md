@@ -1,7 +1,7 @@
 # Iter Interface
 
-The web interface for [Iter](https://iter.cx) — an on-chain order-book exchange.
-This is the app served at `iter.cx`: the trading screens, the swap card, the
+The web interface for [Iter](https://rate.limo) — an on-chain order-book exchange.
+This is the app served at `rate.limo`: the trading screens, the swap card, the
 wallet, the portfolio, and the design system behind them.
 
 It is a **public mirror**. The code is developed in a private monorepo and

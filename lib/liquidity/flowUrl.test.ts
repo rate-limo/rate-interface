@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { flowUrl, modeFromParam } from "./flowUrl";
 
-const at = (path: string) => `https://iter.cx${path}`;
+const at = (path: string) => `https://rate.limo${path}`;
 
 describe("flowUrl", () => {
   it("writes the pair the flow is showing over the one the link named", () => {

@@ -11,7 +11,7 @@ const points = (over: Partial<PublicPoints> = {}): PublicPoints => ({
     ...over,
 });
 
-const ORIGIN = "https://iter.cx";
+const ORIGIN = "https://rate.limo";
 
 describe("toReferralSummary", () => {
     it("carries the counts and the referral points through", () => {
@@ -33,12 +33,12 @@ describe("toReferralSummary", () => {
     });
 
     it("builds the share link against the origin it was given", () => {
-        expect(toReferralSummary(points(), "HYUNGSU", ORIGIN).link).toBe("https://iter.cx/r/HYUNGSU");
+        expect(toReferralSummary(points(), "HYUNGSU", ORIGIN).link).toBe("https://rate.limo/r/HYUNGSU");
     });
 
     it("does not double the slash when the origin carries a trailing one", () => {
-        expect(toReferralSummary(points(), "ABC123", "https://iter.cx/").link).toBe(
-            "https://iter.cx/r/ABC123",
+        expect(toReferralSummary(points(), "ABC123", "https://rate.limo/").link).toBe(
+            "https://rate.limo/r/ABC123",
         );
     });
 

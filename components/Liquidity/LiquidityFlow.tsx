@@ -11,7 +11,7 @@
  */
 
 import { chartTicker } from "@/lib/chart/ticker";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount } from "wagmi";
 import { useWalletConnect } from "@/lib/wallet";
@@ -180,7 +180,9 @@ export function LiquidityFlow({
    * compare against current values to know whether it replaced anything.
    */
   const pairRef = useRef({ base, quote });
-  pairRef.current = { base, quote };
+  useLayoutEffect(() => {
+    pairRef.current = { base, quote };
+  });
 
   useEffect(() => {
     const listed = chainTokens ?? [];

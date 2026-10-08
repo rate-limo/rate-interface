@@ -6,7 +6,7 @@ import { clsx } from "clsx";
  *
  * ## It used to be the waitlist, and that is the whole change
  *
- * This was `JoinWaitlistButton`, an anchor to `waitlist.iter.cx`. Before that
+ * This was `JoinWaitlistButton`, an anchor to `waitlist.rate.limo`. Before that
  * it ran the join flow inline — connect a wallet, POST `/api/waitlist/wallet`,
  * then render the wallet's referral code as a copyable invite. Both are gone:
  * the venue is live, so asking a visitor to queue for it is asking them to wait

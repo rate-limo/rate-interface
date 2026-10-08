@@ -262,12 +262,12 @@ const nextConfig: NextConfig = {
    * front of this app absorbs the reads rather than proxying each one.
    */
   /**
-   * The waitlist left this app on 2026-08-06 for `waitlist.iter.cx`
+   * The waitlist left this app on 2026-08-06 for `waitlist.rate.limo`
    * (`apps/waitlist`). These two entries are what keeps every link minted
    * before that move working.
    *
    * They are not optional: invite links in the form
-   * `iter.cx/waitlist/r/CODE` shipped on 2026-08-06 (b7349b4, and the X share
+   * `rate.limo/waitlist/r/CODE` shipped on 2026-08-06 (b7349b4, and the X share
    * in 689907b) and are in circulation. Without this they 404.
    *
    * **307, not 308.** A permanent redirect is cached by browsers indefinitely,
@@ -588,7 +588,7 @@ const nextConfig: NextConfig = {
       { source: "/profile/banner", destination: `${IDENTITY_SERVICE_URL}/profile/banner` },
       // The wallet session and the watchlist it authorizes. Same-origin through
       // this rewrite so the httpOnly wallet cookie is sent without CORS or a
-      // third-party-cookie problem — identity-service sets it on .iter.cx, and
+      // third-party-cookie problem — identity-service sets it on .rate.limo, and
       // a cross-origin fetch would need credentials mode plus an allow-list it
       // does not have.
       // Everything else under /wallet is identity-service: the session and the

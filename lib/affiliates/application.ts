@@ -16,7 +16,7 @@ export function normaliseXHandle(raw: string): string | null {
 }
 
 /**
- * The link the applicant asks for — `iter.cx/r/<CODE>` — checked against the
+ * The link the applicant asks for — `rate.limo/r/<CODE>` — checked against the
  * SHAPE admin-service's `isValidVanityCode` enforces when an operator assigns
  * it: 3–12 letters and digits, starting with a letter, never the 6-hex shape of
  * an automatic code. A hint for the applicant, not the gate: the operator's

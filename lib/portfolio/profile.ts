@@ -290,7 +290,7 @@ export function isSignatureRejection(err: unknown): boolean {
  *
  * This read the gateway directly, and the gateway's CORS allowlist holds the
  * production origins and not localhost — verified by asking it with each:
- * `Origin: https://www.iter.cx` comes back with `access-control-allow-origin`,
+ * `Origin: https://www.rate.limo` comes back with `access-control-allow-origin`,
  * `Origin: http://localhost:3217` comes back 200 with no such header, so the
  * browser discards it and the fetch rejects. `useProfile` swallows that by
  * design ("an unreachable gateway costs the NAME and nothing else"), so the

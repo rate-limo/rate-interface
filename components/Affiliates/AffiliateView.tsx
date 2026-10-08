@@ -23,7 +23,7 @@ import {
 } from "@/lib/affiliates/terms";
 
 /**
- * Creator onboarding — `iter.cx/affiliate`. One ask: apply for your link.
+ * Creator onboarding — `rate.limo/affiliate`. One ask: apply for your link.
  *
  * Laid out after fomo.family/affiliates (hero, three steps, why join, FAQ, a
  * closing ask), with Rate's own terms, all derived from the accrual's rule in

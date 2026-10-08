@@ -5,20 +5,20 @@ describe("parseCspReports", () => {
   it("reads the report-uri shape", () => {
     const out = parseCspReports({
       "csp-report": {
-        "document-uri": "https://www.iter.cx/trade",
+        "document-uri": "https://www.rate.limo/trade",
         "effective-directive": "script-src-elem",
         "blocked-uri": "https://evil.example/x.js",
-        "source-file": "https://www.iter.cx/_next/static/chunks/app.js",
+        "source-file": "https://www.rate.limo/_next/static/chunks/app.js",
         "line-number": 42,
         disposition: "report",
       },
     });
     expect(out).toEqual([
       {
-        documentUrl: "https://www.iter.cx/trade",
+        documentUrl: "https://www.rate.limo/trade",
         directive: "script-src-elem",
         blocked: "https://evil.example/x.js",
-        source: "https://www.iter.cx/_next/static/chunks/app.js:42",
+        source: "https://www.rate.limo/_next/static/chunks/app.js:42",
         sample: null,
         disposition: "report",
       },
@@ -27,9 +27,9 @@ describe("parseCspReports", () => {
 
   it("reads the Reporting API shape, several at once, and ignores other report types", () => {
     const out = parseCspReports([
-      { type: "csp-violation", body: { documentURL: "https://www.iter.cx/", effectiveDirective: "img-src", blockedURL: "http://x/y.png", disposition: "enforce" } },
+      { type: "csp-violation", body: { documentURL: "https://www.rate.limo/", effectiveDirective: "img-src", blockedURL: "http://x/y.png", disposition: "enforce" } },
       { type: "deprecation", body: {} },
-      { type: "csp-violation", body: { documentURL: "https://www.iter.cx/", effectiveDirective: "style-src-attr", blockedURL: "inline", sample: "color: red" } },
+      { type: "csp-violation", body: { documentURL: "https://www.rate.limo/", effectiveDirective: "style-src-attr", blockedURL: "inline", sample: "color: red" } },
     ]);
     expect(out).toHaveLength(2);
     expect(out[0].disposition).toBe("enforce");

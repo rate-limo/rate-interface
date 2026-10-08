@@ -23,7 +23,7 @@
  * has to be performed BY the browser, ON this origin.
  *
  * That does not stop script running on this origin: anything that can call
- * `restoreMeraSession()` gets the key, so an XSS on iter.cx is still game over.
+ * `restoreMeraSession()` gets the key, so an XSS on rate.limo is still game over.
  * It stops the cheaper attacks that the plain version would hand over for free
  * — a browser-profile backup, a synced storage dump, an extension with
  * `storage` permission but no script injection, devtools on a borrowed laptop.

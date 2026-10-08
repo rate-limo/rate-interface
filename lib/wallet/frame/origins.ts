@@ -4,11 +4,11 @@
  * ## Two origins, two variables
  *
  * `NEXT_PUBLIC_WALLET_ORIGIN` — read by the APP: where the wallet frame is
- * served, e.g. `https://wallet.iter.cx`. The app embeds `<origin>/wallet-frame`
+ * served, e.g. `https://wallet.rate.limo`. The app embeds `<origin>/wallet-frame`
  * and posts to it.
  *
  * `NEXT_PUBLIC_WALLET_APP_ORIGIN` — read by the FRAME: the one origin whose
- * messages it answers, e.g. `https://iter.cx`. Every other sender is ignored.
+ * messages it answers, e.g. `https://rate.limo`. Every other sender is ignored.
  *
  * Both are `NEXT_PUBLIC_` because both are decided in the browser, and both
  * are baked at BUILD time — the same trap `ADMIN_SERVICE_URL` carries, so a
@@ -30,7 +30,7 @@
  *
  * The passkey ceremony runs on the APP origin (see `lib/wallet/mera.ts`), so
  * the rpId is still the app's hostname and nothing about WebAuthn constrains
- * where the frame lives. `wallet.iter.cx` reads well; any origin this
+ * where the frame lives. `wallet.rate.limo` reads well; any origin this
  * deployment answers on would work.
  */
 
@@ -69,7 +69,7 @@ export function walletOrigin(): string {
  * The origins the frame answers. Read by the frame.
  *
  * A comma-separated list, because a site can legitimately have more than one
- * host that renders pages — `www.iter.cx` and the apex today, where the apex
+ * host that renders pages — `www.rate.limo` and the apex today, where the apex
  * answers a 308 to www on every path (checked 2026-09-18) and so never
  * renders anything. Listing it anyway costs nothing and means a future change
  * to which host is canonical cannot silently break every wallet connect. An

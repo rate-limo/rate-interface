@@ -52,3 +52,59 @@ describe("LadderNotPlacedError", () => {
     expect(err.message).not.toMatch(/nothing was deployed/i);
   });
 });
+
+/**
+ * The gateway's "placing" view, as iter-monorepo-09 documented it and as the
+ * route serves it on Tempo: no steps, null prices, nothing sold. Every reader
+ * has to branch on the state BEFORE touching those fields, which is what these
+ * pin.
+ */
+const PLACING = {
+  state: "placing" as const,
+  stepsSold: 0,
+  stepsTotal: 5,
+  steps: [],
+  marketCapQuote: null,
+  marketCapUsd: null,
+  graduationMarketCap: { quote: 0, usd: null },
+  toGraduateQuote: null,
+  toGraduateUsd: null,
+  progress: 0,
+  readyAt: null,
+  poolValueQuote: null,
+  poolValueUsd: null,
+  quote: { address: "0xq", symbol: "PathUSD", decimals: 6 },
+};
+
+describe("a placing ladder, through the display", () => {
+  it("never claims a step is on offer", async () => {
+    const { ladderDisplay } = await import("./ladderView");
+    const d = ladderDisplay(PLACING as never, 0);
+    expect(d.tone).toBe("placing");
+    expect(d.pill).toBe("placing ladder");
+    expect(d.headline).toBe("Not for sale yet");
+    // The selling branch would have read steps[] and the null caps and produced
+    // "— to graduate · last step" for a coin that has never offered one.
+    expect(d.headline).not.toMatch(/to graduate/);
+    expect(d.detail).not.toMatch(/last step|next step/);
+    expect(d.progress).toBe(0);
+    expect(d.notches).toEqual([]);
+  });
+});
+
+describe("a placing ladder, through the status badges", () => {
+  it("says placing rather than launching", async () => {
+    const { statusBadges } = await import("./statusBadges");
+    const badges = statusBadges({ launchedOnIter: true, ladderState: "placing" });
+    expect(badges.map((b) => b.label)).toContain("placing ladder");
+    // "launching" would invite a buyer to a book with no asks on it.
+    expect(badges.map((b) => b.label)).not.toContain("launching");
+  });
+
+  it("leaves every other state alone", async () => {
+    const { statusBadges } = await import("./statusBadges");
+    expect(statusBadges({ launchedOnIter: true, ladderState: "selling" }).map((b) => b.label)).toEqual(["launching"]);
+    expect(statusBadges({ launchedOnIter: true, ladderState: "armed" }).map((b) => b.label)).toEqual(["graduating"]);
+    expect(statusBadges({ launchedOnIter: true, ladderState: "graduated" }).map((b) => b.label)).toEqual(["graduated"]);
+  });
+});

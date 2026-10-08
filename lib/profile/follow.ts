@@ -84,7 +84,7 @@ export async function setFollowing(
   // Same-origin, rewritten to IDENTITY_SERVICE_URL — NOT the per-chain gateway.
   // `follows` is identity: the same wallet has one follower list across every
   // chain, and identity-service is the single writer of that table. Going
-  // through the rewrite rather than calling auth.iter.cx directly keeps this a
+  // through the rewrite rather than calling auth.rate.limo directly keeps this a
   // same-origin request, so no CORS preflight is involved.
   const res = await fetch(
     `/follow/${encodeURIComponent(following)}`,

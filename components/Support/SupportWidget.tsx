@@ -177,6 +177,7 @@ function useLauncherBottom(): number {
     }
 
     let sizeObserver: ResizeObserver | null = null;
+    let treeObserver: MutationObserver | null = null;
 
     // Both components read the same `useConsent`, so `bannerShown` can flip in
     // a commit where CookieConsent has not yet put its node in the DOM. The
@@ -195,19 +196,19 @@ function useLauncherBottom(): number {
     const existing = find();
     if (existing) {
       attach(existing);
-      return () => sizeObserver?.disconnect();
+    } else {
+      const watcher = new MutationObserver(() => {
+        const banner = find();
+        if (!banner) return;
+        watcher.disconnect();
+        attach(banner);
+      });
+      watcher.observe(document.body, { childList: true, subtree: true });
+      treeObserver = watcher;
     }
 
-    const treeObserver = new MutationObserver(() => {
-      const banner = find();
-      if (!banner) return;
-      treeObserver.disconnect();
-      attach(banner);
-    });
-    treeObserver.observe(document.body, { childList: true, subtree: true });
-
     return () => {
-      treeObserver.disconnect();
+      treeObserver?.disconnect();
       sizeObserver?.disconnect();
     };
   }, [bannerShown]);

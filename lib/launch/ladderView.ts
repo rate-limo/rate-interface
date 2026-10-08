@@ -12,7 +12,7 @@ import type { SpotToken } from "@/types";
  */
 
 export type Ladder = NonNullable<SpotToken["ladder"]>;
-export type LadderTone = "step" | "armed" | "graduated";
+export type LadderTone = "placing" | "step" | "armed" | "graduated";
 
 export interface LadderDisplay {
   tone: LadderTone;
@@ -65,6 +65,20 @@ export function ladderNotches(ladder: Ladder): number[] {
 }
 
 export function ladderDisplay(ladder: Ladder, nowSec: number): LadderDisplay {
+  // FIRST, because a placing ladder has no steps and null prices: every branch
+  // below reads one or the other, and the selling branch would quietly render
+  // "— to graduate · last step" for a coin that has never offered a step.
+  if (ladder.state === "placing") {
+    return {
+      tone: "placing",
+      pill: "placing ladder",
+      headline: "Not for sale yet",
+      detail: `${ladder.stepsTotal} steps are being placed`,
+      progress: 0,
+      notches: [],
+      countdownTo: null,
+    };
+  }
   const notches = ladderNotches(ladder);
   const progress = Math.max(0, Math.min(1, ladder.progress));
   const sym = ladder.quote.symbol;

@@ -33,30 +33,26 @@ import { ThesisComposer } from "@/components/Pages/Profile/ThesisComposer";
 import { timeframeToInterval, type ChartTimeframeLabel } from "@/lib/profile/chartInterval";
 
 
-export function ProfileDesktopPage({
-  token,
-  tokenCMS,
-  basePairs,
-  tokenSparklines,
-}: {
-  token: SpotToken & {
-    hourPriceDifferencePercentage: number;
-    weekPriceDifferencePercentage: number;
-    monthPriceDifferencePercentage: number;
-    rank: number;
-    dayLow: number;
-  };
+type ProfileToken = SpotToken & {
+  hourPriceDifferencePercentage: number;
+  weekPriceDifferencePercentage: number;
+  monthPriceDifferencePercentage: number;
+  rank: number;
+  dayLow: number;
+};
+
+type ProfileDesktopPageProps = {
+  token: ProfileToken;
   tokenCMS: any;
   basePairs: any;
   tokenSparklines: any;
-}) {
-  const [timeframe, setTimeframe] = useState<ChartTimeframeLabel>("24h");
-  // null while the availability check is in flight; the timeframe row is kept
-  // visible until it's known false so a fast "no market data" answer doesn't
-  // flash the buttons on then immediately off.
-  const [chartAvailable, setChartAvailable] = useState<boolean | null>(null);
+};
 
-  // Validate required data
+// The validation lives in its own component so the page below can call its
+// hooks unconditionally: `useChartMetric` reads the token, so it cannot run
+// ahead of this check.
+export function ProfileDesktopPage(props: ProfileDesktopPageProps) {
+  const { token } = props;
   if (!token || !token.symbol || !token.name) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -64,6 +60,20 @@ export function ProfileDesktopPage({
       </div>
     );
   }
+  return <ProfileDesktopPageBody {...props} />;
+}
+
+function ProfileDesktopPageBody({
+  token,
+  tokenCMS,
+  basePairs,
+  tokenSparklines,
+}: ProfileDesktopPageProps) {
+  const [timeframe, setTimeframe] = useState<ChartTimeframeLabel>("24h");
+  // null while the availability check is in flight; the timeframe row is kept
+  // visible until it's known false so a fast "no market data" answer doesn't
+  // flash the buttons on then immediately off.
+  const [chartAvailable, setChartAvailable] = useState<boolean | null>(null);
 
   const {
     newTokenData,

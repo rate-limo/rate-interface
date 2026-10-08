@@ -380,7 +380,7 @@ export async function GET(request: NextRequest) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", color: LOGO, fontSize: 17, letterSpacing: 1.8 }}>RATE · ITER.CX</div>
+            <div style={{ display: "flex", color: LOGO, fontSize: 17, letterSpacing: 1.8 }}>RATE.LIMO</div>
             <div
               style={{
                 display: "flex",

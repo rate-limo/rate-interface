@@ -275,7 +275,9 @@ export const useOrderHistory = (
       return cachedData || queryData;
     }
     return prevOrderHistories;
-  }, [queryData, prevOrderHistories, updated, queryClient, queryKey]);
+    // The key's parts, not `queryKey`: that array is rebuilt every render, so
+    // depending on it recomputed this on every render.
+  }, [queryData, prevOrderHistories, updated, queryClient, networkName, address, pageLimit, page]);
 
   return {
     data: memoizedOrderHistories,

@@ -65,10 +65,10 @@ export function RefCapture(): null {
     if (stashed) writeRefCookie(stashed);
   }, [params]);
 
-  // This is where a code captured on `waitlist.iter.cx` lands. That origin has its own
+  // This is where a code captured on `waitlist.rate.limo` lands. That origin has its own
   // localStorage, so an invitee who joined the waitlist and later came here would arrive
   // with an empty stash and an invite step that asks what it was already told. The
-  // `.iter.cx` cookie is what crosses; this mirrors it back into the stash so
+  // `.rate.limo` cookie is what crosses; this mirrors it back into the stash so
   // `peekStashedCode` stays the only reader.
   //
   // Runs after the query effect above, which is what makes the ordering safe: a code in

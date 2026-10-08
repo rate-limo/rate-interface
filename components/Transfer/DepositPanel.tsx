@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { formatUnits, parseUnits } from "viem";
 import { useAccount } from "wagmi";
 import { toast } from "sonner";
@@ -88,6 +88,10 @@ import { gasSymbol } from "@/lib/chains/gasToken";
  */
 /** Three rows, matching the network list, so neither can push the address away. */
 const WALLETS_PER_PAGE = 3;
+
+// An injected wallet announces nothing when it arrives, so there is nothing to
+// subscribe to; `getSnapshot` re-reads it on every render.
+const noSubscription = () => () => {};
 
 function WalletMark({ wallet }: { wallet: DiscoveredWallet }) {
   const [broken, setBroken] = useState(false);
@@ -579,6 +583,10 @@ export function DepositPanel({
   }, [open]);
 
 
+  // `window.ethereum` exists only in a browser, so the server snapshot is
+  // false and the first client render matches it; the real answer follows.
+  const injected = useSyncExternalStore(noSubscription, hasInjectedProvider, () => false);
+
   if (!open) return null;
 
   return (
@@ -856,7 +864,7 @@ export function DepositPanel({
             reads `window.ethereum`, and branching on it during the first render
             would print this row on the server and then remove it in a browser
             that has a wallet. */}
-        {settled && chain && address && probed && !bridging && !hasInjectedProvider() && (
+        {settled && chain && address && probed && !bridging && !injected && (
           <div className="flex items-center gap-2.5 rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)] px-3 py-2.5">
             <span
               aria-hidden
@@ -880,7 +888,7 @@ export function DepositPanel({
             chain and bringing the asset from another are the same decision made
             two ways, and both on screen meant two Deposit buttons with different
             amounts, one above the other. */}
-        {settled && chain && address && !bridging && hasInjectedProvider() && (
+        {settled && chain && address && !bridging && injected && (
           <div className="flex flex-col gap-2">
             <label className="flex items-center gap-2 rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface-2)] px-3 py-2">
               <input

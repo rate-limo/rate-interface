@@ -18,28 +18,22 @@ export const useERC20BalanceAllowance = (
   owner: `0x${string}` | undefined,
   spender: `0x${string}` | undefined
 ) => {
-  if (token === undefined) {
-    return {
-      data: {
-        balance: 0,
-        allowance: 0,
-      },
-      status: "none",
-      error: "address is undefined",
-    };
-  }
+  // Every hook runs on every render, token or not: TradePageProvider hands
+  // this its base and quote, which start undefined and arrive later, and an
+  // early return above the hooks changed the hook count between those renders.
   const { data, status, error, queryKey, refetch } = useReadContracts({
+    query: { enabled: token !== undefined },
     contracts: [
       {
         // @ts-ignore
-        address: token.id,
+        address: token?.id,
         abi: erc20Abi,
         functionName: "balanceOf",
         args: [owner as `0x${string}`],
       },
       {
         // @ts-ignore
-        address: token.id,
+        address: token?.id,
         abi: erc20Abi,
         functionName: "allowance",
         args: [owner as `0x${string}`, spender as `0x${string}`],
@@ -51,7 +45,7 @@ export const useERC20BalanceAllowance = (
     useState<ERC20BalanceAllowance>({ balance: 0, allowance: 0 });
 
   useEffect(() => {
-    if (data && data.length > 0) {
+    if (token && data && data.length > 0) {
       setBalanceAllowance({
         balance: Number.parseFloat(
           formatUnits(data[0]?.result ?? BigInt(0), token.decimals)
@@ -63,11 +57,11 @@ export const useERC20BalanceAllowance = (
     } else {
       setBalanceAllowance({ balance: 0, allowance: 0 });
     }
-  }, [data]);
+  }, [data, token?.id, token?.decimals]);
 
   useEffect(() => {
     const handleBalanceUpdate = (data: SpotBalanceUpdateEvent) => {
-      if (data.token.id === token.id) {
+      if (data.token.id === token?.id) {
         setBalanceAllowance((prev) => ({
           ...prev,
           balance: data.balance,
@@ -78,24 +72,24 @@ export const useERC20BalanceAllowance = (
     const handleTradeUpdate = (data: SpotTradeEvent) => {
       if (data.account === owner) {
         if (data.isBid) {
-          if (data.quote === token.id) {
+          if (data.quote === token?.id) {
             setBalanceAllowance((prev) => ({
               ...prev,
               balance: prev.balance - data.quoteAmount,
             }));
-          } else if (data.base === token.id) {
+          } else if (data.base === token?.id) {
             setBalanceAllowance((prev) => ({
               ...prev,
               balance: prev.balance + data.baseAmount,
             }));
           }
         } else {
-          if (data.base === token.id) {
+          if (data.base === token?.id) {
             setBalanceAllowance((prev) => ({
               ...prev,
               balance: prev.balance - data.baseAmount,
             }));
-          } else if (data.quote === token.id) {
+          } else if (data.quote === token?.id) {
             setBalanceAllowance((prev) => ({
               ...prev,
               balance: prev.balance + data.quoteAmount,
@@ -106,7 +100,7 @@ export const useERC20BalanceAllowance = (
     };
 
     const handleAllowanceUpdate = (data: SpotAllowanceUpdateEvent) => {
-      if (data.token.id === token.id) {
+      if (data.token.id === token?.id) {
         setBalanceAllowance((prev) => ({
           ...prev,
           allowance: data.allowance,
@@ -117,8 +111,10 @@ export const useERC20BalanceAllowance = (
     // A swap reports that it landed, not what it landed on — see the event's
     // declaration. `refetch` is referentially stable, so this listener does not
     // need to be re-subscribed when the component re-renders.
+    // `refetch` ignores `enabled`, so without a token it would read address
+    // undefined.
     const handleBalanceRefetch = () => {
-      void refetch();
+      if (token) void refetch();
     };
 
     eventBus.on("spot-balance-update", handleBalanceUpdate);
@@ -133,6 +129,17 @@ export const useERC20BalanceAllowance = (
       eventBus.off("spot-allowance-update", handleAllowanceUpdate);
     };
   }, [token?.id, owner]);
+
+  if (token === undefined) {
+    return {
+      data: {
+        balance: 0,
+        allowance: 0,
+      },
+      status: "none",
+      error: "address is undefined",
+    };
+  }
 
   return {
     // @ts-ignore

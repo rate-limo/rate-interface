@@ -8,17 +8,22 @@ import { ladderDisplay, type Ladder, type LadderTone } from "@/lib/launch/ladder
  * Design C+ (2026-10-03): a ring that fills toward the graduation market cap,
  * with notches where each later ladder step starts, plus a corner pill on the
  * art. Ladder coins only — coins from the previous generator keep the listing
- * bar. Colours are Monet tokens: orange while selling / sold out, blue armed,
- * green graduated.
+ * bar. Colours are Monet tokens: WARNING while the ladder is still being placed,
+ * orange while selling / sold out, blue armed, green graduated.
+ *
+ * `placing` is warning rather than accent on purpose: it is the one state where
+ * the coin cannot be traded at all, and it must not look like a step on sale.
  */
 
 const TONE_STROKE: Record<LadderTone, string> = {
+  placing: "var(--m-warning)",
   step: "var(--m-accent)",
   armed: "var(--m-primary)",
   graduated: "var(--m-success)",
 };
 
 const TONE_PILL: Record<LadderTone, string> = {
+  placing: "text-[color:var(--m-warning-700)] bg-[color-mix(in_srgb,var(--m-warning)_18%,transparent)]",
   step: "text-[color:var(--m-accent-text)] bg-[color-mix(in_srgb,var(--m-accent)_16%,transparent)]",
   armed: "text-[color:var(--m-primary-fg)] bg-[color-mix(in_srgb,var(--m-primary)_18%,transparent)]",
   graduated: "text-[color:var(--m-success-fg)] bg-[color-mix(in_srgb,var(--m-success)_18%,transparent)]",

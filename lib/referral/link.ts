@@ -1,7 +1,7 @@
 /**
  * Where a referral code is shared, and how a wallet gets one.
  *
- * `iter.cx/r/CODE` was written out by hand in WelcomeFlow, ReferralPanel and
+ * `rate.limo/r/CODE` was written out by hand in WelcomeFlow, ReferralPanel and
  * the mocks. A fourth copy is how the landing page and the onboarding flow end
  * up disagreeing about the share domain, so it lives here once.
  *
@@ -16,7 +16,7 @@ const SHARE_HOST = "rate.limo";
  * The waitlist's own host, since 2026-08-06.
  *
  * The waitlist is a separate Next.js app deployed to this subdomain, so its
- * links no longer carry a `/waitlist` segment — the host does. `iter.cx`
+ * links no longer carry a `/waitlist` segment — the host does. `rate.limo`
  * redirects `/waitlist/*` here (307) so links shared before the split still
  * land, but nothing mints that form any more.
  *
@@ -37,7 +37,7 @@ export function referralUrl(code: string): string {
 }
 
 /**
- * The **waitlist** invite link — `waitlist.iter.cx/r/CODE`.
+ * The **waitlist** invite link — `waitlist.rate.limo/r/CODE`.
  *
  * A separate destination from `/r/CODE`, because the two links invite people to
  * different things. `/r/CODE` lands on `InviteView` inside the app shell and asks
@@ -50,7 +50,7 @@ export function referralUrl(code: string): string {
  * only the landing page differs.
  *
  * **The host changed on 2026-08-06 and so did the path shape.** This was
- * `iter.cx/waitlist/r/CODE` until the waitlist became its own app; it is now a
+ * `rate.limo/waitlist/r/CODE` until the waitlist became its own app; it is now a
  * different host AND one segment shorter. Both halves matter to the parity
  * check, which is why that test compares the whole string rather than a host.
  */

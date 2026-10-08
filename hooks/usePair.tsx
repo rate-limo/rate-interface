@@ -1,7 +1,7 @@
 import { SpotBarEvent, SpotPair } from "@/types";
 import { eventBus } from "@/utils/events";
 import Decimal from "decimal.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 interface PairData extends SpotPair {
   updatedAt: number;
@@ -10,7 +10,9 @@ interface PairData extends SpotPair {
 export const usePair = (networkName: string, pair: SpotPair | null) => {
   const [data, setData] = useState<PairData | null>(pair ? { ...pair, updatedAt: Date.now() } : null);
   const dataRef = useRef(data);
-  dataRef.current = data;
+  useLayoutEffect(() => {
+    dataRef.current = data;
+  });
 
   useEffect(() => {
     if (pair && pair.symbol !== data?.symbol) {

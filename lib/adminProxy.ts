@@ -24,7 +24,7 @@ import { CHAIN_PARAM, resolveAdminUpstream } from "./upstreams";
  * ## Headers are an allowlist in both directions
  *
  * Forwarding the incoming headers wholesale would send this origin's cookies —
- * `iter.sid` and `iter.wallet`, both `Domain=.iter.cx` — to a service that has
+ * `iter.sid` and `iter.wallet`, both `Domain=.rate.limo` — to a service that has
  * no business reading them. Only `content-type` goes up; only the response
  * headers a browser needs come back.
  */

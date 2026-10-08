@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useMarketPageContext } from "@/contexts/MarketPageProvider";
 import { TokenArt } from "./TokenArt";
@@ -251,8 +251,8 @@ export function LaunchGrid({ thresholdUsd }: { thresholdUsd?: number }) {
    * settles the moment the pointer leaves.
    */
   const tradedAt = useRecentlyTraded(displayNetworkName);
-  const [reading, setReading] = useState(false);
-  const held = useRef<SpotToken[] | null>(null);
+  // The order on screen when the pointer arrived; null while nobody is reading.
+  const [held, setHeld] = useState<SpotToken[] | null>(null);
   const hoisted = useMemo(
     () =>
       hoistRecentlyTraded<SpotToken>(tokens, tradedAt, Date.now(), {
@@ -261,8 +261,7 @@ export function LaunchGrid({ thresholdUsd }: { thresholdUsd?: number }) {
       }),
     [tokens, tradedAt, sort],
   );
-  if (!reading) held.current = null;
-  const shown = reading ? (held.current ??= hoisted.ordered) : hoisted.ordered;
+  const shown = held ?? hoisted.ordered;
 
   /* Reset on the VIEW, not the network: the three tabs are three different
      questions and their id sets barely overlap. See `useArrivals`. */
@@ -342,8 +341,8 @@ export function LaunchGrid({ thresholdUsd }: { thresholdUsd?: number }) {
               ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
               : "flex flex-col",
           )}
-          onPointerEnter={() => setReading(true)}
-          onPointerLeave={() => setReading(false)}
+          onPointerEnter={() => setHeld(shown)}
+          onPointerLeave={() => setHeld(null)}
         >
           {shown.map((token) => (
             <LaunchCard

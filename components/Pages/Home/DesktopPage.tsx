@@ -92,6 +92,14 @@ export function HomeDesktopPage({
   const [transactionSearchOpen, setTransactionSearchOpen] = useState(false);
   const [transactionSearch, setTransactionSearch] = useState("");
   const reduceMotion = useReducedMotion();
+  // The directory's search fields: revealed from the toggle beside them.
+  const searchMotion = {
+    initial: { opacity: 0, clipPath: "inset(0 0 0 100% round 12px)" },
+    animate: { opacity: 1, clipPath: "inset(0 0 0 0% round 12px)" },
+    transition: reduceMotion
+      ? { duration: 0 }
+      : ({ type: "spring", stiffness: 360, damping: 30 } as const),
+  };
 
   /**
    * Pre-graduation markets, fetched ONCE here and handed to both consumers.
@@ -241,23 +249,33 @@ export function HomeDesktopPage({
               </div>
               {directoryTab === "pools" && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={buildPageUrl("pool", { slug: displayNetworkSlug, provide: true })}
-                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-[color:var(--m-text-primary)] px-4 text-sm font-medium text-[color:var(--m-surface)] transition-transform hover:-translate-y-px"
-                  >
-                    <span aria-hidden className="text-lg leading-none">+</span>
-                    New position
-                  </Link>
-                  <ChainSwitcher />
-                  <button type="button" className="inline-flex h-10 items-center gap-2 rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-3 text-sm text-[color:var(--m-text-primary)]">
-                    Protocol <span aria-hidden className="text-[color:var(--m-text-secondary)]">⌄</span>
-                  </button>
+                  {/* The search field opens at its full width and is revealed by
+                      a clip; the controls it pushes aside slide there by layout
+                      projection. Animating the field's width relaid the row out
+                      on every frame. */}
+                  <motion.div layout="position" transition={searchMotion.transition} className="flex">
+                    <Link
+                      href={buildPageUrl("pool", { slug: displayNetworkSlug, provide: true })}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-[color:var(--m-text-primary)] px-4 text-sm font-medium text-[color:var(--m-surface)] transition-transform hover:-translate-y-px"
+                    >
+                      <span aria-hidden className="text-lg leading-none">+</span>
+                      New position
+                    </Link>
+                  </motion.div>
+                  <motion.div layout="position" transition={searchMotion.transition} className="flex">
+                    <ChainSwitcher />
+                  </motion.div>
+                  <motion.div layout="position" transition={searchMotion.transition} className="flex">
+                    <button type="button" className="inline-flex h-10 items-center gap-2 rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-3 text-sm text-[color:var(--m-text-primary)]">
+                      Protocol <span aria-hidden className="text-[color:var(--m-text-secondary)]">⌄</span>
+                    </button>
+                  </motion.div>
                   {poolSearchOpen && (
                     <motion.label
-                      initial={{ width: 0, opacity: 0 }}
-                      animate={{ width: 180, opacity: 1 }}
-                      transition={{ type: "spring", stiffness: 360, damping: 30 }}
-                      className="flex h-10 items-center gap-2 overflow-hidden rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-3 text-sm text-[color:var(--m-text-secondary)] focus-within:border-[color:var(--m-primary)]"
+                      initial={searchMotion.initial}
+                      animate={searchMotion.animate}
+                      transition={searchMotion.transition}
+                      className="flex h-10 w-[180px] items-center gap-2 overflow-hidden rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-3 text-sm text-[color:var(--m-text-secondary)] focus-within:border-[color:var(--m-primary)]"
                     >
                       <span aria-hidden>⌕</span>
                       <input
@@ -288,13 +306,15 @@ export function HomeDesktopPage({
                       This is the tab the Tokens switcher's comment warned
                       about: it moved to the aggregator on 2026-09-04 and its
                       control was left behind. */}
-                  <ChainSwitcher allChains />
+                  <motion.div layout="position" transition={searchMotion.transition} className="flex">
+                    <ChainSwitcher allChains />
+                  </motion.div>
                   {transactionSearchOpen && (
                     <motion.label
-                      initial={{ width: 0, opacity: 0 }}
-                      animate={{ width: 208, opacity: 1 }}
-                      transition={{ type: "spring", stiffness: 360, damping: 30 }}
-                      className="flex h-10 items-center gap-2 overflow-hidden rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-3 text-sm text-[color:var(--m-text-secondary)] focus-within:border-[color:var(--m-primary)]"
+                      initial={searchMotion.initial}
+                      animate={searchMotion.animate}
+                      transition={searchMotion.transition}
+                      className="flex h-10 w-[208px] items-center gap-2 overflow-hidden rounded-xl border border-[color:var(--m-border)] bg-[color:var(--m-surface)] px-3 text-sm text-[color:var(--m-text-secondary)] focus-within:border-[color:var(--m-primary)]"
                     >
                       <Search aria-hidden className="h-4 w-4 shrink-0" />
                       <input

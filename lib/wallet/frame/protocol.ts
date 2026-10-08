@@ -1,7 +1,7 @@
 /**
  * The wire between the app and the wallet frame.
  *
- * Two documents on two origins talk over `postMessage`: the app on iter.cx,
+ * Two documents on two origins talk over `postMessage`: the app on rate.limo,
  * and the frame on the wallet origin (`lib/wallet/frame/origins.ts`). This
  * file is the only thing both sides import, so the shape of a message is
  * defined once and a change here is a change to both ends.

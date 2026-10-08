@@ -29,7 +29,7 @@
  * the withdraw sheet already does.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import type { Hex } from "viem";
 import { cn } from "@/lib/utils";
@@ -81,7 +81,9 @@ export function WalletConfirmFrame({
 
   // Latest callbacks without re-subscribing the listener per render.
   const callbacks = useRef({ onSubmitted, onFailed });
-  callbacks.current = { onSubmitted, onFailed };
+  useLayoutEffect(() => {
+    callbacks.current = { onSubmitted, onFailed };
+  });
 
   // Theme is read once: a frame reload on toggle would drop a request mid-flight.
   const src = useMemo(() => {

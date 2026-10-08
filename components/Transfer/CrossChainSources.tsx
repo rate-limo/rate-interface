@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { EIP1193Provider } from "viem";
@@ -136,12 +136,14 @@ export function CrossChainSources({
    * flap between false and true continuously.
    */
   const report = useRef(onBridgingChange);
-  report.current = onBridgingChange;
 
   // Read inside the async handler, which closes over the state value it started
   // with — a plain `abandoned` there is always false.
   const abandonedRef = useRef(false);
-  abandonedRef.current = abandoned;
+  useLayoutEffect(() => {
+    report.current = onBridgingChange;
+    abandonedRef.current = abandoned;
+  });
 
   useEffect(() => {
     report.current?.(bridging);

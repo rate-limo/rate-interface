@@ -10,9 +10,9 @@
  * - the LISTING: `verified`, flipped by quote liquidity. A coin can be either,
  *   both or neither, so "listed" sits beside the ladder chip, not instead of it.
  */
-export type StatusBadge = { label: "listed" | "graduated" | "graduating" | "launching" | "unlisted"; tone: "success" | "accent" | "warning" | "muted" };
+export type StatusBadge = { label: "listed" | "graduated" | "graduating" | "launching" | "placing ladder" | "unlisted"; tone: "success" | "accent" | "warning" | "muted" };
 
-type LadderState = "selling" | "soldOut" | "armed" | "graduated";
+type LadderState = "placing" | "selling" | "soldOut" | "armed" | "graduated";
 
 export function statusBadges(token: {
   verified?: boolean | null;
@@ -22,7 +22,10 @@ export function statusBadges(token: {
 }): StatusBadge[] {
   const badges: StatusBadge[] = [];
   if (token.launchedOnIter) {
-    if (token.ladderState === "graduated" || token.graduatedAt != null) badges.push({ label: "graduated", tone: "success" });
+    // Before "launching": a placing coin has nothing for sale, so saying it is
+    // launching invites a buyer to a book with no asks on it.
+    if (token.ladderState === "placing") badges.push({ label: "placing ladder", tone: "warning" });
+    else if (token.ladderState === "graduated" || token.graduatedAt != null) badges.push({ label: "graduated", tone: "success" });
     else if (token.ladderState === "soldOut" || token.ladderState === "armed") badges.push({ label: "graduating", tone: "accent" });
     else badges.push({ label: "launching", tone: "warning" });
   }

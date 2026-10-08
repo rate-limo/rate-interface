@@ -12,10 +12,10 @@ import { isCodeShape } from "./pending";
  * a **route handler**, which cannot read localStorage.
  *
  * Since 2026-08-06 it does a second job. The waitlist moved to
- * `waitlist.iter.cx`, and `localStorage` is per-origin — so a code captured by
- * `?ref=` on `iter.cx` is invisible there, and a code captured on
- * `waitlist.iter.cx/r/CODE` is invisible to the apex onboarding that later asks
- * for it. **Both directions broke.** Scoping this cookie to `.iter.cx` fixes
+ * `waitlist.rate.limo`, and `localStorage` is per-origin — so a code captured by
+ * `?ref=` on `rate.limo` is invisible there, and a code captured on
+ * `waitlist.rate.limo/r/CODE` is invisible to the apex onboarding that later asks
+ * for it. **Both directions broke.** Scoping this cookie to `.rate.limo` fixes
  * both with one mechanism, and each origin mirrors it into its own localStorage
  * so `peekStashedCode` keeps its signature and no reader changes.
  *
@@ -44,7 +44,7 @@ const SHARED_DOMAIN = "rate.limo";
  *
  * **Omitting is not a degraded mode, it is the only correct answer off
  * production.** A browser silently rejects a `Domain` the current host is not
- * under, so setting `.iter.cx` from `localhost` or a `*.vercel.app` preview
+ * under, so setting `.rate.limo` from `localhost` or a `*.vercel.app` preview
  * does not write a host-only cookie — it writes no cookie at all. The failure
  * is invisible: the code is simply never attributed.
  *
@@ -75,7 +75,7 @@ export function buildRefCookie(code: string, hostname: string): string | null {
     "samesite=lax",
   ];
   // `secure` rides with the domain rather than being unconditional: the only
-  // hosts that get a Domain are iter.cx ones, which are always https, while
+  // hosts that get a Domain are rate.limo ones, which are always https, while
   // adding it on http://localhost would silently drop the cookie in dev — the
   // same invisible failure this function exists to avoid.
   if (domain) parts.push(`domain=${domain}`, "secure");

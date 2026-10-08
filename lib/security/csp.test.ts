@@ -20,7 +20,7 @@ describe("appCsp", () => {
   const csp = appCsp({
     nonce: NONCE,
     dev: false,
-    walletOrigin: "https://wallet.iter.cx",
+    walletOrigin: "https://wallet.rate.limo",
     connectOrigins: ["https://gateway-api-rise.up.railway.app", "wss://gateway-ws-rise.up.railway.app", ""],
   });
 
@@ -40,7 +40,7 @@ describe("appCsp", () => {
   });
 
   it("allows the wallet frame to be embedded, and nothing else cross-origin", () => {
-    expect(csp.reportOnly).toContain("frame-src 'self' https://wallet.iter.cx;");
+    expect(csp.reportOnly).toContain("frame-src 'self' https://wallet.rate.limo;");
   });
 
   it("lists the connect origins once, drops empties, and adds the analytics beacons", () => {
@@ -68,10 +68,10 @@ describe("walletFrameCsp", () => {
     const csp = walletFrameCsp({
       nonce: NONCE,
       dev: false,
-      appOrigins: ["https://www.iter.cx", "https://iter.cx", "https://www.iter.cx"],
+      appOrigins: ["https://www.rate.limo", "https://rate.limo", "https://www.rate.limo"],
       rpcOrigins: ["https://testnet.riselabs.xyz", "https://rpc.testnet.arc.network"],
     });
-    expect(csp).toContain("frame-ancestors https://www.iter.cx https://iter.cx;");
+    expect(csp).toContain("frame-ancestors https://www.rate.limo https://rate.limo;");
     expect(csp).toContain("connect-src 'self' https://testnet.riselabs.xyz https://rpc.testnet.arc.network;");
     expect(csp.startsWith("default-src 'none'; ")).toBe(true);
     expect(csp).toContain(`'nonce-${NONCE}'`);

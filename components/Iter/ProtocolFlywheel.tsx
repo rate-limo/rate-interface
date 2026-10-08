@@ -125,11 +125,11 @@ function useMeasuredWidth<T extends HTMLElement>() {
     const node = ref.current;
     if (!node) return;
 
-    const read = () =>
-      setWidth((current) => {
-        const next = node.getBoundingClientRect().width;
-        return Math.abs(current - next) < 0.5 ? current : next;
-      });
+    // Measured before queueing the update: an updater may run more than once.
+    const read = () => {
+      const next = node.getBoundingClientRect().width;
+      setWidth((current) => (Math.abs(current - next) < 0.5 ? current : next));
+    };
 
     read();
     const observer = new ResizeObserver(read);

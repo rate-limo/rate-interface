@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -232,7 +233,9 @@ export const TradePageProvider = ({
   // Keep a ref to the latest handler so the effect below can register once
   // (on mount) and deregister on unmount without going stale.
   const handleNetworkChangeRef = useRef(handleNetworkChange);
-  handleNetworkChangeRef.current = handleNetworkChange;
+  useLayoutEffect(() => {
+    handleNetworkChangeRef.current = handleNetworkChange;
+  });
 
   // connectedChainId (from MarketPageProvider) is already reactive to wagmi's
   // chain -- this replaces Dynamic's dynamicEvents listener with plain React

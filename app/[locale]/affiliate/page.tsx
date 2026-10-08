@@ -25,7 +25,7 @@ interface PageProps {
 }
 
 /**
- * The creator onboarding page — `iter.cx/affiliate`. Its one ask is to apply
+ * The creator onboarding page — `rate.limo/affiliate`. Its one ask is to apply
  * for a link: `/r/YOURNAME`, assigned to the applicant's wallet by an operator.
  *
  * Reachable signed out: it is where a creator decides whether to apply, and

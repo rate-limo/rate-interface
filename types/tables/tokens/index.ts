@@ -87,7 +87,12 @@ export const spotToken = z.object({
   /// gateway. Only ever used for type inference, never parsed.
   ladder: z
     .object({
-      state: z.enum(["selling", "soldOut", "armed", "graduated"]),
+      /// `placing` is the two-transaction launch (Tempo): the coin exists and its
+      /// ladder does not, because the ladder is its own call. `steps` is empty and
+      /// the prices are null in that state -- anything reading them must branch
+      /// first. It cannot occur where `LADDER_DEFERRED` is off, which is everywhere
+      /// else.
+      state: z.enum(["placing", "selling", "soldOut", "armed", "graduated"]),
       stepsSold: z.number(),
       stepsTotal: z.number(),
       steps: z.array(z.object({ step: z.number(), marketCapQuote: z.number(), marketCapUsd: z.number().nullable(), sold: z.boolean() })),

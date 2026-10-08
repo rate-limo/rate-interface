@@ -200,8 +200,9 @@ export function ThesisChart({
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
   const [bars, setBars] = useState<Bar[]>([]);
+  // Written beside every setBars, never during render: handlers and the
+  // leave-time history save read it before a re-render would have synced it.
   const barsRef = useRef<Bar[]>([]);
-  barsRef.current = bars;
   const [loading, setLoading] = useState(true);
   const [placed, setPlaced] = useState<Placed[]>([]);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -247,6 +248,7 @@ export function ThesisChart({
     setLoading(true);
     const api = getApiUrl(networkName);
     if (!api || !symbol) {
+      barsRef.current = [];
       setBars([]);
       setLoading(false);
       return;
@@ -277,12 +279,14 @@ export function ThesisChart({
       .then((next) => {
         if (gen !== generation.current) return;
         view.current = { kind: "fit" };
-        setBars(next ?? []);
+        barsRef.current = next ?? [];
+        setBars(barsRef.current);
         setLoading(false);
       })
       .catch(() => {
         if (gen !== generation.current) return;
         view.current = { kind: "fit" };
+        barsRef.current = [];
         setBars([]);
         setLoading(false);
       });

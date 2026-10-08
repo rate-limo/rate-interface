@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { getSocketManager } from "@/lib/realtime/socket-manager";
 import { getWsUrl } from "@/lib/realtime/ws-url";
 import { streamToEvent, type SpotLaunchEvent } from "@/types";
@@ -49,7 +49,9 @@ export function useLaunchAnnouncements(
   // Kept in a ref so an inline arrow from the caller cannot tear the
   // subscription down and rebuild it on every render.
   const announced = useRef(onAnnounced);
-  announced.current = onAnnounced;
+  useLayoutEffect(() => {
+    announced.current = onAnnounced;
+  });
 
   useEffect(() => {
     const url = getWsUrl(networkName);

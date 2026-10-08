@@ -34,7 +34,7 @@ import { appOrigins, walletFrameHost, walletOrigin } from "./lib/wallet/frame/or
  * and the request 404s because i18n claimed the path first. Worth re-running the
  * comparison when adding any passthrough — every `source:` in next.config.ts's
  * rewrites needs a token here. `/waitlist` is still unlisted and was left alone: it
- * moved to waitlist.iter.cx and whether its entries want excluding depends on
+ * moved to waitlist.rate.limo and whether its entries want excluding depends on
  * redirect-vs-rewrite semantics nobody has confirmed.
  *
  *                    NOTE this prefix is riskier than its neighbours. `/referral`

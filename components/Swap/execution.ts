@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   BandPoolFactoryABI,
   BandPositionManagerABI,
@@ -886,7 +886,9 @@ export const useRealSwapExecution: SwapExecutionHook = (config) => {
 
   // Kept in step with the callback above; `confirm` reaches the placement
   // through this when nothing filled and there is no swap to send first.
-  placeRemainderRef.current = placeRemainder;
+  useLayoutEffect(() => {
+    placeRemainderRef.current = placeRemainder;
+  });
 
   const skipRemainder = useCallback(
     () => setState((current) => ({ ...current, step: "result" })),

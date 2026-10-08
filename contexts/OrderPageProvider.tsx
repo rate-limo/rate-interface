@@ -1,6 +1,6 @@
 "use client";
 import { chainKeyForUrl, noteFrameWatermark } from "@/lib/realtime/watermark";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Row } from "@tanstack/react-table";
 import { PonderWssLinks } from "@/consts";
 import { SpotOrder, SpotOrderEvent, SpotOrderHistoryEvent, SpotToken, SpotTradeEvent, type SpotOrderCloseSummaryEvent, expandOrderCloseSummary, streamToEvent } from "@/types";
@@ -89,9 +89,11 @@ export const OrderPageProvider = ({
   const openedForRef = useRef<string | undefined>(undefined);
   const queryClient = useQueryClient();
   const queryClientRef = useRef(queryClient);
-  queryClientRef.current = queryClient;
-  addressRef.current = address;
-  networkRef.current = displayNetworkName;
+  useLayoutEffect(() => {
+    queryClientRef.current = queryClient;
+    addressRef.current = address;
+    networkRef.current = displayNetworkName;
+  });
 
   // Fans one batch of account-stream events out to the eventBus. Kept in a ref so
   // the buffer survives re-renders -- a per-render instance would drop whatever
@@ -375,6 +377,9 @@ export const OrderPageProvider = ({
     </>
   );
 };
+
+/** The order context, or null when no OrderPageProvider is mounted above. */
+export const useOptionalOrderPageContext = () => useContext(OrderContext);
 
 export const useOrderPageContext = () => {
   const context = useContext(OrderContext);

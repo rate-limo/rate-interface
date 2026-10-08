@@ -27,7 +27,7 @@ const summary = (over: Partial<RewardSummary> = {}): RewardSummary => ({
 
 const referrals = (over: Partial<ReferralSummary> = {}): ReferralSummary => ({
   code: "919D24",
-  link: "https://iter.cx/r/919D24",
+  link: "https://rate.limo/r/919D24",
   referred: 0,
   active: 0,
   earnedPts: 0,

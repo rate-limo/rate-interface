@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   GroupedOrderbookResult,
   SpotOrderBlockEvent,
@@ -40,8 +40,10 @@ export const useOrderbook = (
 
   const baseRef = useRef(base);
   const quoteRef = useRef(quote);
-  baseRef.current = base;
-  quoteRef.current = quote;
+  useLayoutEffect(() => {
+    baseRef.current = base;
+    quoteRef.current = quote;
+  });
 
   useEffect(() => {
     let disposed = false;

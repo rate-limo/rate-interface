@@ -20,15 +20,15 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 /**
  * The shared session cookie.
  *
- * Set on `Domain=.iter.cx` by the identity service, so every origin under
- * `iter.cx` — the apex and `waitlist.iter.cx` — sees the same sign-in. That is
+ * Set on `Domain=.rate.limo` by the identity service, so every origin under
+ * `rate.limo` — the apex and `waitlist.rate.limo` — sees the same sign-in. That is
  * what makes one X handshake serve all of them, and it is also this cookie's
  * one constraint: a frontend on some other registrable domain cannot read it.
  */
 export const SESSION_COOKIE = "iter.sid";
 
 /**
- * The waitlist's own pre-split cookie, host-scoped to `waitlist.iter.cx`.
+ * The waitlist's own pre-split cookie, host-scoped to `waitlist.rate.limo`.
  *
  * Still verified — NOT still issued. Everyone signed in at the cutover holds one
  * of these, and rejecting them would sign out every existing signup to ship a

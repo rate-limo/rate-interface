@@ -358,10 +358,12 @@ export const useOrders = (
       if (updated) {
         setUpdated(false);
       }
-      return queryClient.getQueryData(queryKey) as SpotOrderEvent[];
+      return queryClient.getQueryData(["orders", networkName, address, pageLimit, page]) as SpotOrderEvent[];
     }
     return prevOrders;
-  }, [queryData, prevOrders, updated, queryClient, queryKey]);
+    // The key's parts, not `queryKey`: that array is rebuilt every render, so
+    // depending on it recomputed this on every render.
+  }, [queryData, prevOrders, updated, queryClient, networkName, address, pageLimit, page]);
 
   // console.log(queryKey, memoizedOrders, "queryKey");
 

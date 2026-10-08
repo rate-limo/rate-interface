@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -591,7 +592,9 @@ export const MarketPageProvider = ({
   // Keep a ref to the latest handler so the effect below can register once
   // (on mount) and deregister on unmount without going stale.
   const handleNetworkChangeRef = useRef(handleNetworkChange);
-  handleNetworkChangeRef.current = handleNetworkChange;
+  useLayoutEffect(() => {
+    handleNetworkChangeRef.current = handleNetworkChange;
+  });
 
   const alignedForRef = useRef<string | undefined>(undefined);
   // wagmi's `chain` (from useAccount above) is already reactive to wallet

@@ -25,7 +25,7 @@
  * happens exactly where it did, and the bytes leave this origin one
  * `postMessage` later.
  *
- * Read that trade honestly: script on iter.cx that is present at the moment
+ * Read that trade honestly: script on rate.limo that is present at the moment
  * of the tap can hook `navigator.credentials.get` and read the PRF output.
  * Script present at any OTHER moment — which is every moment for the 24 hours
  * a session lasts — gets nothing, where before it got the key from storage.
@@ -52,7 +52,7 @@
  * ## Passkeys are origin-bound, and that is visible in the address
  *
  * WebAuthn scopes a credential to an rpId — this origin's hostname. `localhost`
- * and `iter.cx` are different origins, so the same human gets DIFFERENT
+ * and `rate.limo` are different origins, so the same human gets DIFFERENT
  * accounts on each. The wallet frame's origin plays no part in this: the
  * ceremony is here, so the rpId is the app's.
  *
